@@ -362,9 +362,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 if (payment <= 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text(
-                        'সঠিক পরিমাণ টাকা লিখুন',
-                      ),
+                      content: Text('সঠিক পরিমাণ টাকা লিখুন'),
                     ),
                   );
                   return;
@@ -485,7 +483,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
         child: Column(
           children: [
             const SizedBox(height: 12),
-
             const Text(
               'Digital 24 Online',
               style: TextStyle(
@@ -493,14 +490,11 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 4),
-
             const Text(
               'Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100',
               textAlign: TextAlign.center,
             ),
-
             const SizedBox(height: 12),
 
             SingleChildScrollView(
@@ -508,37 +502,29 @@ class _BillingHomePageState extends State<BillingHomePage> {
               child: Row(
                 children: [
                   const SizedBox(width: 8),
-
                   ChoiceChip(
                     label: const Text('সকল'),
                     selected: selectedBillDate == 0,
                     onSelected: (_) => showAllUsers(),
                   ),
-
                   const SizedBox(width: 8),
-
                   ChoiceChip(
                     label: const Text('৭ তারিখ'),
                     selected: selectedBillDate == 7,
                     onSelected: (_) => selectBillDate(7),
                   ),
-
                   const SizedBox(width: 8),
-
                   ChoiceChip(
                     label: const Text('১৪ তারিখ'),
                     selected: selectedBillDate == 14,
                     onSelected: (_) => selectBillDate(14),
                   ),
-
                   const SizedBox(width: 8),
-
                   ChoiceChip(
                     label: const Text('২১ তারিখ'),
                     selected: selectedBillDate == 21,
                     onSelected: (_) => selectBillDate(21),
                   ),
-
                   const SizedBox(width: 8),
                 ],
               ),
@@ -613,34 +599,36 @@ class _BillingHomePageState extends State<BillingHomePage> {
                                 horizontal: 8,
                                 vertical: 5,
                               ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 6,
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  child: Text('${index + 1}'),
                                 ),
-                                child: ListTile(
-                                  leading: CircleAvatar(
-                                    child: Text('${index + 1}'),
+                                title: Text(
+                                  '${customer.userId} - '
+                                  '${customer.name}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                  title: Text(
-                                    '${customer.userId} - '
-                                    '${customer.name}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    'মোবাইল: ${customer.mobile}\n'
-                                    'প্যাকেজ: ${customer.packageName}\n'
-                                    'বিল ডেট: ${customer.billDate} তারিখ\n'
-                                    'বিল: '
-                                    '${customer.bill.toStringAsFixed(0)} টাকা\n'
-                                    'পরিশোধ: '
-                                    '${customer.paid.toStringAsFixed(0)} টাকা\n'
-                                    'বকেয়া: '
-                                    '${customer.due.toStringAsFixed(0)} টাকা',
-                                  ),
-                                  isThreeLine: true,
-                                  trailing: Column(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.center,
-                       
+                                ),
+                                subtitle: Text(
+                                  'মোবাইল: ${customer.mobile}\n'
+                                  'প্যাকেজ: ${customer.packageName}\n'
+                                  'বিল ডেট: ${customer.billDate} তারিখ\n'
+                                  'বিল: '
+                                  '${customer.bill.toStringAsFixed(0)} টাকা\n'
+                                  'পরিশোধ: '
+                                  '${customer.paid.toStringAsFixed(0)} টাকা\n'
+                                  'বকেয়া: '
+                                  '${customer.due.toStringAsFixed(0)} টাকা',
+                                ),
+                                isThreeLine: true,
+                                trailing: SizedBox(
+                                  width: 55,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints:
+                                            const BoxConstraints(),
+ 
