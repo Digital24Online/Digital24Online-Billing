@@ -21,7 +21,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -48,6 +48,16 @@ class DatabaseHelper {
         active INTEGER DEFAULT 1
       )
     ''');
+
+    await db.execute('''
+      CREATE INDEX idx_customers_user_id
+      ON customers(user_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_customers_bill_date
+      ON customers(bill_date)
+    ''');
   }
 
   Future<void> _onUpgrade(
@@ -55,28 +65,60 @@ class DatabaseHelper {
     int oldVersion,
     int newVersion,
   ) async {
-    if (oldVersion < 2) {
-      await db.execute(
-        'ALTER TABLE customers ADD COLUMN bill_date_new INTEGER DEFAULT 7',
+    // Version 2 থেকে 3-এ যাওয়ার সময়
+    // পুরোনো ডেটা নষ্ট না করে প্রয়োজনীয় পরিবর্তন করা হবে।
+
+    if (oldVersion < 3) {
+      // bill_date কলাম না থাকলে তৈরি করা হবে।
+      final columns = await db.rawQuery(
+        'PRAGMA table_info(customers)',
       );
 
+      final hasBillDate = columns.any(
+        (column) => column['name'] == 'bill_date',
+      );
+
+      if (!hasBillDate) {
+        await db.execute(
+          'ALTER TABLE customers ADD COLUMN bill_date INTEGER DEFAULT 7',
+        );
+      }
+
+      // পুরোনো bill_date_new থাকলে সেটার তথ্য
+      // আসল bill_date-এ নেওয়া হবে।
+      final hasBillDateNew = columns.any(
+        (column) => column['name'] == 'bill_date_new',
+      );
+
+      if (hasBillDateNew) {
+        await db.execute('''
+          UPDATE customers
+          SET bill_date =
+            CASE
+              WHEN bill_date_new = 14 THEN 14
+              WHEN bill_date_new = 21 THEN 21
+              ELSE 7
+            END
+        ''');
+      }
+
+      // যেসব ইউজারের due_amount ঠিকভাবে নেই,
+      // তাদের bill - paid অনুযায়ী হিসাব করা হবে।
       await db.execute('''
         UPDATE customers
-        SET bill_date_new =
-          CASE
-            WHEN bill_date LIKE '%14%' THEN 14
-            WHEN bill_date LIKE '%21%' THEN 21
-            ELSE 7
-          END
+        SET due_amount =
+          COALESCE(amount, 0) - COALESCE(paid_amount, 0)
       ''');
 
-      await db.execute(
-        'ALTER TABLE customers ADD COLUMN bill_date_temp INTEGER DEFAULT 7',
-      );
+      // দ্রুত খোঁজার জন্য index
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_customers_user_id
+        ON customers(user_id)
+      ''');
 
       await db.execute('''
-        UPDATE customers
-        SET bill_date_temp = bill_date_new
+        CREATE INDEX IF NOT EXISTS idx_customers_bill_date
+        ON customers(bill_date)
       ''');
     }
   }
@@ -89,7 +131,6 @@ class DatabaseHelper {
     return await db.insert(
       'customers',
       customer,
-      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
@@ -98,7 +139,7 @@ class DatabaseHelper {
 
     return await db.query(
       'customers',
-      orderBy: 'serial_no ASC',
+      orderBy: 'id ASC',
     );
   }
 
@@ -111,7 +152,7 @@ class DatabaseHelper {
       'customers',
       where: 'bill_date = ?',
       whereArgs: [billDate],
-      orderBy: 'serial_no ASC',
+      orderBy: 'id ASC',
     );
   }
 
@@ -133,10 +174,14 @@ class DatabaseHelper {
     final row = result.first;
 
     return {
-      'user_count': (row['user_count'] as num?)?.toDouble() ?? 0,
-      'total_bill': (row['total_bill'] as num?)?.toDouble() ?? 0,
-      'total_paid': (row['total_paid'] as num?)?.toDouble() ?? 0,
-      'total_due': (row['total_due'] as num?)?.toDouble() ?? 0,
+      'user_count':
+          (row['user_count'] as num?)?.toDouble() ?? 0,
+      'total_bill':
+          (row['total_bill'] as num?)?.toDouble() ?? 0,
+      'total_paid':
+          (row['total_paid'] as num?)?.toDouble() ?? 0,
+      'total_due':
+          (row['total_due'] as num?)?.toDouble() ?? 0,
     };
   }
 
@@ -200,8 +245,9 @@ class DatabaseHelper {
   }
 
   Future<void> close() async {
-    final db = await database;
-    await db.close();
-    _database = null;
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
   }
 }
