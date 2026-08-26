@@ -21,7 +21,7 @@ jobs:
         run: |
           flutter create \
             --platforms=android \
-            --project-name=digital24onlinebilling \
+            --project-name=digital24online \
             --org=com.digital24online \
             build_app
 
@@ -31,28 +31,31 @@ jobs:
           cp -R lib build_app/lib
           cp pubspec.yaml build_app/pubspec.yaml
 
+      - name: Set app name
+        working-directory: build_app
+        run: |
+          sed -i "s/android:label=\"digital24online\"/android:label=\"Digital 24 Online\"/" android/app/src/main/AndroidManifest.xml
+
       - name: Get dependencies
         working-directory: build_app
         run: flutter pub get
 
-      - name: Create permanent signing key
+      - name: Create signing key
         run: |
           mkdir -p build_app/android/keystore
 
-          if [ ! -f build_app/android/keystore/digital24.jks ]; then
-            keytool -genkeypair \
-              -v \
-              -keystore build_app/android/keystore/digital24.jks \
-              -storepass digital24online123 \
-              -keypass digital24online123 \
-              -alias digital24 \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Digital24Online, OU=Billing, O=Digital24Online, L=Rajshahi, ST=Rajshahi, C=BD"
-          fi
+          keytool -genkeypair \
+            -v \
+            -keystore build_app/android/keystore/digital24.jks \
+            -storepass digital24online123 \
+            -keypass digital24online123 \
+            -alias digital24 \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Digital24Online, OU=Billing, O=Digital24Online, L=Rajshahi, ST=Rajshahi, C=BD"
 
-      - name: Configure Android signing
+      - name: Configure signing
         working-directory: build_app
         run: |
           python3 - <<'PY'
