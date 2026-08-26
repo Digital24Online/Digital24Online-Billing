@@ -842,6 +842,28 @@ class _BillingHomePageState extends State<BillingHomePage> {
             fontWeight: FontWeight.bold,
           ),
         ),
+        actions: [
+  PopupMenuButton<String>(
+    onSelected: (value) async {
+      if (value == 'backup') {
+        await db.backupDatabase();
+      } else if (value == 'restore') {
+        await db.restoreDatabase();
+        await loadCustomers();
+      }
+    },
+    itemBuilder: (context) => const [
+      PopupMenuItem(
+        value: 'backup',
+        child: Text('Database Backup'),
+      ),
+      PopupMenuItem(
+        value: 'restore',
+        child: Text('Database Restore'),
+      ),
+    ],
+  ),
+],
         centerTitle: true,
       ),
       floatingActionButton: FloatingActionButton.extended(
