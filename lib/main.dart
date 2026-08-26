@@ -702,7 +702,10 @@ class _BillingHomePageState extends State<BillingHomePage> {
   Widget customerCard(
     Customer customer,
     int index,
-    ) {
+      Widget customerCard(
+    Customer customer,
+    int index,
+  ) {
     return Card(
       margin: const EdgeInsets.symmetric(
         horizontal: 8,
@@ -721,7 +724,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   ),
                 ),
                 const SizedBox(width: 10),
-
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -746,8 +748,92 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     ],
                   ),
                 ),
+                Column(
+                  children: [
+                    IconButton(
+                      onPressed: () {
+                        toggleCustomer(index);
+                      },
+                      icon: Icon(
+                        customer.active
+                            ? Icons.check_circle
+                            : Icons.cancel,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        deleteCustomer(index);
+                      },
+                      icon: const Icon(Icons.delete),
+                    ),
+                  ],
+                ),
+              ],
+            ),
 
-                          ],
+            const Divider(),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Column(
+                  children: [
+                    const Text('বিল'),
+                    Text(
+                      '${customer.bill.toStringAsFixed(0)} ৳',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                Column(
+                  children: [
+                    const Text('পরিশোধ'),
+                    Text(
+                      '${customer.paid.toStringAsFixed(0)} ৳',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                Column(
+                  children: [
+                    const Text('বকেয়া'),
+                    Text(
+                      '${customer.due.toStringAsFixed(0)} ৳',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: customer.due > 0
+                            ? Colors.red
+                            : Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: customer.due > 0
+                    ? () {
+                        takePayment(index);
+                      }
+                    : null,
+                icon: const Icon(Icons.payments),
+                label: Text(
+                  customer.due > 0
+                      ? 'পেমেন্ট গ্রহণ'
+                      : 'সম্পূর্ণ পরিশোধ',
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -764,20 +850,12 @@ class _BillingHomePageState extends State<BillingHomePage> {
           ),
         ),
         centerTitle: true,
-        actions: [
-          IconButton(
-            onPressed: loadCustomers,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
-
       floatingActionButton: FloatingActionButton.extended(
         onPressed: addCustomer,
         icon: const Icon(Icons.person_add),
         label: const Text('ইউজার যোগ'),
       ),
-
       body: SafeArea(
         child: Column(
           children: [
@@ -793,10 +871,13 @@ class _BillingHomePageState extends State<BillingHomePage> {
 
             const SizedBox(height: 4),
 
-            const Text(
-              'Seroil Colony, 4 No. Road, Ghoramara, '
-              'Chandrima Rajshahi-6100',
-              textAlign: TextAlign.center,
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                'Seroil Colony, 4 No. Road, Ghoramara, '
+                'Chandrima Rajshahi-6100',
+                textAlign: TextAlign.center,
+              ),
             ),
 
             const SizedBox(height: 12),
@@ -844,46 +925,11 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       selectBillDate(21);
                     },
                   ),
-
-                  const SizedBox(width: 8),
                 ],
               ),
             ),
 
             const SizedBox(height: 12),
-
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  summaryCard(
-                    'ইউজার',
-                    customers.length.toString(),
-                    Icons.people,
-                  ),
-
-                  summaryCard(
-                    'মোট বিল',
-                    '${totalBill.toStringAsFixed(0)} ৳',
-                    Icons.receipt_long,
-                  ),
-
-                  summaryCard(
-                    'পরিশোধ',
-                    '${totalPaid.toStringAsFixed(0)} ৳',
-                    Icons.payments,
-                  ),
-
-                  summaryCard(
-                    'বকেয়া',
-                    '${totalDue.toStringAsFixed(0)} ৳',
-                    Icons.money_off,
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 8),
 
             Text(
               reportTitle,
@@ -893,7 +939,35 @@ class _BillingHomePageState extends State<BillingHomePage> {
               ),
             ),
 
-            const SizedBox(height: 5),
+            const SizedBox(height: 8),
+
+            SizedBox(
+              height: 100,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    summaryCard(
+                      'মোট বিল',
+                      '${totalBill.toStringAsFixed(0)} ৳',
+                      Icons.receipt_long,
+                    ),
+                    summaryCard(
+                      'পরিশোধ',
+                      '${totalPaid.toStringAsFixed(0)} ৳',
+                      Icons.payments,
+                    ),
+                    summaryCard(
+                      'বকেয়া',
+                      '${totalDue.toStringAsFixed(0)} ৳',
+                      Icons.money_off,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
 
             Expanded(
               child: loading
@@ -907,9 +981,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
                           ),
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.only(
-                            bottom: 90,
-                          ),
                           itemCount: customers.length,
                           itemBuilder: (context, index) {
                             return customerCard(
@@ -924,4 +995,4 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-            }
+    }
