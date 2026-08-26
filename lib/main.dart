@@ -77,45 +77,56 @@ class _BillingHomePageState extends State<BillingHomePage> {
     showDialog(
       context: context,
       builder: (context) {
+        final isDesktop = MediaQuery.of(context).size.width >= 700;
+
         return AlertDialog(
           title: const Text('নতুন ইউজার যোগ করুন'),
-          content: SingleChildScrollView(
-            child: Column(
-              children: [
-                TextField(
-                  controller: userId,
-                  decoration:
-                      const InputDecoration(labelText: 'ইউজার আইডি নাম্বার'),
-                ),
-                TextField(
-                  controller: name,
-                  decoration:
-                      const InputDecoration(labelText: 'ইউজার আইডি ও নাম'),
-                ),
-                TextField(
-                  controller: mobile,
-                  keyboardType: TextInputType.phone,
-                  decoration:
-                      const InputDecoration(labelText: 'মোবাইল নাম্বার'),
-                ),
-                TextField(
-                  controller: packageName,
-                  decoration:
-                      const InputDecoration(labelText: 'প্যাকেজ'),
-                ),
-                TextField(
-                  controller: bill,
-                  keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: 'টাকা'),
-                ),
-                TextField(
-                  controller: paid,
-                  keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: 'পরিশোধ'),
-                ),
-              ],
+          content: SizedBox(
+            width: isDesktop ? 500 : double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  TextField(
+                    controller: userId,
+                    decoration: const InputDecoration(
+                      labelText: 'ইউজার আইডি নাম্বার',
+                    ),
+                  ),
+                  TextField(
+                    controller: name,
+                    decoration: const InputDecoration(
+                      labelText: 'ইউজার আইডি ও নাম',
+                    ),
+                  ),
+                  TextField(
+                    controller: mobile,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'মোবাইল নাম্বার',
+                    ),
+                  ),
+                  TextField(
+                    controller: packageName,
+                    decoration: const InputDecoration(
+                      labelText: 'প্যাকেজ',
+                    ),
+                  ),
+                  TextField(
+                    controller: bill,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'বিলের টাকা',
+                    ),
+                  ),
+                  TextField(
+                    controller: paid,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'পরিশোধ',
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -130,6 +141,14 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   return;
                 }
 
+                final today = DateTime.now()
+                    .toLocal()
+                    .toString()
+                    .split(' ')
+                    .first;
+
+                final paidAmount = double.tryParse(paid.text) ?? 0;
+
                 setState(() {
                   customers.add(
                     Customer(
@@ -138,20 +157,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       mobile: mobile.text.trim(),
                       packageName: packageName.text.trim(),
                       bill: double.tryParse(bill.text) ?? 0,
-                      paid: double.tryParse(paid.text) ?? 0,
-                      billDate: DateTime.now()
-                          .toLocal()
-                          .toString()
-                          .split(' ')
-                          .first,
-                      paymentDate: double.tryParse(paid.text) != null &&
-                              (double.tryParse(paid.text) ?? 0) > 0
-                          ? DateTime.now()
-                              .toLocal()
-                              .toString()
-                              .split(' ')
-                              .first
-                          : '',
+                      paid: paidAmount,
+                      billDate: today,
+                      paymentDate: paidAmount > 0 ? today : '',
                     ),
                   );
                 });
@@ -174,6 +182,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isDesktop = width >= 900;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -187,124 +198,251 @@ class _BillingHomePageState extends State<BillingHomePage> {
         icon: const Icon(Icons.person_add),
         label: const Text('ইউজার যোগ'),
       ),
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            child: const Column(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: isDesktop ? 1400 : double.infinity,
+          ),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 24 : 8,
+            ),
+            child: Column(
               children: [
-                Text(
+                const SizedBox(height: 16),
+
+                const Text(
                   'Digital 24 Online',
+                  textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: 28,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                SizedBox(height: 4),
-                Text(
+
+                const SizedBox(height: 5),
+
+                const Text(
                   'Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13),
                 ),
-                SizedBox(height: 4),
-                Text(
+
+                const SizedBox(height: 5),
+
+                const Text(
                   'বিলিং নাম: Digital 24 Online Billing',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ],
-            ),
-          ),
 
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
-              children: [
-                _summaryCard('মোট বিল', totalBill),
-                _summaryCard('পরিশোধ', totalPaid),
-                _summaryCard('বকেয়া', totalDue),
-              ],
-            ),
-          ),
+                const SizedBox(height: 20),
 
-          const SizedBox(height: 10),
-
-          Expanded(
-            child: customers.isEmpty
-                ? const Center(
-                    child: Text(
-                      'কোনো ইউজার নেই\n\nনিচের “ইউজার যোগ” বাটনে চাপুন',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 90),
-                    itemCount: customers.length,
-                    itemBuilder: (context, index) {
-                      final customer = customers[index];
-
-                      return Card(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 5,
-                        ),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            child: Text('${index + 1}'),
-                          ),
-                          title: Text(
-                            '${customer.userId} - ${customer.name}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
+                isDesktop
+                    ? Row(
+                        children: [
+                          Expanded(
+                            child: _summaryCard(
+                              'মোট বিল',
+                              totalBill,
+                              Icons.receipt_long,
                             ),
                           ),
-                          subtitle: Text(
-                            'মোবাইল: ${customer.mobile}\n'
-                            'প্যাকেজ: ${customer.packageName}\n'
-                            'বিল: ${customer.bill.toStringAsFixed(0)} টাকা | '
-                            'পরিশোধ: ${customer.paid.toStringAsFixed(0)} টাকা | '
-                            'বকেয়া: ${customer.due.toStringAsFixed(0)} টাকা',
+                          Expanded(
+                            child: _summaryCard(
+                              'পরিশোধ',
+                              totalPaid,
+                              Icons.payments,
+                            ),
                           ),
-                          isThreeLine: true,
-                          trailing: Switch(
-                            value: customer.active,
-                            onChanged: (_) => toggleCustomer(index),
+                          Expanded(
+                            child: _summaryCard(
+                              'বকেয়া',
+                              totalDue,
+                              Icons.pending_actions,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          Expanded(
+                            child: _summaryCard(
+                              'মোট বিল',
+                              totalBill,
+                              Icons.receipt_long,
+                            ),
+                          ),
+                          Expanded(
+                            child: _summaryCard(
+                              'পরিশোধ',
+                              totalPaid,
+                              Icons.payments,
+                            ),
+                          ),
+                          Expanded(
+                            child: _summaryCard(
+                              'বকেয়া',
+                              totalDue,
+                              Icons.pending_actions,
+                            ),
+                          ),
+                        ],
+                      ),
+
+                const SizedBox(height: 12),
+
+                Expanded(
+                  child: customers.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'কোনো ইউজার নেই\n\nনিচের “ইউজার যোগ” বাটনে চাপুন',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        )
+                      : isDesktop
+                          ? _desktopCustomerTable()
+                          : _mobileCustomerList(),
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _summaryCard(String title, double amount) {
-    return Expanded(
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            vertical: 12,
+  Widget _mobileCustomerList() {
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 90),
+      itemCount: customers.length,
+      itemBuilder: (context, index) {
+        final customer = customers[index];
+
+        return Card(
+          margin: const EdgeInsets.symmetric(
             horizontal: 4,
+            vertical: 5,
           ),
-          child: Column(
-            children: [
-              Text(
-                title,
-                style: const TextStyle(fontSize: 12),
+          child: ListTile(
+            leading: CircleAvatar(
+              child: Text('${index + 1}'),
+            ),
+            title: Text(
+              '${customer.userId} - ${customer.name}',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(height: 4),
-              Text(
-                '${amount.toStringAsFixed(0)} ৳',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
+            ),
+            subtitle: Text(
+              'মোবাইল: ${customer.mobile}\n'
+              'প্যাকেজ: ${customer.packageName}\n'
+              'বিল: ${customer.bill.toStringAsFixed(0)} টাকা | '
+              'পরিশোধ: ${customer.paid.toStringAsFixed(0)} টাকা | '
+              'বকেয়া: ${customer.due.toStringAsFixed(0)} টাকা',
+            ),
+            isThreeLine: true,
+            trailing: Switch(
+              value: customer.active,
+              onChanged: (_) => toggleCustomer(index),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _desktopCustomerTable() {
+    return Card(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('ক্রমিক')),
+              DataColumn(label: Text('ইউজার আইডি')),
+              DataColumn(label: Text('নাম')),
+              DataColumn(label: Text('মোবাইল')),
+              DataColumn(label: Text('প্যাকেজ')),
+              DataColumn(label: Text('বিল')),
+              DataColumn(label: Text('পরিশোধ')),
+              DataColumn(label: Text('বকেয়া')),
+              DataColumn(label: Text('স্ট্যাটাস')),
             ],
+            rows: customers.asMap().entries.map((entry) {
+              final index = entry.key;
+              final customer = entry.value;
+
+              return DataRow(
+                cells: [
+                  DataCell(Text('${index + 1}')),
+                  DataCell(Text(customer.userId)),
+                  DataCell(Text(customer.name)),
+                  DataCell(Text(customer.mobile)),
+                  DataCell(Text(customer.packageName)),
+                  DataCell(
+                    Text(
+                      '${customer.bill.toStringAsFixed(0)} ৳',
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      '${customer.paid.toStringAsFixed(0)} ৳',
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      '${customer.due.toStringAsFixed(0)} ৳',
+                    ),
+                  ),
+                  DataCell(
+                    Switch(
+                      value: customer.active,
+                      onChanged: (_) => toggleCustomer(index),
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _summaryCard(
+    String title,
+    double amount,
+    IconData icon,
+  ) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          vertical: 16,
+          horizontal: 8,
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 26),
+            const SizedBox(height: 5),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              '${amount.toStringAsFixed(0)} ৳',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+            ),
+          ],
         ),
       ),
     );
