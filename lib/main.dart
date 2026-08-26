@@ -63,7 +63,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
   final List<Customer> customers = [];
 
   int selectedBillDate = 0;
-
   bool loading = true;
 
   double get totalBill =>
@@ -74,8 +73,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
 
   double get totalDue =>
       customers.fold(0, (sum, customer) => sum + customer.due);
-
-  int get totalUsers => customers.length;
 
   @override
   void initState() {
@@ -92,7 +89,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
         ? await db.getCustomers()
         : await db.getCustomersByBillDate(selectedBillDate);
 
-    final loadedCustomers = data.map((item) {
+    final list = data.map((item) {
       final bill = (item['amount'] as num?)?.toDouble() ?? 0;
       final paid = (item['paid_amount'] as num?)?.toDouble() ?? 0;
 
@@ -102,7 +99,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
         name: item['name']?.toString() ?? '',
         mobile: item['mobile']?.toString() ?? '',
         packageName: item['package_name']?.toString() ?? '',
-        billDate: int.tryParse(item['bill_date']?.toString() ?? '') ?? 7,
+        billDate:
+            int.tryParse(item['bill_date']?.toString() ?? '') ?? 7,
         bill: bill,
         paid: paid,
         paymentDate: item['payment_date']?.toString() ?? '',
@@ -115,7 +113,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
     setState(() {
       customers
         ..clear()
-        ..addAll(loadedCustomers);
+        ..addAll(list);
       loading = false;
     });
   }
@@ -133,93 +131,88 @@ class _BillingHomePageState extends State<BillingHomePage> {
     await showDialog(
       context: context,
       builder: (dialogContext) {
-        final isDesktop =
-            MediaQuery.of(dialogContext).size.width >= 700;
-
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
               title: const Text('নতুন ইউজার যোগ করুন'),
-              content: SizedBox(
-                width: isDesktop ? 500 : double.maxFinite,
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: userId,
-                        decoration: const InputDecoration(
-                          labelText: 'ইউজার আইডি নাম্বার',
-                        ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: userId,
+                      decoration: const InputDecoration(
+                        labelText: 'ইউজার আইডি নাম্বার',
                       ),
-                      TextField(
-                        controller: name,
-                        decoration: const InputDecoration(
-                          labelText: 'ইউজার আইডি ও নাম',
-                        ),
+                    ),
+                    TextField(
+                      controller: name,
+                      decoration: const InputDecoration(
+                        labelText: 'ইউজার আইডি ও নাম',
                       ),
-                      TextField(
-                        controller: mobile,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                          labelText: 'মোবাইল নাম্বার',
-                        ),
+                    ),
+                    TextField(
+                      controller: mobile,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'মোবাইল নাম্বার',
                       ),
-                      TextField(
-                        controller: packageName,
-                        decoration: const InputDecoration(
-                          labelText: 'প্যাকেজ',
-                        ),
+                    ),
+                    TextField(
+                      controller: packageName,
+                      decoration: const InputDecoration(
+                        labelText: 'প্যাকেজ',
                       ),
-                      const SizedBox(height: 12),
+                    ),
+                    const SizedBox(height: 12),
 
-                      DropdownButtonFormField<int>(
-                        value: selectedDate,
-                        decoration: const InputDecoration(
-                          labelText: 'বিল ডেট',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 7,
-                            child: Text('৭ তারিখ'),
-                          ),
-                          DropdownMenuItem(
-                            value: 14,
-                            child: Text('১৪ তারিখ'),
-                          ),
-                          DropdownMenuItem(
-                            value: 21,
-                            child: Text('২১ তারিখ'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setDialogState(() {
-                              selectedDate = value;
-                            });
-                          }
-                        },
+                    DropdownButtonFormField<int>(
+                      value: selectedDate,
+                      decoration: const InputDecoration(
+                        labelText: 'বিল ডেট',
+                        border: OutlineInputBorder(),
                       ),
-
-                      const SizedBox(height: 12),
-
-                      TextField(
-                        controller: bill,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'বিলের টাকা',
+                      items: const [
+                        DropdownMenuItem(
+                          value: 7,
+                          child: Text('৭ তারিখ'),
                         ),
-                      ),
-
-                      TextField(
-                        controller: paid,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'পরিশোধ',
+                        DropdownMenuItem(
+                          value: 14,
+                          child: Text('১৪ তারিখ'),
                         ),
+                        DropdownMenuItem(
+                          value: 21,
+                          child: Text('২১ তারিখ'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() {
+                            selectedDate = value;
+                          });
+                        }
+                      },
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    TextField(
+                      controller: bill,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'বিলের টাকা',
                       ),
-                    ],
-                  ),
+                    ),
+
+                    TextField(
+                      controller: paid,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'পরিশোধ',
+                      ),
+                    ),
+                  ],
                 ),
               ),
               actions: [
@@ -248,7 +241,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         .split(' ')
                         .first;
 
-                    final customerData = {
+                    await db.addCustomer({
                       'user_id': userId.text.trim(),
                       'name': name.text.trim(),
                       'mobile': mobile.text.trim(),
@@ -262,9 +255,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       'due_amount':
                           billAmount - paidAmount,
                       'active': 1,
-                    };
-
-                    await db.addCustomer(customerData);
+                    });
 
                     if (!mounted) return;
 
@@ -322,18 +313,15 @@ class _BillingHomePageState extends State<BillingHomePage> {
     });
   }
 
-  String billDateTitle() {
-    if (selectedBillDate == 7) return '৭ তারিখের বিল ডেট';
-    if (selectedBillDate == 14) return '১৪ তারিখের বিল ডেট';
-    if (selectedBillDate == 21) return '২১ তারিখের বিল ডেট';
+  String get reportTitle {
+    if (selectedBillDate == 7) return '৭ তারিখের বিল';
+    if (selectedBillDate == 14) return '১৪ তারিখের বিল';
+    if (selectedBillDate == 21) return '২১ তারিখের বিল';
     return 'সকল ইউজার';
   }
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final isDesktop = width >= 900;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -342,210 +330,172 @@ class _BillingHomePageState extends State<BillingHomePage> {
         ),
         centerTitle: true,
       ),
-
       floatingActionButton: FloatingActionButton.extended(
         onPressed: addCustomer,
         icon: const Icon(Icons.person_add),
         label: const Text('ইউজার যোগ'),
       ),
-
-      body: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: isDesktop ? 1400 : double.infinity,
-          ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 24 : 8,
-            ),
-            child: Column(
-              children: [
-                const SizedBox(height: 16),
-
-                const Text(
-                  'Digital 24 Online',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-
-                const SizedBox(height: 5),
-
-                const Text(
-                  'Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100',
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 5),
-
-                const Text(
-                  'বিলিং নাম: Digital 24 Online Billing',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-
-                const SizedBox(height: 18),
-
-                _billDateButtons(),
-
-                const SizedBox(height: 10),
-
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      children: [
-                        Text(
-                          billDateTitle(),
-                          style: const TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-
-                        const SizedBox(height: 10),
-
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _reportCard(
-                                'ইউজার',
-                                '$totalUsers জন',
-                                Icons.people,
-                              ),
-                            ),
-                            Expanded(
-                              child: _reportCard(
-                                'বিল',
-                                '${totalBill.toStringAsFixed(0)} ৳',
-                                Icons.receipt_long,
-                              ),
-                            ),
-                            Expanded(
-                              child: _reportCard(
-                                'পরিশোধ',
-                                '${totalPaid.toStringAsFixed(0)} ৳',
-                                Icons.payments,
-                              ),
-                            ),
-                            Expanded(
-                              child: _reportCard(
-                                'বকেয়া',
-                                '${totalDue.toStringAsFixed(0)} ৳',
-                                Icons.pending_actions,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-
-                Expanded(
-                  child: loading
-                      ? const Center(
-                          child: CircularProgressIndicator(),
-                        )
-                      : customers.isEmpty
-                          ? Center(
-                              child: Text(
-                                selectedBillDate == 0
-                                    ? 'কোনো ইউজার নেই'
-                                    : '$selectedBillDate তারিখের কোনো ইউজার নেই',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                ),
-                              ),
-                            )
-                          : isDesktop
-                              ? _desktopCustomerTable()
-                              : _mobileCustomerList(),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _billDateButtons() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ChoiceChip(
-            label: const Text('সকল'),
-            selected: selectedBillDate == 0,
-            onSelected: (_) => showAllUsers(),
-          ),
-
-          const SizedBox(width: 8),
-
-          ChoiceChip(
-            label: const Text('৭ তারিখ'),
-            selected: selectedBillDate == 7,
-            onSelected: (_) => selectBillDate(7),
-          ),
-
-          const SizedBox(width: 8),
-
-          ChoiceChip(
-            label: const Text('১৪ তারিখ'),
-            selected: selectedBillDate == 14,
-            onSelected: (_) => selectBillDate(14),
-          ),
-
-          const SizedBox(width: 8),
-
-          ChoiceChip(
-            label: const Text('২১ তারিখ'),
-            selected: selectedBillDate == 21,
-            onSelected: (_) => selectBillDate(21),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _reportCard(
-    String title,
-    String value,
-    IconData icon,
-  ) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 3),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          vertical: 10,
-          horizontal: 4,
-        ),
+      body: SafeArea(
         child: Column(
           children: [
-            Icon(icon, size: 22),
-            const SizedBox(height: 3),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 12,
+            const SizedBox(height: 12),
+
+            const Text(
+              'Digital 24 Online',
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 3),
-            Text(
-              value,
+
+            const SizedBox(height: 4),
+
+            const Text(
+              'Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
+            ),
+
+            const SizedBox(height: 12),
+
+            // BILL DATE OPTIONS
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  const SizedBox(width: 8),
+
+                  ChoiceChip(
+                    label: const Text('সকল'),
+                    selected: selectedBillDate == 0,
+                    onSelected: (_) => showAllUsers(),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  ChoiceChip(
+                    label: const Text('৭ তারিখ'),
+                    selected: selectedBillDate == 7,
+                    onSelected: (_) => selectBillDate(7),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  ChoiceChip(
+                    label: const Text('১৪ তারিখ'),
+                    selected: selectedBillDate == 14,
+                    onSelected: (_) => selectBillDate(14),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  ChoiceChip(
+                    label: const Text('২১ তারিখ'),
+                    selected: selectedBillDate == 21,
+                    onSelected: (_) => selectBillDate(21),
+                  ),
+
+                  const SizedBox(width: 8),
+                ],
               ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              reportTitle,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // SUMMARY
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _summaryCard(
+                    'ইউজার',
+                    '${customers.length} জন',
+                    Icons.people,
+                  ),
+                  _summaryCard(
+                    'মোট বিল',
+                    '${totalBill.toStringAsFixed(0)} ৳',
+                    Icons.receipt_long,
+                  ),
+                  _summaryCard(
+                    'পরিশোধ',
+                    '${totalPaid.toStringAsFixed(0)} ৳',
+                    Icons.payments,
+                  ),
+                  _summaryCard(
+                    'বকেয়া',
+                    '${totalDue.toStringAsFixed(0)} ৳',
+                    Icons.pending_actions,
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Expanded(
+              child: loading
+                  ? const Center(
+                      child: CircularProgressIndicator(),
+                    )
+                  : customers.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'কোনো ইউজার নেই\n\nনিচের “ইউজার যোগ” বাটনে চাপুন',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.only(
+                            bottom: 90,
+                          ),
+                          itemCount: customers.length,
+                          itemBuilder: (context, index) {
+                            final customer = customers[index];
+
+                            return Card(
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 5,
+                              ),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  child: Text('${index + 1}'),
+                                ),
+                                title: Text(
+                                  '${customer.userId} - ${customer.name}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  'মোবাইল: ${customer.mobile}\n'
+                                  'প্যাকেজ: ${customer.packageName}\n'
+                                  'বিল ডেট: ${customer.billDate} তারিখ\n'
+                                  'বিল: ${customer.bill.toStringAsFixed(0)} টাকা\n'
+                                  'পরিশোধ: ${customer.paid.toStringAsFixed(0)} টাকা\n'
+                                  'বকেয়া: ${customer.due.toStringAsFixed(0)} টাকা',
+                                ),
+                                isThreeLine: true,
+                                trailing: Switch(
+                                  value: customer.active,
+                                  onChanged: (_) =>
+                                      toggleCustomer(index),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
             ),
           ],
         ),
@@ -553,107 +503,32 @@ class _BillingHomePageState extends State<BillingHomePage> {
     );
   }
 
-  Widget _mobileCustomerList() {
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 90),
-      itemCount: customers.length,
-      itemBuilder: (context, index) {
-        final customer = customers[index];
-
-        return Card(
-          margin: const EdgeInsets.symmetric(
-            horizontal: 4,
-            vertical: 5,
-          ),
-          child: ListTile(
-            leading: CircleAvatar(
-              child: Text('${index + 1}'),
-            ),
-
-            title: Text(
-              '${customer.userId} - ${customer.name}',
+  Widget _summaryCard(
+    String title,
+    String value,
+    IconData icon,
+  ) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          vertical: 12,
+          horizontal: 10,
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 24),
+            const SizedBox(height: 4),
+            Text(title),
+            const SizedBox(height: 4),
+            Text(
+              value,
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
+                fontSize: 16,
               ),
             ),
-
-            subtitle: Text(
-              'মোবাইল: ${customer.mobile}\n'
-              'প্যাকেজ: ${customer.packageName}\n'
-              'বিল ডেট: ${customer.billDate} তারিখ\n'
-              'বিল: ${customer.bill.toStringAsFixed(0)} টাকা | '
-              'পরিশোধ: ${customer.paid.toStringAsFixed(0)} টাকা | '
-              'বকেয়া: ${customer.due.toStringAsFixed(0)} টাকা',
-            ),
-
-            isThreeLine: true,
-
-            trailing: Switch(
-              value: customer.active,
-              onChanged: (_) => toggleCustomer(index),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _desktopCustomerTable() {
-    return Card(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SingleChildScrollView(
-          child: DataTable(
-            columns: const [
-              DataColumn(label: Text('ক্রমিক')),
-              DataColumn(label: Text('ইউজার আইডি')),
-              DataColumn(label: Text('নাম')),
-              DataColumn(label: Text('মোবাইল')),
-              DataColumn(label: Text('প্যাকেজ')),
-              DataColumn(label: Text('বিল ডেট')),
-              DataColumn(label: Text('বিল')),
-              DataColumn(label: Text('পরিশোধ')),
-              DataColumn(label: Text('বকেয়া')),
-              DataColumn(label: Text('স্ট্যাটাস')),
-            ],
-
-            rows: customers.asMap().entries.map((entry) {
-              final index = entry.key;
-              final customer = entry.value;
-
-              return DataRow(
-                cells: [
-                  DataCell(Text('${index + 1}')),
-                  DataCell(Text(customer.userId)),
-                  DataCell(Text(customer.name)),
-                  DataCell(Text(customer.mobile)),
-                  DataCell(Text(customer.packageName)),
-                  DataCell(Text('${customer.billDate} তারিখ')),
-                  DataCell(
-                    Text(
-                      '${customer.bill.toStringAsFixed(0)} ৳',
-                    ),
-                  ),
-                  DataCell(
-                    Text(
-                      '${customer.paid.toStringAsFixed(0)} ৳',
-                    ),
-                  ),
-                  DataCell(
-                    Text(
-                      '${customer.due.toStringAsFixed(0)} ৳',
-                    ),
-                  ),
-                  DataCell(
-                    Switch(
-                      value: customer.active,
-                      onChanged: (_) => toggleCustomer(index),
-                    ),
-                  ),
-                ],
-              );
-            }).toList(),
-          ),
+          ],
         ),
       ),
     );
