@@ -165,7 +165,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       ),
                     ),
                     const SizedBox(height: 12),
-
                     DropdownButtonFormField<int>(
                       value: selectedDate,
                       decoration: const InputDecoration(
@@ -194,9 +193,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         }
                       },
                     ),
-
                     const SizedBox(height: 12),
-
                     TextField(
                       controller: bill,
                       keyboardType: TextInputType.number,
@@ -204,12 +201,11 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         labelText: 'বিলের টাকা',
                       ),
                     ),
-
                     TextField(
                       controller: paid,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
-                        labelText: 'পরিশোধ',
+                        labelText: 'প্রাথমিক পরিশোধ',
                       ),
                     ),
                   ],
@@ -234,6 +230,17 @@ class _BillingHomePageState extends State<BillingHomePage> {
 
                     final paidAmount =
                         double.tryParse(paid.text) ?? 0;
+
+                    if (paidAmount > billAmount) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'পরিশোধের টাকা বিলের চেয়ে বেশি হতে পারবে না',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
 
                     final today = DateTime.now()
                         .toLocal()
@@ -278,6 +285,145 @@ class _BillingHomePageState extends State<BillingHomePage> {
     packageName.dispose();
     bill.dispose();
     paid.dispose();
+  }
+
+  Future<void> takePayment(int index) async {
+    final customer = customers[index];
+
+    if (customer.id == null) return;
+
+    if (customer.due <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('এই ইউজারের কোনো বকেয়া নেই'),
+        ),
+      );
+      return;
+    }
+
+    final paymentController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('পেমেন্ট গ্রহণ'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${customer.userId} - ${customer.name}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'মোট বিল: ${customer.bill.toStringAsFixed(0)} টাকা',
+                ),
+                Text(
+                  'ইতোমধ্যে পরিশোধ: '
+                  '${customer.paid.toStringAsFixed(0)} টাকা',
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'বর্তমান বকেয়া: '
+                  '${customer.due.toStringAsFixed(0)} টাকা',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: paymentController,
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'আজ কত টাকা পরিশোধ করেছে?',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('বাতিল'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final payment =
+                    double.tryParse(paymentController.text) ?? 0;
+
+                if (payment <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'সঠিক পরিমাণ টাকা লিখুন',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+
+                if (payment > customer.due) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'সর্বোচ্চ '
+                        '${customer.due.toStringAsFixed(0)} '
+                        'টাকা নেওয়া যাবে',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+
+                final newPaid = customer.paid + payment;
+                final newDue = customer.bill - newPaid;
+
+                final today = DateTime.now()
+                    .toLocal()
+                    .toString()
+                    .split(' ')
+                    .first;
+
+                await db.updateCustomer(
+                  customer.id!,
+                  {
+                    'paid_amount': newPaid,
+                    'due_amount': newDue,
+                    'payment_date': today,
+                  },
+                );
+
+                if (!mounted) return;
+
+                Navigator.pop(dialogContext);
+
+                await loadCustomers();
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '${payment.toStringAsFixed(0)} টাকা '
+                      'পেমেন্ট গ্রহণ করা হয়েছে',
+                    ),
+                  ),
+                );
+              },
+              child: const Text('পেমেন্ট সংরক্ষণ'),
+            ),
+          ],
+        );
+      },
+    );
+
+    paymentController.dispose();
   }
 
   Future<void> selectBillDate(int date) async {
@@ -357,7 +503,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
 
             const SizedBox(height: 12),
 
-            // BILL DATE OPTIONS
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -411,7 +556,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
 
             const SizedBox(height: 8),
 
-            // SUMMARY
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -450,7 +594,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   : customers.isEmpty
                       ? const Center(
                           child: Text(
-                            'কোনো ইউজার নেই\n\nনিচের “ইউজার যোগ” বাটনে চাপুন',
+                            'কোনো ইউজার নেই\n\n'
+                            'নিচের “ইউজার যোগ” বাটনে চাপুন',
                             textAlign: TextAlign.center,
                             style: TextStyle(fontSize: 16),
                           ),
@@ -468,69 +613,34 @@ class _BillingHomePageState extends State<BillingHomePage> {
                                 horizontal: 8,
                                 vertical: 5,
                               ),
-                              child: ListTile(
-                                leading: CircleAvatar(
-                                  child: Text('${index + 1}'),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 6,
                                 ),
-                                title: Text(
-                                  '${customer.userId} - ${customer.name}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    child: Text('${index + 1}'),
                                   ),
-                                ),
-                                subtitle: Text(
-                                  'মোবাইল: ${customer.mobile}\n'
-                                  'প্যাকেজ: ${customer.packageName}\n'
-                                  'বিল ডেট: ${customer.billDate} তারিখ\n'
-                                  'বিল: ${customer.bill.toStringAsFixed(0)} টাকা\n'
-                                  'পরিশোধ: ${customer.paid.toStringAsFixed(0)} টাকা\n'
-                                  'বকেয়া: ${customer.due.toStringAsFixed(0)} টাকা',
-                                ),
-                                isThreeLine: true,
-                                trailing: Switch(
-                                  value: customer.active,
-                                  onChanged: (_) =>
-                                      toggleCustomer(index),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _summaryCard(
-    String title,
-    String value,
-    IconData icon,
-  ) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          vertical: 12,
-          horizontal: 10,
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 24),
-            const SizedBox(height: 4),
-            Text(title),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+                                  title: Text(
+                                    '${customer.userId} - '
+                                    '${customer.name}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    'মোবাইল: ${customer.mobile}\n'
+                                    'প্যাকেজ: ${customer.packageName}\n'
+                                    'বিল ডেট: ${customer.billDate} তারিখ\n'
+                                    'বিল: '
+                                    '${customer.bill.toStringAsFixed(0)} টাকা\n'
+                                    'পরিশোধ: '
+                                    '${customer.paid.toStringAsFixed(0)} টাকা\n'
+                                    'বকেয়া: '
+                                    '${customer.due.toStringAsFixed(0)} টাকা',
+                                  ),
+                                  isThreeLine: true,
+                                  trailing: Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.center,
+                       
