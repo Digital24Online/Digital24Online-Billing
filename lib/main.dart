@@ -147,7 +147,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('ডেটা লোড করতে সমস্যা হয়েছে: $e'),
+          content: Text(
+            'ডেটা লোড করতে সমস্যা হয়েছে: $e',
+          ),
         ),
       );
     }
@@ -169,7 +171,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('নতুন ইউজার যোগ করুন'),
+              title: const Text(
+                'নতুন ইউজার যোগ করুন',
+              ),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -275,8 +279,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         name.text.trim().isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content:
-                              Text('ইউজার আইডি ও নাম লিখুন'),
+                          content: Text(
+                            'ইউজার আইডি ও নাম লিখুন',
+                          ),
                         ),
                       );
                       return;
@@ -291,7 +296,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     if (billAmount <= 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('বিলের টাকা লিখুন'),
+                          content: Text(
+                            'বিলের টাকা লিখুন',
+                          ),
                         ),
                       );
                       return;
@@ -300,8 +307,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     if (paidAmount < 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content:
-                              Text('সঠিক পরিশোধের টাকা লিখুন'),
+                          content: Text(
+                            'সঠিক পরিশোধের টাকা লিখুন',
+                          ),
                         ),
                       );
                       return;
@@ -382,13 +390,16 @@ class _BillingHomePageState extends State<BillingHomePage> {
     if (customer.due <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('এই ইউজারের কোনো বকেয়া নেই'),
+          content: Text(
+            'এই ইউজারের কোনো বকেয়া নেই',
+          ),
         ),
       );
       return;
     }
 
-    final paymentController = TextEditingController();
+    final paymentController =
+        TextEditingController();
 
     await showDialog(
       context: context,
@@ -434,7 +445,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   ),
                   autofocus: true,
                   decoration: const InputDecoration(
-                    labelText: 'আজ কত টাকা পরিশোধ করেছে?',
+                    labelText:
+                        'আজ কত টাকা পরিশোধ করেছে?',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -459,8 +471,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 if (payment <= 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content:
-                          Text('সঠিক পরিমাণ টাকা লিখুন'),
+                      content: Text(
+                        'সঠিক পরিমাণ টাকা লিখুন',
+                      ),
                     ),
                   );
                   return;
@@ -517,7 +530,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   ),
                 );
               },
-              child: const Text('পেমেন্ট সংরক্ষণ'),
+              child: const Text(
+                'পেমেন্ট সংরক্ষণ',
+              ),
             ),
           ],
         );
@@ -560,6 +575,16 @@ class _BillingHomePageState extends State<BillingHomePage> {
     setState(() {
       customer.active = newStatus;
     });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          newStatus
+              ? 'ইউজার Active করা হয়েছে'
+              : 'ইউজার Closed করা হয়েছে',
+        ),
+      ),
+    );
   }
 
   Future<void> deleteCustomer(int index) async {
@@ -571,7 +596,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('ইউজার মুছে ফেলবেন?'),
+          title: const Text(
+            'ইউজার মুছে ফেলবেন?',
+          ),
           content: Text(
             '${customer.userId} - ${customer.name}\n\n'
             'এই ইউজারের তথ্য স্থায়ীভাবে মুছে যাবে।',
@@ -579,13 +606,19 @@ class _BillingHomePageState extends State<BillingHomePage> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(dialogContext, false);
+                Navigator.pop(
+                  dialogContext,
+                  false,
+                );
               },
               child: const Text('না'),
             ),
             FilledButton(
               onPressed: () {
-                Navigator.pop(dialogContext, true);
+                Navigator.pop(
+                  dialogContext,
+                  true,
+                );
               },
               child: const Text('মুছে ফেলুন'),
             ),
@@ -604,7 +637,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('ইউজার মুছে ফেলা হয়েছে'),
+        content: Text(
+          'ইউজার মুছে ফেলা হয়েছে',
+        ),
       ),
     );
   }
@@ -625,79 +660,68 @@ class _BillingHomePageState extends State<BillingHomePage> {
     return 'সকল ইউজার';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Digital 24 Online Billing',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        centerTitle: true,
+  Widget summaryCard(
+    String title,
+    String value,
+    IconData icon,
+  ) {
+    return Card(
+      margin: const EdgeInsets.symmetric(
+        horizontal: 4,
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: addCustomer,
-        icon: const Icon(Icons.person_add),
-        label: const Text('ইউজার যোগ'),
-      ),
-      body: SafeArea(
+      child: Container(
+        width: 130,
+        padding: const EdgeInsets.all(12),
         child: Column(
           children: [
-            const SizedBox(height: 12),
-
-            const Text(
-              'Digital 24 Online',
-              style: TextStyle(
-                fontSize: 26,
+            Icon(
+              icon,
+              size: 28,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              title,
+              style: const TextStyle(
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 4),
-
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                'Seroil Colony, 4 No. Road, Ghoramara, '
-                'Chandrima Rajshahi-6100',
-                textAlign: TextAlign.center,
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
 
-            const SizedBox(height: 12),
-
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  const SizedBox(width: 8),
-
-                  ChoiceChip(
-                    label: const Text('সকল'),
-                    selected: selectedBillDate == 0,
-                    onSelected: (_) {
-                      showAllUsers();
-                    },
+  Widget customerCard(
+    Customer customer,
+    int index,
+  ) {
+    return Card(
+      margin: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 5,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          children: [
+            Row(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  child: Text(
+                    '${index + 1}',
                   ),
-
-                  const SizedBox(width: 8),
-
-                  ChoiceChip(
-                    label: const Text('৭ তারিখ'),
-                    selected: selectedBillDate == 7,
-                    onSelected: (_) {
-                      selectBillDate(7);
-                    },
-                  ),
-
-                  const SizedBox(width: 8),
-
-                  ChoiceChip(
-                    label: const Text('১৪ তারিখ'),
-                    selected: selectedBillDate == 14,
-                    onSelected: (_) {
-                      selectBillDate(14);
-                    },
-                  )
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment
