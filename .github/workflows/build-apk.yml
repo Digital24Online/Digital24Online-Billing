@@ -17,12 +17,15 @@ jobs:
           flutter-version: '3.35.0'
           channel: stable
 
-      - name: Create Flutter project structure
-        run: |
-          flutter create . --project-name digital24onlinebilling
-
       - name: Get dependencies
         run: flutter pub get
+
+      - name: Check Bill Date Code
+        run: |
+          echo "Checking main.dart..."
+          grep -n "৭ তারিখ" lib/main.dart
+          grep -n "১৪ তারিখ" lib/main.dart
+          grep -n "২১ তারিখ" lib/main.dart
 
       - name: Build APK
         run: flutter build apk --release
