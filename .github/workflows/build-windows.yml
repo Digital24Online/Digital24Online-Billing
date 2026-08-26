@@ -10,9 +10,6 @@ jobs:
   build-windows:
     runs-on: windows-latest
 
-    env:
-      CMAKE_GENERATOR: Visual Studio 17 2022
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,27 +17,23 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.32.0'
           channel: stable
 
-      - name: Remove old Windows files
+      - name: Create Windows project
         shell: pwsh
         run: |
-          if (Test-Path windows) {
-            Remove-Item windows -Recurse -Force
-          }
-          if (Test-Path build) {
-            Remove-Item build -Recurse -Force
-          }
-
-      - name: Create Windows project
-        run: flutter create --platforms=windows --org com.digital24online .
+          flutter create --platforms=windows .
 
       - name: Get dependencies
         run: flutter pub get
 
       - name: Build Windows
-        run: flutter build windows --release
+        shell: pwsh
+        env:
+          CMAKE_GENERATOR: Visual Studio 17 2022
+        run: |
+          $env:CMAKE_GENERATOR = "Visual Studio 17 2022"
+          flutter build windows --release
 
       - name: Create ZIP
         shell: pwsh
