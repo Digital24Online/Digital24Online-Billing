@@ -31,7 +31,7 @@ jobs:
           cp -R lib build_app/lib
           cp pubspec.yaml build_app/pubspec.yaml
 
-      - name: Set application name
+      - name: Set app name
         working-directory: build_app
         run: |
           python3 - <<'PY'
