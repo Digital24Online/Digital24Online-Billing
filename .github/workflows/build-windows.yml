@@ -34,7 +34,7 @@ jobs:
           }
 
       - name: Create Windows project
-        run: flutter create --platforms=windows .
+        run: flutter create --platforms=windows --org com.digital24online .
 
       - name: Get dependencies
         run: flutter pub get
