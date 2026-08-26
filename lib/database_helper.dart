@@ -245,7 +245,73 @@ class DatabaseHelper {
 
     return result.first;
   }
+Future<String?> backupDatabase() async {
+  final db = await database;
 
+  final customers = await db.query('customers');
+
+  final backupData = {
+    'version': 1,
+    'backup_date': DateTime.now().toIso8601String(),
+    'customers': customers,
+  };
+
+  final jsonData = jsonEncode(backupData);
+
+  final result = await FilePicker.platform.saveFile(
+    dialogTitle: 'Database Backup সংরক্ষণ করুন',
+    fileName: 'digital24_backup.json',
+    type: FileType.custom,
+    allowedExtensions: ['json'],
+    bytes: utf8.encode(jsonData),
+  );
+
+  return result;
+}
+
+Future<void> restoreDatabase() async {
+  final result = await FilePicker.platform.pickFiles(
+    dialogTitle: 'Database Backup নির্বাচন করুন',
+    type: FileType.custom,
+    allowedExtensions: ['json'],
+    withData: true,
+  );
+
+  if (result == null) return;
+
+  final file = result.files.single;
+
+  if (file.bytes == null) {
+    throw Exception('Backup ফাইল পড়া যাচ্ছে না');
+  }
+
+  final jsonData = utf8.decode(file.bytes!);
+  final backupData = jsonDecode(jsonData);
+
+  if (backupData is! Map ||
+      backupData['customers'] is! List) {
+    throw Exception('ভুল Backup ফাইল');
+  }
+
+  final db = await database;
+
+  final customers = List<Map<String, dynamic>>.from(
+    (backupData['customers'] as List).map(
+      (item) => Map<String, dynamic>.from(item),
+    ),
+  );
+
+  await db.transaction((txn) async {
+    await txn.delete('customers');
+
+    for (final customer in customers) {
+      final data = Map<String, dynamic>.from(customer);
+      data.remove('id');
+
+      await txn.insert('customers', data);
+    }
+  });
+}
   Future<void> close() async {
     if (_database != null) {
       await _database!.close();
