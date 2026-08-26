@@ -20,11 +20,18 @@ jobs:
           flutter-version: '3.32.0'
           channel: stable
 
+      - name: Remove old Windows project
+        shell: pwsh
+        run: |
+          if (Test-Path windows) {
+            Remove-Item windows -Recurse -Force
+          }
+
+      - name: Create fresh Windows project
+        run: flutter create --platforms=windows .
+
       - name: Get dependencies
         run: flutter pub get
-
-      - name: Create Windows project
-        run: flutter create --platforms=windows .
 
       - name: Build Windows
         run: flutter build windows --release
