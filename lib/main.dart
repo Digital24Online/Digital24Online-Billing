@@ -725,3 +725,20 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 Expanded(
                   child: Column(
                     crossAxisAlignment
+                    :
+    CrossAxisAlignment.start,
+children: [
+  Text(
+    '${customer.userId} - ${customer.name}',
+    style: const TextStyle(
+      fontWeight: FontWeight.bold,
+      fontSize: 16,
+    ),
+  ),
+  const SizedBox(height: 4),
+  Text('মোবাইল: ${customer.mobile}'),
+  Text('প্যাকেজ: ${customer.packageName}'),
+  Text('বিল ডেট: ${customer.billDate} তারিখ'),
+],
+  ),
+),
