@@ -17,14 +17,22 @@ jobs:
           flutter-version: '3.35.0'
           channel: stable
 
-      - name: Create Android project structure
+      - name: Create fresh Android Flutter project
         run: |
-          flutter create --platforms=android .
+          flutter create -t app --platforms=android --project-name=digital24onlinebilling build_app
+
+      - name: Copy app code
+        run: |
+          rm -rf build_app/lib
+          cp -R lib build_app/lib
+          cp pubspec.yaml build_app/pubspec.yaml
 
       - name: Get dependencies
+        working-directory: build_app
         run: flutter pub get
 
       - name: Check Bill Date Code
+        working-directory: build_app
         run: |
           echo "Checking main.dart..."
           grep -n "৭ তারিখ" lib/main.dart
@@ -32,10 +40,11 @@ jobs:
           grep -n "২১ তারিখ" lib/main.dart
 
       - name: Build APK
+        working-directory: build_app
         run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Digital24Online-Billing-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build_app/build/app/outputs/flutter-apk/app-release.apk
