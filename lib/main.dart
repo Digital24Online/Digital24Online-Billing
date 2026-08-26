@@ -702,7 +702,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
   Widget customerCard(
     Customer customer,
     int index,
-  ) {
+    ) {
     return Card(
       margin: const EdgeInsets.symmetric(
         horizontal: 8,
@@ -713,8 +713,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
         child: Column(
           children: [
             Row(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
                   child: Text(
@@ -722,23 +721,122 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   ),
                 ),
                 const SizedBox(width: 10),
+
                 Expanded(
                   child: Column(
-                    crossAxisAlignment
-                    :
-    CrossAxisAlignment.start,
-children: [
-  Text(
-    '${customer.userId} - ${customer.name}',
-    style: const TextStyle(
-      fontWeight: FontWeight.bold,
-      fontSize: 16,
-    ),
-  ),
-  const SizedBox(height: 4),
-  Text('মোবাইল: ${customer.mobile}'),
-  Text('প্যাকেজ: ${customer.packageName}'),
-  Text('বিল ডেট: ${customer.billDate} তারিখ'),
-],
-  ),
-),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${customer.userId} - ${customer.name}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'মোবাইল: ${customer.mobile}',
+                      ),
+                      Text(
+                        'প্যাকেজ: ${customer.packageName}',
+                      ),
+                      Text(
+                        'বিল ডেট: ${customer.billDate} তারিখ',
+                      ),
+                    ],
+                  ),
+                ),
+
+                Column(
+                  children: [
+                    IconButton(
+                      onPressed: () {
+                        toggleCustomer(index);
+                      },
+                      icon: Icon(
+                        customer.active
+                            ? Icons.check_circle
+                            : Icons.cancel,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        deleteCustomer(index);
+                      },
+                      icon: const Icon(Icons.delete),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            const Divider(),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Column(
+                  children: [
+                    const Text('বিল'),
+                    Text(
+                      '${customer.bill.toStringAsFixed(0)} ৳',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+
+                Column(
+                  children: [
+                    const Text('পরিশোধ'),
+                    Text(
+                      '${customer.paid.toStringAsFixed(0)} ৳',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+
+                Column(
+                  children: [
+                    const Text('বকেয়া'),
+                    Text(
+                      '${customer.due.toStringAsFixed(0)} ৳',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: customer.due > 0
+                            ? Colors.red
+                            : Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: customer.due > 0
+                    ? () {
+                        takePayment(index);
+                      }
+                    : null,
+                icon: const Icon(Icons.payments),
+                label: Text(
+                  customer.due > 0
+                      ? 'পেমেন্ট গ্রহণ'
+                      : 'সম্পূর্ণ পরিশোধ',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
