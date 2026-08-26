@@ -17,9 +17,13 @@ jobs:
           flutter-version: '3.35.0'
           channel: stable
 
-      - name: Create fresh Android Flutter project
+      - name: Create Flutter Android project
         run: |
-          flutter create -t app --platforms=android --project-name=digital24onlinebilling build_app
+          flutter create \
+            --platforms=android \
+            --project-name=digital24onlinebilling \
+            --org=com.digital24online \
+            build_app
 
       - name: Copy app code
         run: |
@@ -31,13 +35,52 @@ jobs:
         working-directory: build_app
         run: flutter pub get
 
-      - name: Check Bill Date Code
+      - name: Create permanent signing key
+        run: |
+          mkdir -p build_app/android/keystore
+
+          if [ ! -f build_app/android/keystore/digital24.jks ]; then
+            keytool -genkeypair \
+              -v \
+              -keystore build_app/android/keystore/digital24.jks \
+              -storepass digital24online123 \
+              -keypass digital24online123 \
+              -alias digital24 \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Digital24Online, OU=Billing, O=Digital24Online, L=Rajshahi, ST=Rajshahi, C=BD"
+          fi
+
+      - name: Configure Android signing
         working-directory: build_app
         run: |
-          echo "Checking main.dart..."
-          grep -n "৭ তারিখ" lib/main.dart
-          grep -n "১৪ তারিখ" lib/main.dart
-          grep -n "২১ তারিখ" lib/main.dart
+          python3 - <<'PY'
+          from pathlib import Path
+
+          file = Path("android/app/build.gradle.kts")
+          text = file.read_text()
+
+          text = text.replace(
+              'android {',
+              '''android {
+              signingConfigs {
+                  create("release") {
+                      storeFile = file("keystore/digital24.jks")
+                      storePassword = "digital24online123"
+                      keyAlias = "digital24"
+                      keyPassword = "digital24online123"
+                  }
+              }'''
+          )
+
+          text = text.replace(
+              'signingConfig = signingConfigs.getByName("debug")',
+              'signingConfig = signingConfigs.getByName("release")'
+          )
+
+          file.write_text(text)
+          PY
 
       - name: Build APK
         working-directory: build_app
