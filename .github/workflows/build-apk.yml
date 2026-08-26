@@ -74,7 +74,7 @@ jobs:
               '''android {
               signingConfigs {
                   create("release") {
-                      storeFile = file("keystore/digital24.jks")
+                      storeFile = file("../keystore/digital24.jks")
                       storePassword = System.getenv("KEYSTORE_PASSWORD")!!
                       keyAlias = "digital24"
                       keyPassword = System.getenv("KEYSTORE_PASSWORD")!!
