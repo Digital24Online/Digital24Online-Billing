@@ -699,10 +699,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
     );
   }
 
-  Widget customerCard(
-    Customer customer,
-    int index,
-      Widget customerCard(
+    Widget customerCard(
     Customer customer,
     int index,
   ) {
@@ -770,9 +767,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 ),
               ],
             ),
-
             const Divider(),
-
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
@@ -814,9 +809,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 ),
               ],
             ),
-
             const SizedBox(height: 8),
-
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
@@ -860,7 +853,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
         child: Column(
           children: [
             const SizedBox(height: 12),
-
             const Text(
               'Digital 24 Online',
               style: TextStyle(
@@ -868,9 +860,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 4),
-
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 8),
               child: Text(
@@ -879,15 +869,12 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 textAlign: TextAlign.center,
               ),
             ),
-
             const SizedBox(height: 12),
-
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
                   const SizedBox(width: 8),
-
                   ChoiceChip(
                     label: const Text('সকল'),
                     selected: selectedBillDate == 0,
@@ -895,9 +882,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       showAllUsers();
                     },
                   ),
-
                   const SizedBox(width: 8),
-
                   ChoiceChip(
                     label: const Text('৭ তারিখ'),
                     selected: selectedBillDate == 7,
@@ -905,9 +890,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       selectBillDate(7);
                     },
                   ),
-
                   const SizedBox(width: 8),
-
                   ChoiceChip(
                     label: const Text('১৪ তারিখ'),
                     selected: selectedBillDate == 14,
@@ -915,9 +898,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       selectBillDate(14);
                     },
                   ),
-
                   const SizedBox(width: 8),
-
                   ChoiceChip(
                     label: const Text('২১ তারিখ'),
                     selected: selectedBillDate == 21,
@@ -928,9 +909,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 12),
-
             Text(
               reportTitle,
               style: const TextStyle(
@@ -938,9 +917,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 8),
-
             SizedBox(
               height: 100,
               child: SingleChildScrollView(
@@ -966,9 +943,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 8),
-
             Expanded(
               child: loading
                   ? const Center(
@@ -995,4 +970,4 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-    }
+}
