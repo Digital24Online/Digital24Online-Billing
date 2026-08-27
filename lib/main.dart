@@ -50,6 +50,88 @@ class Customer {
   double get due => bill - paid;
 }
 
+class PaymentHistoryPage extends StatelessWidget {
+  final DatabaseHelper db;
+  final Customer customer;
+
+  const PaymentHistoryPage({
+    super.key,
+    required this.db,
+    required this.customer,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('পেমেন্ট হিস্ট্রি'),
+      ),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: db.getPaymentHistory(customer.id!),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'হিসাব দেখাতে সমস্যা হয়েছে\n${snapshot.error}',
+                textAlign: TextAlign.center,
+              ),
+            );
+          }
+
+          final payments = snapshot.data ?? [];
+
+          if (payments.isEmpty) {
+            return const Center(
+              child: Text('এখনও কোনো পেমেন্ট হিস্ট্রি নেই'),
+            );
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(10),
+            itemCount: payments.length,
+            itemBuilder: (context, index) {
+              final payment = payments[index];
+
+              final amount =
+                  (payment['amount'] as num?)?.toDouble() ?? 0;
+
+              final date =
+                  payment['payment_date']?.toString() ?? '';
+
+              final note =
+                  payment['note']?.toString() ?? '';
+
+              return Card(
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    child: Icon(Icons.payments),
+                  ),
+                  title: Text(
+                    '${amount.toStringAsFixed(0)} ৳',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'তারিখ: $date'
+                    '${note.isNotEmpty ? '\n$note' : ''}',
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
 class BillingHomePage extends StatefulWidget {
   const BillingHomePage({super.key});
 
@@ -84,6 +166,14 @@ class _BillingHomePageState extends State<BillingHomePage> {
       0,
       (sum, customer) => sum + customer.due,
     );
+  }
+
+  String get reportTitle {
+    if (selectedBillDate == 0) {
+      return 'সকল ইউজারের হিসাব';
+    }
+
+    return '${selectedBillDate.toString()} তারিখের হিসাব';
   }
 
   @override
@@ -398,8 +488,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       return;
     }
 
-    final paymentController =
-        TextEditingController();
+    final paymentController = TextEditingController();
 
     await showDialog(
       context: context,
@@ -512,13 +601,15 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     'payment_date': today,
                   },
                 );
-await db.addPayment({
-  'customer_id': customer.id!,
-  'user_id': customer.userId,
-  'amount': payment,
-  'payment_date': today,
-  'note': 'Customer Payment',
-});
+
+                await db.addPayment({
+                  'customer_id': customer.id!,
+                  'user_id': customer.userId,
+                  'amount': payment,
+                  'payment_date': today,
+                  'note': 'Customer Payment',
+                });
+
                 if (!mounted) return;
 
                 Navigator.pop(dialogContext);
@@ -607,7 +698,7 @@ await db.addPayment({
           ),
           content: Text(
             '${customer.userId} - ${customer.name}\n\n'
-            'এই ইউজারের তথ্য স্থায়ীভাবে মুছে যাবে।',
+        'এই ইউজারের তথ্য স্থায়ীভাবে মুছে যাবে।',
           ),
           actions: [
             TextButton(
@@ -626,7 +717,7 @@ await db.addPayment({
                   true,
                 );
               },
-              child: const Text('মুছে ফেলুন'),
+              child: const Text('হ্যাঁ, মুছুন'),
             ),
           ],
         );
@@ -636,6 +727,8 @@ await db.addPayment({
     if (confirm != true) return;
 
     await db.deleteCustomer(customer.id!);
+
+    if (!mounted) return;
 
     await loadCustomers();
 
@@ -650,20 +743,18 @@ await db.addPayment({
     );
   }
 
-  String get reportTitle {
-    if (selectedBillDate == 7) {
-      return '৭ তারিখের বিল';
-    }
+  void showPaymentHistory(Customer customer) {
+    if (customer.id == null) return;
 
-    if (selectedBillDate == 14) {
-      return '১৪ তারিখের বিল';
-    }
-
-    if (selectedBillDate == 21) {
-      return '২১ তারিখের বিল';
-    }
-
-    return 'সকল ইউজার';
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PaymentHistoryPage(
+          db: db,
+          customer: customer,
+        ),
+      ),
+    );
   }
 
   Widget summaryCard(
@@ -673,17 +764,14 @@ await db.addPayment({
   ) {
     return Card(
       margin: const EdgeInsets.symmetric(
-        horizontal: 4,
+        horizontal: 5,
       ),
-      child: Container(
-        width: 130,
+      child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 28,
-            ),
+            Icon(icon),
             const SizedBox(height: 6),
             Text(
               title,
@@ -704,7 +792,6 @@ await db.addPayment({
       ),
     );
   }
-
     Widget customerCard(
     Customer customer,
     int index,
@@ -719,7 +806,8 @@ await db.addPayment({
         child: Column(
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
                   child: Text(
@@ -729,7 +817,8 @@ await db.addPayment({
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
                     children: [
                       Text(
                         '${customer.userId} - ${customer.name}',
@@ -767,7 +856,9 @@ await db.addPayment({
                       onPressed: () {
                         deleteCustomer(index);
                       },
-                      icon: const Icon(Icons.delete),
+                      icon: const Icon(
+                        Icons.delete,
+                      ),
                     ),
                   ],
                 ),
@@ -775,7 +866,8 @@ await db.addPayment({
             ),
             const Divider(),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              mainAxisAlignment:
+                  MainAxisAlignment.spaceAround,
               children: [
                 Column(
                   children: [
@@ -816,50 +908,45 @@ await db.addPayment({
               ],
             ),
             const SizedBox(height: 8),
-
-SizedBox(
-  width: double.infinity,
-  child: FilledButton.icon(
-    onPressed: customer.due > 0
-        ? () {
-            takePayment(index);
-          }
-        : null,
-    icon: const Icon(Icons.payments),
-    label: Text(
-      customer.due > 0
-          ? 'পেমেন্ট গ্রহণ'
-          : 'সম্পূর্ণ পরিশোধ',
-    ),
-  ),
-),
-
-const SizedBox(height: 8),
-
-SizedBox(
-  width: double.infinity,
-  child: OutlinedButton.icon(
-    onPressed: () {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PaymentHistoryPage(
-            db: db,
-            customer: customer,
-          ),
-        ),
-      );
-    },
-    icon: const Icon(Icons.history),
-    label: const Text('পেমেন্ট হিস্ট্রি'),
-  ),
-),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: customer.due > 0
+                    ? () {
+                        takePayment(index);
+                      }
+                    : null,
+                icon: const Icon(
+                  Icons.payments,
+                ),
+                label: Text(
+                  customer.due > 0
+                      ? 'পেমেন্ট গ্রহণ'
+                      : 'সম্পূর্ণ পরিশোধ',
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  showPaymentHistory(customer);
+                },
+                icon: const Icon(
+                  Icons.history,
+                ),
+                label: const Text(
+                  'পেমেন্ট হিস্ট্রি',
+                ),
+              ),
+            ),
           ],
         ),
+      ),
     );
-  }
-
-  @override
+    }
+    @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -870,27 +957,59 @@ SizedBox(
           ),
         ),
         actions: [
-  PopupMenuButton<String>(
-    onSelected: (value) async {
-      if (value == 'backup') {
-        await db.backupDatabase();
-      } else if (value == 'restore') {
-        await db.restoreDatabase();
-        await loadCustomers();
-      }
-    },
-    itemBuilder: (context) => const [
-      PopupMenuItem(
-        value: 'backup',
-        child: Text('Database Backup'),
-      ),
-      PopupMenuItem(
-        value: 'restore',
-        child: Text('Database Restore'),
-      ),
-    ],
-  ),
-],
+          PopupMenuButton<String>(
+            onSelected: (value) async {
+              try {
+                if (value == 'backup') {
+                  await db.backupDatabase();
+
+                  if (!mounted) return;
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Database Backup সম্পন্ন হয়েছে',
+                      ),
+                    ),
+                  );
+                } else if (value == 'restore') {
+                  await db.restoreDatabase();
+                  await loadCustomers();
+
+                  if (!mounted) return;
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Database Restore সম্পন্ন হয়েছে',
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (!mounted) return;
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'সমস্যা হয়েছে: $e',
+                    ),
+                  ),
+                );
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'backup',
+                child: Text('Database Backup'),
+              ),
+              PopupMenuItem(
+                value: 'restore',
+                child: Text('Database Restore'),
+              ),
+            ],
+          ),
+        ],
         centerTitle: true,
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -967,7 +1086,7 @@ SizedBox(
               ),
             ),
             const SizedBox(height: 8),
-            SizedBox(
+                        SizedBox(
               height: 100,
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -1004,14 +1123,20 @@ SizedBox(
                             'কোনো ইউজার পাওয়া যায়নি',
                           ),
                         )
-                      : ListView.builder(
-                          itemCount: customers.length,
-                          itemBuilder: (context, index) {
-                            return customerCard(
-                              customers[index],
-                              index,
-                            );
-                          },
+                      : RefreshIndicator(
+                          onRefresh: loadCustomers,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.only(
+                              bottom: 90,
+                            ),
+                            itemCount: customers.length,
+                            itemBuilder: (context, index) {
+                              return customerCard(
+                                customers[index],
+                                index,
+                              );
+                            },
+                          ),
                         ),
             ),
           ],
