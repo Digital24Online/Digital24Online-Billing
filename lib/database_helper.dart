@@ -279,34 +279,7 @@ class DatabaseHelper {
     );
   }
 
-  Future<int> addPayment(
-    Map<String, dynamic> payment,
-  ) async {
-    final db = await database;
-
-    return await db.insert(
-      'payments',
-      {
-        ...payment,
-        'created_at':
-            DateTime.now().toIso8601String(),
-      },
-    );
-  }
-
-  Future<List<Map<String, dynamic>>> getPaymentHistory(
-    int customerId,
-  ) async {
-    final db = await database;
-
-    return await db.query(
-      'payments',
-      where: 'customer_id = ?',
-      whereArgs: [customerId],
-      orderBy: 'id DESC',
-    );
-  }
-
+  
   Future<int> addBill(
     Map<String, dynamic> bill,
   ) async {
@@ -492,7 +465,29 @@ class DatabaseHelper {
       }
     });
   }
+  Future<int> addPayment(
+    Map<String, dynamic> payment,
+  ) async {
+    final db = await database;
 
+    return await db.insert(
+      'payments',
+      payment,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getPaymentHistory(
+    int customerId,
+  ) async {
+    final db = await database;
+
+    return await db.query(
+      'payments',
+      where: 'customer_id = ?',
+      whereArgs: [customerId],
+      orderBy: 'id DESC',
+    );
+  }
   Future<void> close() async {
     if (_database != null) {
       await _database!.close();
