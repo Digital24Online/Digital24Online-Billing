@@ -893,24 +893,45 @@ await db.addPayment({
               ],
             ),
             const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: customer.due > 0
-                    ? () {
-                        takePayment(index);
-                      }
-                    : null,
-                icon: const Icon(Icons.payments),
-                label: Text(
-                  customer.due > 0
-                      ? 'পেমেন্ট গ্রহণ'
-                      : 'সম্পূর্ণ পরিশোধ',
-                ),
-              ),
-            ),
-          ],
+
+SizedBox(
+  width: double.infinity,
+  child: FilledButton.icon(
+    onPressed: customer.due > 0
+        ? () {
+            takePayment(index);
+          }
+        : null,
+    icon: const Icon(Icons.payments),
+    label: Text(
+      customer.due > 0
+          ? 'পেমেন্ট গ্রহণ'
+          : 'সম্পূর্ণ পরিশোধ',
+    ),
+  ),
+),
+
+const SizedBox(height: 8),
+
+SizedBox(
+  width: double.infinity,
+  child: OutlinedButton.icon(
+    onPressed: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PaymentHistoryPage(
+            db: db,
+            customer: customer,
+          ),
         ),
+      );
+    },
+    icon: const Icon(Icons.history),
+    label: const Text('পেমেন্ট হিস্ট্রি'),
+  ),
+),
+                
       ),
     );
   }
