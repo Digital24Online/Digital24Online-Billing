@@ -1,8 +1,9 @@
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -22,18 +23,20 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, fileName);
 
-    return await openDatabase(
+    return openDatabase(
       path,
-      version: 5,
+      version: 6,
+      onConfigure: _onConfigure,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
   }
 
-  Future<void> _createDB(
-    Database db,
-    int version,
-  ) async {
+  Future<void> _onConfigure(Database db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+  }
+
+  Future<void> _createDB(Database db, int version) async {
     await db.execute('''
       CREATE TABLE customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,33 +88,42 @@ class DatabaseHelper {
       )
     ''');
 
+    await _createIndexes(db);
+  }
+
+  Future<void> _createIndexes(Database db) async {
     await db.execute('''
-      CREATE INDEX idx_customers_user_id
+      CREATE INDEX IF NOT EXISTS idx_customers_user_id
       ON customers(user_id)
     ''');
 
     await db.execute('''
-      CREATE INDEX idx_customers_bill_date
+      CREATE INDEX IF NOT EXISTS idx_customers_bill_date
       ON customers(bill_date)
     ''');
 
     await db.execute('''
-      CREATE INDEX idx_payments_customer_id
+      CREATE INDEX IF NOT EXISTS idx_customers_active
+      ON customers(active)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_payments_customer_id
       ON payments(customer_id)
     ''');
 
     await db.execute('''
-      CREATE INDEX idx_payments_date
+      CREATE INDEX IF NOT EXISTS idx_payments_date
       ON payments(payment_date)
     ''');
 
     await db.execute('''
-      CREATE INDEX idx_bills_customer_id
+      CREATE INDEX IF NOT EXISTS idx_bills_customer_id
       ON bills(customer_id)
     ''');
 
     await db.execute('''
-      CREATE INDEX idx_bills_month
+      CREATE INDEX IF NOT EXISTS idx_bills_month
       ON bills(billing_month)
     ''');
   }
@@ -146,7 +158,10 @@ class DatabaseHelper {
           amount REAL NOT NULL,
           payment_date TEXT NOT NULL,
           note TEXT,
-          created_at TEXT
+          created_at TEXT,
+          FOREIGN KEY(customer_id)
+            REFERENCES customers(id)
+            ON DELETE CASCADE
         )
       ''');
 
@@ -160,30 +175,37 @@ class DatabaseHelper {
           paid_amount REAL DEFAULT 0,
           due_amount REAL DEFAULT 0,
           status TEXT DEFAULT 'unpaid',
-          created_at TEXT
+          created_at TEXT,
+          FOREIGN KEY(customer_id)
+            REFERENCES customers(id)
+            ON DELETE CASCADE
         )
       ''');
+    }
+
+    if (oldVersion < 6) {
+      final columns = await db.rawQuery(
+        'PRAGMA table_info(customers)',
+      );
+
+      final names = columns
+          .map((e) => e['name'].toString())
+          .toSet();
+
+      if (!names.contains('active')) {
+        await db.execute(
+          'ALTER TABLE customers ADD COLUMN active INTEGER DEFAULT 1',
+        );
+      }
 
       await db.execute('''
-        CREATE INDEX IF NOT EXISTS idx_payments_customer_id
-        ON payments(customer_id)
-      ''');
-
-      await db.execute('''
-        CREATE INDEX IF NOT EXISTS idx_payments_date
-        ON payments(payment_date)
-      ''');
-
-      await db.execute('''
-        CREATE INDEX IF NOT EXISTS idx_bills_customer_id
-        ON bills(customer_id)
-      ''');
-
-      await db.execute('''
-        CREATE INDEX IF NOT EXISTS idx_bills_month
-        ON bills(billing_month)
+        UPDATE customers
+        SET active = 1
+        WHERE active IS NULL
       ''');
     }
+
+    await _createIndexes(db);
   }
 
   Future<int> addCustomer(
@@ -196,16 +218,15 @@ class DatabaseHelper {
     data['created_at'] ??=
         DateTime.now().toIso8601String();
 
-    return await db.insert(
-      'customers',
-      data,
-    );
+    data['active'] ??= 1;
+
+    return db.insert('customers', data);
   }
 
   Future<List<Map<String, dynamic>>> getCustomers() async {
     final db = await database;
 
-    return await db.query(
+    return db.query(
       'customers',
       orderBy: 'id ASC',
     );
@@ -216,10 +237,39 @@ class DatabaseHelper {
   ) async {
     final db = await database;
 
-    return await db.query(
+    return db.query(
       'customers',
       where: 'bill_date = ?',
       whereArgs: [billDate],
+      orderBy: 'id ASC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> searchCustomers(
+    String keyword,
+  ) async {
+    final db = await database;
+
+    final value = keyword.trim();
+
+    if (value.isEmpty) {
+      return getCustomers();
+    }
+
+    return db.query(
+      'customers',
+      where: '''
+        user_id LIKE ?
+        OR name LIKE ?
+        OR mobile LIKE ?
+        OR package_name LIKE ?
+      ''',
+      whereArgs: [
+        '%$value%',
+        '%$value%',
+        '%$value%',
+        '%$value%',
+      ],
       orderBy: 'id ASC',
     );
   }
@@ -245,7 +295,7 @@ class DatabaseHelper {
   ) async {
     final db = await database;
 
-    return await db.update(
+    return db.update(
       'customers',
       customer,
       where: 'id = ?',
@@ -256,7 +306,7 @@ class DatabaseHelper {
   Future<int> deleteCustomer(int id) async {
     final db = await database;
 
-    return await db.delete(
+    return db.delete(
       'customers',
       where: 'id = ?',
       whereArgs: [id],
@@ -269,7 +319,7 @@ class DatabaseHelper {
   ) async {
     final db = await database;
 
-    return await db.update(
+    return db.update(
       'customers',
       {
         'active': active ? 1 : 0,
@@ -279,32 +329,29 @@ class DatabaseHelper {
     );
   }
 
-  
-  Future<int> addBill(
-    Map<String, dynamic> bill,
+  Future<int> addPayment(
+    Map<String, dynamic> payment,
   ) async {
     final db = await database;
 
-    return await db.insert(
-      'bills',
-      {
-        ...bill,
-        'created_at':
-            DateTime.now().toIso8601String(),
-      },
-    );
+    final data = Map<String, dynamic>.from(payment);
+
+    data['created_at'] ??=
+        DateTime.now().toIso8601String();
+
+    return db.insert('payments', data);
   }
 
-  Future<List<Map<String, dynamic>>> getCustomerBills(
+  Future<List<Map<String, dynamic>>> getPaymentHistory(
     int customerId,
   ) async {
     final db = await database;
 
-    return await db.query(
-      'bills',
+    return db.query(
+      'payments',
       where: 'customer_id = ?',
       whereArgs: [customerId],
-      orderBy: 'billing_month DESC',
+      orderBy: 'id DESC',
     );
   }
 
@@ -313,7 +360,7 @@ class DatabaseHelper {
   ) async {
     final db = await database;
 
-    return await db.query(
+    return db.query(
       'payments',
       where: 'payment_date = ?',
       whereArgs: [date],
@@ -344,6 +391,32 @@ class DatabaseHelper {
     };
   }
 
+  Future<int> addBill(
+    Map<String, dynamic> bill,
+  ) async {
+    final db = await database;
+
+    final data = Map<String, dynamic>.from(bill);
+
+    data['created_at'] ??=
+        DateTime.now().toIso8601String();
+
+    return db.insert('bills', data);
+  }
+
+  Future<List<Map<String, dynamic>>> getCustomerBills(
+    int customerId,
+  ) async {
+    final db = await database;
+
+    return db.query(
+      'bills',
+      where: 'customer_id = ?',
+      whereArgs: [customerId],
+      orderBy: 'billing_month DESC',
+    );
+  }
+
   Future<String?> backupDatabase() async {
     final db = await database;
 
@@ -352,7 +425,7 @@ class DatabaseHelper {
     final bills = await db.query('bills');
 
     final backupData = {
-      'version': 5,
+      'version': 6,
       'backup_date':
           DateTime.now().toIso8601String(),
       'customers': customers,
@@ -362,7 +435,7 @@ class DatabaseHelper {
 
     final jsonData = jsonEncode(backupData);
 
-    return await FilePicker.platform.saveFile(
+    return FilePicker.platform.saveFile(
       dialogTitle: 'Database Backup সংরক্ষণ করুন',
       fileName: 'digital24_backup.json',
       type: FileType.custom,
@@ -384,9 +457,7 @@ class DatabaseHelper {
     final file = result.files.single;
 
     if (file.bytes == null) {
-      throw Exception(
-        'Backup ফাইল পড়া যাচ্ছে না',
-      );
+      throw Exception('Backup ফাইল পড়া যাচ্ছে না');
     }
 
     final jsonData = utf8.decode(file.bytes!);
@@ -394,9 +465,7 @@ class DatabaseHelper {
 
     if (backupData is! Map ||
         backupData['customers'] is! List) {
-      throw Exception(
-        'ভুল Backup ফাইল',
-      );
+      throw Exception('ভুল Backup ফাইল');
     }
 
     final db = await database;
@@ -406,88 +475,89 @@ class DatabaseHelper {
       await txn.delete('bills');
       await txn.delete('customers');
 
+      final customerIdMap = <int, int>{};
+
       final customers =
-          List<Map<String, dynamic>>.from(
-        (backupData['customers'] as List).map(
-          (item) =>
-              Map<String, dynamic>.from(item),
-        ),
-      );
+          (backupData['customers'] as List)
+              .map(
+                (item) =>
+                    Map<String, dynamic>.from(item),
+              )
+              .toList();
 
       for (final customer in customers) {
-        final data =
-            Map<String, dynamic>.from(customer);
+        final oldId = customer['id'];
 
-        data.remove('id');
+        customer.remove('id');
 
-        await txn.insert(
+        final newId = await txn.insert(
           'customers',
-          data,
+          customer,
         );
+
+        if (oldId is int) {
+          customerIdMap[oldId] = newId;
+        }
       }
 
       if (backupData['payments'] is List) {
-        final payments =
-            backupData['payments'] as List;
+        for (final item
+            in backupData['payments'] as List) {
+          final payment =
+              Map<String, dynamic>.from(item);
 
-        for (final payment in payments) {
-          final data =
-              Map<String, dynamic>.from(
-            payment,
-          );
+          final oldCustomerId =
+              payment['customer_id'];
 
-          data.remove('id');
+          if (oldCustomerId is! int ||
+              !customerIdMap.containsKey(
+                oldCustomerId,
+              )) {
+            continue;
+          }
+
+          payment['customer_id'] =
+              customerIdMap[oldCustomerId];
+
+          payment.remove('id');
 
           await txn.insert(
             'payments',
-            data,
+            payment,
           );
         }
       }
 
       if (backupData['bills'] is List) {
-        final bills =
-            backupData['bills'] as List;
+        for (final item
+            in backupData['bills'] as List) {
+          final bill =
+              Map<String, dynamic>.from(item);
 
-        for (final bill in bills) {
-          final data =
-              Map<String, dynamic>.from(
-            bill,
-          );
+          final oldCustomerId =
+              bill['customer_id'];
 
-          data.remove('id');
+          if (oldCustomerId is! int ||
+              !customerIdMap.containsKey(
+                oldCustomerId,
+              )) {
+            continue;
+          }
+
+          bill['customer_id'] =
+              customerIdMap[oldCustomerId];
+
+          bill.remove('id');
 
           await txn.insert(
             'bills',
-            data,
+            bill,
           );
         }
       }
     });
   }
-  Future<int> addPayment(
-    Map<String, dynamic> payment,
-  ) async {
-    final db = await database;
 
-    return await db.insert(
-      'payments',
-      payment,
-    );
-  }
-
-  Future<List<Map<String, dynamic>>> getPaymentHistory(
-    int customerId,
-  ) async {
-    final db = await database;
-
-    return await db.query(
-      'payments',
-      where: 'customer_id = ?',
-      whereArgs: [customerId],
-      orderBy: 'id DESC',
-    );
-  }
   Future<void> close() async {
     if (_database != null) {
       await _database!.close();
