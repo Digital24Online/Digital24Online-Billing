@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'database_helper.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const Digital24OnlineBilling());
 }
 
@@ -16,6 +17,16 @@ class Digital24OnlineBilling extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorSchemeSeed: Colors.blue,
+        scaffoldBackgroundColor: const Color(0xFFF5F7FA),
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          elevation: 0,
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(),
+        ),
       ),
       home: const BillingHomePage(),
     );
@@ -47,7 +58,10 @@ class Customer {
     this.active = true,
   });
 
-  double get due => bill - paid;
+  double get due {
+    final value = bill - paid;
+    return value < 0 ? 0 : value;
+  }
 }
 
 class PaymentHistoryPage extends StatelessWidget {
@@ -77,9 +91,12 @@ class PaymentHistoryPage extends StatelessWidget {
 
           if (snapshot.hasError) {
             return Center(
-              child: Text(
-                'হিসাব দেখাতে সমস্যা হয়েছে\n${snapshot.error}',
-                textAlign: TextAlign.center,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  'হিসাব দেখাতে সমস্যা হয়েছে\n${snapshot.error}',
+                  textAlign: TextAlign.center,
+                ),
               ),
             );
           }
@@ -88,12 +105,15 @@ class PaymentHistoryPage extends StatelessWidget {
 
           if (payments.isEmpty) {
             return const Center(
-              child: Text('এখনও কোনো পেমেন্ট হিস্ট্রি নেই'),
+              child: Text(
+                'এখনও কোনো পেমেন্ট হিস্ট্রি নেই',
+                style: TextStyle(fontSize: 16),
+              ),
             );
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(12),
             itemCount: payments.length,
             itemBuilder: (context, index) {
               final payment = payments[index];
@@ -108,6 +128,7 @@ class PaymentHistoryPage extends StatelessWidget {
                   payment['note']?.toString() ?? '';
 
               return Card(
+                margin: const EdgeInsets.only(bottom: 10),
                 child: ListTile(
                   leading: const CircleAvatar(
                     child: Icon(Icons.payments),
@@ -115,12 +136,16 @@ class PaymentHistoryPage extends StatelessWidget {
                   title: Text(
                     '${amount.toStringAsFixed(0)} ৳',
                     style: const TextStyle(
+                      fontSize: 17,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  subtitle: Text(
-                    'তারিখ: $date'
-                    '${note.isNotEmpty ? '\n$note' : ''}',
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'তারিখ: $date'
+                      '${note.isNotEmpty ? '\n$note' : ''}',
+                    ),
                   ),
                 ),
               );
@@ -147,6 +172,23 @@ class _BillingHomePageState extends State<BillingHomePage> {
   int selectedBillDate = 0;
   bool loading = true;
 
+  String searchText = '';
+
+  List<Customer> get filteredCustomers {
+    final query = searchText.trim().toLowerCase();
+
+    if (query.isEmpty) {
+      return customers;
+    }
+
+    return customers.where((customer) {
+      return customer.userId.toLowerCase().contains(query) ||
+          customer.name.toLowerCase().contains(query) ||
+          customer.mobile.toLowerCase().contains(query) ||
+          customer.packageName.toLowerCase().contains(query);
+    }).toList();
+  }
+
   double get totalBill {
     return customers.fold(
       0,
@@ -166,6 +208,16 @@ class _BillingHomePageState extends State<BillingHomePage> {
       0,
       (sum, customer) => sum + customer.due,
     );
+  }
+
+  int get totalUsers => customers.length;
+
+  int get activeUsers {
+    return customers.where((customer) => customer.active).length;
+  }
+
+  int get closedUsers {
+    return customers.where((customer) => !customer.active).length;
   }
 
   String get reportTitle {
@@ -245,6 +297,85 @@ class _BillingHomePageState extends State<BillingHomePage> {
     }
   }
 
+  Future<void> selectBillDate(int date) async {
+    setState(() {
+      selectedBillDate = date;
+    });
+
+    await loadCustomers();
+  }
+
+  Future<void> showAllUsers() async {
+    setState(() {
+      selectedBillDate = 0;
+    });
+
+    await loadCustomers();
+  }
+
+  String todayDate() {
+    return DateTime.now()
+        .toLocal()
+        .toString()
+        .split(' ')
+        .first;
+  }
+
+  String money(double value) {
+    return value.toStringAsFixed(0);
+  }
+
+  Widget summaryCard(
+    String title,
+    String value,
+    IconData icon,
+  ) {
+    return Card(
+      margin: const EdgeInsets.only(left: 8, right: 4),
+      child: SizedBox(
+        width: 145,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 21,
+                child: Icon(icon, size: 21),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> addCustomer() async {
     final userId = TextEditingController();
     final name = TextEditingController();
@@ -270,16 +401,18 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   children: [
                     TextField(
                       controller: userId,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
-                        labelText: 'ইউজার আইডি নাম্বার',
+                        labelText: 'ইউজার আইডি নাম্বার *',
                         border: OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 10),
                     TextField(
                       controller: name,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
-                        labelText: 'ইউজার আইডি ও নাম',
+                        labelText: 'ইউজার আইডি ও নাম *',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -287,6 +420,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     TextField(
                       controller: mobile,
                       keyboardType: TextInputType.phone,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'মোবাইল নাম্বার',
                         border: OutlineInputBorder(),
@@ -295,6 +429,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     const SizedBox(height: 10),
                     TextField(
                       controller: packageName,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'প্যাকেজ',
                         border: OutlineInputBorder(),
@@ -302,7 +437,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<int>(
-                      value: selectedDate,
+                      initialValue: selectedDate,
                       decoration: const InputDecoration(
                         labelText: 'বিল ডেট',
                         border: OutlineInputBorder(),
@@ -337,7 +472,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         decimal: true,
                       ),
                       decoration: const InputDecoration(
-                        labelText: 'বিলের টাকা',
+                        labelText: 'বিলের টাকা *',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -363,7 +498,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   },
                   child: const Text('বাতিল'),
                 ),
-                FilledButton(
+                FilledButton.icon(
                   onPressed: () async {
                     if (userId.text.trim().isEmpty ||
                         name.text.trim().isEmpty) {
@@ -378,10 +513,10 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     }
 
                     final billAmount =
-                        double.tryParse(bill.text) ?? 0;
+                        double.tryParse(bill.text.trim()) ?? 0;
 
                     final paidAmount =
-                        double.tryParse(paid.text) ?? 0;
+                        double.tryParse(paid.text.trim()) ?? 0;
 
                     if (billAmount <= 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -416,13 +551,28 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       return;
                     }
 
-                    final today = DateTime.now()
-                        .toLocal()
-                        .toString()
-                        .split(' ')
-                        .first;
+                    final existing =
+                        await db.getCustomerByUserId(
+                      userId.text.trim(),
+                    );
 
-                    await db.addCustomer({
+                    if (existing != null) {
+                      if (!context.mounted) return;
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'এই ইউজার আইডি আগে থেকেই আছে',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    final today = todayDate();
+
+                    final customerId =
+                        await db.addCustomer({
                       'user_id': userId.text.trim(),
                       'name': name.text.trim(),
                       'mobile': mobile.text.trim(),
@@ -438,6 +588,16 @@ class _BillingHomePageState extends State<BillingHomePage> {
                           billAmount - paidAmount,
                       'active': 1,
                     });
+
+                    if (paidAmount > 0) {
+                      await db.addPayment({
+                        'customer_id': customerId,
+                        'user_id': userId.text.trim(),
+                        'amount': paidAmount,
+                        'payment_date': today,
+                        'note': 'প্রাথমিক পরিশোধ',
+                      });
+                    }
 
                     if (!mounted) return;
 
@@ -455,7 +615,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       ),
                     );
                   },
-                  child: const Text('সংরক্ষণ'),
+                  icon: const Icon(Icons.save),
+                  label: const Text('সংরক্ষণ'),
                 ),
               ],
             );
@@ -471,8 +632,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
     bill.dispose();
     paid.dispose();
   }
-
-  Future<void> takePayment(int index) async {
+    Future<void> takePayment(int index) async {
     final customer = customers[index];
 
     if (customer.id == null) return;
@@ -509,18 +669,15 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'মোট বিল: '
-                  '${customer.bill.toStringAsFixed(0)} টাকা',
+                  'মোট বিল: ${money(customer.bill)} টাকা',
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'ইতোমধ্যে পরিশোধ: '
-                  '${customer.paid.toStringAsFixed(0)} টাকা',
+                  'ইতোমধ্যে পরিশোধ: ${money(customer.paid)} টাকা',
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'বর্তমান বকেয়া: '
-                  '${customer.due.toStringAsFixed(0)} টাকা',
+                  'বর্তমান বকেয়া: ${money(customer.due)} টাকা',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                   ),
@@ -534,8 +691,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   ),
                   autofocus: true,
                   decoration: const InputDecoration(
-                    labelText:
-                        'আজ কত টাকা পরিশোধ করেছে?',
+                    labelText: 'আজ কত টাকা পরিশোধ করেছে?',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -549,11 +705,11 @@ class _BillingHomePageState extends State<BillingHomePage> {
               },
               child: const Text('বাতিল'),
             ),
-            FilledButton(
+            FilledButton.icon(
               onPressed: () async {
                 final payment =
                     double.tryParse(
-                          paymentController.text,
+                          paymentController.text.trim(),
                         ) ??
                         0;
 
@@ -572,9 +728,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        'সর্বোচ্চ '
-                        '${customer.due.toStringAsFixed(0)} '
-                        'টাকা নেওয়া যাবে',
+                        'সর্বোচ্চ ${money(customer.due)} টাকা নেওয়া যাবে',
                       ),
                     ),
                   );
@@ -587,11 +741,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 final newDue =
                     customer.bill - newPaid;
 
-                final today = DateTime.now()
-                    .toLocal()
-                    .toString()
-                    .split(' ')
-                    .first;
+                final today = todayDate();
 
                 await db.updateCustomer(
                   customer.id!,
@@ -621,15 +771,13 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                      '${payment.toStringAsFixed(0)} টাকা '
-                      'পেমেন্ট গ্রহণ করা হয়েছে',
+                      '${money(payment)} টাকা পেমেন্ট গ্রহণ করা হয়েছে',
                     ),
                   ),
                 );
               },
-              child: const Text(
-                'পেমেন্ট সংরক্ষণ',
-              ),
+              icon: const Icon(Icons.save),
+              label: const Text('পেমেন্ট সংরক্ষণ'),
             ),
           ],
         );
@@ -639,20 +787,235 @@ class _BillingHomePageState extends State<BillingHomePage> {
     paymentController.dispose();
   }
 
-  Future<void> selectBillDate(int date) async {
-    setState(() {
-      selectedBillDate = date;
-    });
+  Future<void> showPaymentHistory(
+    Customer customer,
+  ) async {
+    if (customer.id == null) return;
 
-    await loadCustomers();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaymentHistoryPage(
+          db: db,
+          customer: customer,
+        ),
+      ),
+    );
   }
 
-  Future<void> showAllUsers() async {
-    setState(() {
-      selectedBillDate = 0;
-    });
+  Future<void> editCustomer(int index) async {
+    final customer = customers[index];
 
-    await loadCustomers();
+    if (customer.id == null) return;
+
+    final name = TextEditingController(
+      text: customer.name,
+    );
+    final mobile = TextEditingController(
+      text: customer.mobile,
+    );
+    final packageName = TextEditingController(
+      text: customer.packageName,
+    );
+    final bill = TextEditingController(
+      text: money(customer.bill),
+    );
+
+    int selectedDate = customer.billDate;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('ইউজার তথ্য পরিবর্তন'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: name,
+                      decoration: const InputDecoration(
+                        labelText: 'ইউজার আইডি ও নাম',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: mobile,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'মোবাইল নাম্বার',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: packageName,
+                      decoration: const InputDecoration(
+                        labelText: 'প্যাকেজ',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int>(
+                      initialValue: selectedDate,
+                      decoration: const InputDecoration(
+                        labelText: 'বিল ডেট',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 7,
+                          child: Text('৭ তারিখ'),
+                        ),
+                        DropdownMenuItem(
+                          value: 14,
+                          child: Text('১৪ তারিখ'),
+                        ),
+                        DropdownMenuItem(
+                          value: 21,
+                          child: Text('২১ তারিখ'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() {
+                            selectedDate = value;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: bill,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'মাসিক বিল',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: Colors.blue.withValues(
+                          alpha: 0.08,
+                        ),
+                      ),
+                      child: Text(
+                        'ইউজার আইডি: ${customer.userId}\n'
+                        'বর্তমান পরিশোধ: ${money(customer.paid)} টাকা\n'
+                        'বর্তমান বকেয়া: ${money(customer.due)} টাকা',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text('বাতিল'),
+                ),
+                FilledButton.icon(
+                  onPressed: () async {
+                    final newName =
+                        name.text.trim();
+
+                    final newBill =
+                        double.tryParse(
+                              bill.text.trim(),
+                            ) ??
+                            0;
+
+                    if (newName.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'নাম লিখুন',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (newBill <= 0) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'সঠিক মাসিক বিল লিখুন',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (newBill < customer.paid) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'মাসিক বিল ইতোমধ্যে পরিশোধ করা টাকার চেয়ে কম হতে পারবে না',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    final newDue =
+                        newBill - customer.paid;
+
+                    await db.updateCustomer(
+                      customer.id!,
+                      {
+                        'name': newName,
+                        'mobile': mobile.text.trim(),
+                        'package_name':
+                            packageName.text.trim(),
+                        'bill_date': selectedDate,
+                        'amount': newBill,
+                        'total_amount': newBill,
+                        'due_amount': newDue,
+                      },
+                    );
+
+                    if (!mounted) return;
+
+                    Navigator.pop(dialogContext);
+
+                    await loadCustomers();
+
+                    if (!mounted) return;
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'ইউজারের তথ্য পরিবর্তন হয়েছে',
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.save),
+                  label: const Text('পরিবর্তন সংরক্ষণ'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    name.dispose();
+    mobile.dispose();
+    packageName.dispose();
+    bill.dispose();
   }
 
   Future<void> toggleCustomer(int index) async {
@@ -698,26 +1061,24 @@ class _BillingHomePageState extends State<BillingHomePage> {
           ),
           content: Text(
             '${customer.userId} - ${customer.name}\n\n'
-        'এই ইউজারের তথ্য স্থায়ীভাবে মুছে যাবে।',
+            'এই ইউজারের তথ্য ও পেমেন্ট হিস্ট্রি মুছে যাবে।\n'
+            'এই কাজটি আর ফিরিয়ে আনা যাবে না।',
           ),
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  false,
-                );
+                Navigator.pop(dialogContext, false);
               },
-              child: const Text('না'),
+              child: const Text('বাতিল'),
             ),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.red,
+              ),
               onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  true,
-                );
+                Navigator.pop(dialogContext, true);
               },
-              child: const Text('হ্যাঁ, মুছুন'),
+              child: const Text('মুছে ফেলুন'),
             ),
           ],
         );
@@ -743,62 +1104,15 @@ class _BillingHomePageState extends State<BillingHomePage> {
     );
   }
 
-  void showPaymentHistory(Customer customer) {
-    if (customer.id == null) return;
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PaymentHistoryPage(
-          db: db,
-          customer: customer,
-        ),
-      ),
-    );
-  }
-
-  Widget summaryCard(
-    String title,
-    String value,
-    IconData icon,
-  ) {
-    return Card(
-      margin: const EdgeInsets.symmetric(
-        horizontal: 5,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon),
-            const SizedBox(height: 6),
-            Text(
-              title,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-    Widget customerCard(
+  Widget customerCard(
     Customer customer,
     int index,
   ) {
+    final due = customer.due;
+
     return Card(
       margin: const EdgeInsets.symmetric(
-        horizontal: 8,
+        horizontal: 10,
         vertical: 5,
       ),
       child: Padding(
@@ -806,12 +1120,13 @@ class _BillingHomePageState extends State<BillingHomePage> {
         child: Column(
           children: [
             Row(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
                   child: Text(
                     '${index + 1}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -821,196 +1136,816 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${customer.userId} - ${customer.name}',
+                        customer.userId,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text(
-                        'মোবাইল: ${customer.mobile}',
-                      ),
-                      Text(
-                        'প্যাকেজ: ${customer.packageName}',
-                      ),
-                      Text(
-                        'বিল ডেট: ${customer.billDate} তারিখ',
+                        customer.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                Column(
-                  children: [
-                    IconButton(
-                      onPressed: () {
-                        toggleCustomer(index);
-                      },
-                      icon: Icon(
-                        customer.active
-                            ? Icons.check_circle
-                            : Icons.cancel,
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    color: customer.active
+                        ? Colors.green.withValues(alpha: 0.12)
+                        : Colors.red.withValues(alpha: 0.12),
+                  ),
+                  child: Text(
+                    customer.active
+                        ? 'Active'
+                        : 'Closed',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: customer.active
+                          ? Colors.green.shade700
+                          : Colors.red.shade700,
                     ),
-                    IconButton(
-                      onPressed: () {
-                        deleteCustomer(index);
-                      },
-                      icon: const Icon(
-                        Icons.delete,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ],
             ),
-            const Divider(),
+            const Divider(height: 18),
             Row(
-              mainAxisAlignment:
-                  MainAxisAlignment.spaceAround,
               children: [
-                Column(
-                  children: [
-                    const Text('বিল'),
-                    Text(
-                      '${customer.bill.toStringAsFixed(0)} ৳',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
+                Expanded(
+                  child: _infoItem(
+                    'মোবাইল',
+                    customer.mobile.isEmpty
+                        ? '-'
+                        : customer.mobile,
+                    Icons.phone,
+                  ),
+                ),
+                Expanded(
+                  child: _infoItem(
+                    'প্যাকেজ',
+                    customer.packageName.isEmpty
+                        ? '-'
+                        : customer.packageName,
+                    Icons.wifi,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _infoItem(
+                    'বিল',
+                    '${money(customer.bill)} ৳',
+                    Icons.receipt_long,
+                  ),
+                ),
+                Expanded(
+                  child: _infoItem(
+                    'পরিশোধ',
+                    '${money(customer.paid)} ৳',
+                    Icons.payments,
+                  ),
+                ),
+                Expanded(
+                  child: _infoItem(
+                    'বকেয়া',
+                    '${money(due)} ৳',
+                    Icons.money_off,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: due > 0
+                        ? () => takePayment(index)
+                        : null,
+                    icon: const Icon(
+                      Icons.payments,
+                      size: 18,
+                    ),
+                    label: const Text('পেমেন্ট'),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: 'পেমেন্ট হিস্ট্রি',
+                  onPressed: () {
+                    showPaymentHistory(customer);
+                  },
+                  icon: const Icon(
+                    Icons.history,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'এডিট',
+                  onPressed: () {
+                    editCustomer(index);
+                  },
+                  icon: const Icon(
+                    Icons.edit,
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'status') {
+                      toggleCustomer(index);
+                    } else if (value == 'delete') {
+                      deleteCustomer(index);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'status',
+                      child: Text(
+                        customer.active
+                            ? 'Closed করুন'
+                            : 'Active করুন',
                       ),
                     ),
-                  ],
-                ),
-                Column(
-                  children: [
-                    const Text('পরিশোধ'),
-                    Text(
-                      '${customer.paid.toStringAsFixed(0)} ৳',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                Column(
-                  children: [
-                    const Text('বকেয়া'),
-                    Text(
-                      '${customer.due.toStringAsFixed(0)} ৳',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: customer.due > 0
-                            ? Colors.red
-                            : Colors.green,
+                    const PopupMenuItem(
+                      value: 'delete',
+    child: Text(
+                        'ইউজার মুছে ফেলুন',
                       ),
                     ),
                   ],
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: customer.due > 0
-                    ? () {
-                        takePayment(index);
-                      }
-                    : null,
-                icon: const Icon(
-                  Icons.payments,
-                ),
-                label: Text(
-                  customer.due > 0
-                      ? 'পেমেন্ট গ্রহণ'
-                      : 'সম্পূর্ণ পরিশোধ',
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  showPaymentHistory(customer);
-                },
-                icon: const Icon(
-                  Icons.history,
-                ),
-                label: const Text(
-                  'পেমেন্ট হিস্ট্রি',
-                ),
-              ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _infoItem(
+    String title,
+    String value,
+    IconData icon,
+  ) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 17,
+        ),
+        const SizedBox(width: 5),
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 11,
+                ),
+              ),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+  Future<void> showDashboardDetails() async {
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('হিসাবের সারসংক্ষেপ'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _dashboardRow(
+                  'মোট ইউজার',
+                  '$totalUsers জন',
+                  Icons.people,
+                ),
+                _dashboardRow(
+                  'Active ইউজার',
+                  '$activeUsers জন',
+                  Icons.wifi,
+                ),
+                _dashboardRow(
+                  'Closed ইউজার',
+                  '$closedUsers জন',
+                  Icons.wifi_off,
+                ),
+                const Divider(),
+                _dashboardRow(
+                  'মোট বিল',
+                  '${money(totalBill)} ৳',
+                  Icons.receipt_long,
+                ),
+                _dashboardRow(
+                  'মোট পরিশোধ',
+                  '${money(totalPaid)} ৳',
+                  Icons.payments,
+                ),
+                _dashboardRow(
+                  'মোট বকেয়া',
+                  '${money(totalDue)} ৳',
+                  Icons.money_off,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('বন্ধ করুন'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _dashboardRow(
+    String title,
+    String value,
+    IconData icon,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        vertical: 7,
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 21),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 15,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> showCustomerDetails(
+    Customer customer,
+  ) async {
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('ইউজারের বিস্তারিত তথ্য'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                _detailRow(
+                  'ইউজার আইডি',
+                  customer.userId,
+                ),
+                _detailRow(
+                  'নাম',
+                  customer.name,
+                ),
+                _detailRow(
+                  'মোবাইল',
+                  customer.mobile.isEmpty
+                      ? '-'
+                      : customer.mobile,
+                ),
+                _detailRow(
+                  'প্যাকেজ',
+                  customer.packageName.isEmpty
+                      ? '-'
+                      : customer.packageName,
+                ),
+                _detailRow(
+                  'বিল ডেট',
+                  '${customer.billDate} তারিখ',
+                ),
+                _detailRow(
+                  'মাসিক বিল',
+                  '${money(customer.bill)} টাকা',
+                ),
+                _detailRow(
+                  'পরিশোধ',
+                  '${money(customer.paid)} টাকা',
+                ),
+                _detailRow(
+                  'বকেয়া',
+                  '${money(customer.due)} টাকা',
+                ),
+                _detailRow(
+                  'সর্বশেষ পেমেন্ট',
+                  customer.paymentDate.isEmpty
+                      ? 'কোনো পেমেন্ট নেই'
+                      : customer.paymentDate,
+                ),
+                _detailRow(
+                  'স্ট্যাটাস',
+                  customer.active
+                      ? 'Active'
+                      : 'Closed',
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('বন্ধ করুন'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                showPaymentHistory(customer);
+              },
+              icon: const Icon(Icons.history),
+              label: const Text('পেমেন্ট হিস্ট্রি'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(
+    String title,
+    String value,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        vertical: 5,
+      ),
+      child: Row(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 115,
+            child: Text(
+              '$title:',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> showTodayPayments() async {
+    final today = todayDate();
+
+    try {
+      final payments =
+          await db.getPaymentsByDate(today);
+
+      final summary =
+          await db.getPaymentSummary(today);
+
+      if (!mounted) return;
+
+      await showDialog(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text(
+              'আজকের পেমেন্ট',
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: payments.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(
+                        vertical: 20,
+                      ),
+                      child: Text(
+                        'আজ কোনো পেমেন্ট গ্রহণ করা হয়নি',
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            borderRadius:
+                                BorderRadius.circular(10),
+                            color: Colors.blue.withValues(
+                              alpha: 0.08,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              const Text(
+                                'আজ মোট কালেকশন',
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${money(summary['total'] ?? 0)} ৳',
+                                style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight:
+                                      FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${(summary['payment_count'] ?? 0).toInt()} টি পেমেন্ট',
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Flexible(
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: payments.length,
+                            itemBuilder:
+                                (context, index) {
+                              final payment =
+                                  payments[index];
+
+                              final amount =
+                                  (payment['amount']
+                                          as num?)
+                                      ?.toDouble() ??
+                                      0;
+
+                              final userId =
+                                  payment['user_id']
+                                          ?.toString() ??
+                                      '';
+
+                              return ListTile(
+                                dense: true,
+                                leading:
+                                    const CircleAvatar(
+                                  radius: 18,
+                                  child: Icon(
+                                    Icons.payments,
+                                    size: 18,
+                                  ),
+                                ),
+                                title: Text(
+                                  userId,
+                                  style:
+                                      const TextStyle(
+                                    fontWeight:
+                                        FontWeight.bold,
+                                  ),
+                                ),
+                                trailing: Text(
+                                  '${money(amount)} ৳',
+                                  style:
+                                      const TextStyle(
+                                   fontWeight:
+                                        FontWeight.bold,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                },
+                child: const Text('বন্ধ করুন'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'আজকের পেমেন্ট দেখাতে সমস্যা হয়েছে: $e',
+          ),
+        ),
+      );
     }
-    @override
+  }
+
+  void showSearchBox() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        final controller =
+            TextEditingController(
+          text: searchText,
+        );
+
+        return AlertDialog(
+          title: const Text('ইউজার খুঁজুন'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText:
+                  'আইডি / নাম / মোবাইল / প্যাকেজ',
+              prefixIcon: Icon(Icons.search),
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (value) {
+              setState(() {
+                searchText = value;
+              });
+              Navigator.pop(dialogContext);
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  searchText = '';
+                });
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('Clear'),
+            ),
+            FilledButton(
+              onPressed: () {
+                setState(() {
+                  searchText =
+                      controller.text.trim();
+                });
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('খুঁজুন'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> showMoreMenu(
+    String value,
+  ) async {
+    if (value == 'summary') {
+      await showDashboardDetails();
+    } else if (value == 'today') {
+      await showTodayPayments();
+    } else if (value == 'backup') {
+      await backupDatabase();
+    } else if (value == 'restore') {
+      await restoreDatabase();
+    }
+  }
+
+  Future<void> backupDatabase() async {
+    try {
+      final path = await db.backupDatabase();
+
+      if (!mounted) return;
+
+      if (path != null && path.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Backup সফলভাবে সংরক্ষণ হয়েছে',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Backup করতে সমস্যা হয়েছে: $e',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> restoreDatabase() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text(
+            'Backup Restore করবেন?',
+          ),
+          content: const Text(
+            'Restore করলে বর্তমান ইউজার, পেমেন্ট ও বিলের '
+            'তথ্য Backup-এর তথ্য দিয়ে প্রতিস্থাপিত হবে।\n\n'
+            'চালিয়ে যাওয়ার আগে বর্তমান ডেটার Backup রাখা ভালো।',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('বাতিল'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              child: const Text('Restore'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await db.restoreDatabase();
+
+      if (!mounted) return;
+
+      await loadCustomers();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Backup সফলভাবে Restore হয়েছে',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Restore করতে সমস্যা হয়েছে: $e',
+          ),
+        ),
+      );
+    }
+  }
+              List<Customer> get filteredCustomers {
+    if (searchText.trim().isEmpty) {
+      return customers;
+    }
+
+    final query = searchText.trim().toLowerCase();
+
+    return customers.where((customer) {
+      return customer.userId.toLowerCase().contains(query) ||
+          customer.name.toLowerCase().contains(query) ||
+          customer.mobile.toLowerCase().contains(query) ||
+          customer.packageName.toLowerCase().contains(query);
+    }).toList();
+  }
+
+  int get totalUsers {
+    return customers.length;
+  }
+
+  int get activeUsers {
+    return customers.where((customer) {
+      return customer.active;
+    }).length;
+  }
+
+  int get closedUsers {
+    return customers.where((customer) {
+      return !customer.active;
+    }).length;
+  }
+
+  String money(double value) {
+    if (value == value.roundToDouble()) {
+      return value.toStringAsFixed(0);
+    }
+
+    return value.toStringAsFixed(2);
+  }
+
+  String todayDate() {
+    final now = DateTime.now().toLocal();
+
+    final year =
+        now.year.toString().padLeft(4, '0');
+
+    final month =
+        now.month.toString().padLeft(2, '0');
+
+    final day =
+        now.day.toString().padLeft(2, '0');
+
+    return '$year-$month-$day';
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final visibleCustomers = filteredCustomers;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
           'Digital 24 Online Billing',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
         ),
+        centerTitle: true,
         actions: [
+          IconButton(
+            tooltip: 'ইউজার খুঁজুন',
+            onPressed: showSearchBox,
+            icon: const Icon(Icons.search),
+          ),
           PopupMenuButton<String>(
-            onSelected: (value) async {
-              try {
-                if (value == 'backup') {
-                  await db.backupDatabase();
-
-                  if (!mounted) return;
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Database Backup সম্পন্ন হয়েছে',
-                      ),
-                    ),
-                  );
-                } else if (value == 'restore') {
-                  await db.restoreDatabase();
-                  await loadCustomers();
-
-                  if (!mounted) return;
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Database Restore সম্পন্ন হয়েছে',
-                      ),
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (!mounted) return;
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'সমস্যা হয়েছে: $e',
-                    ),
-                  ),
-                );
-              }
-            },
+            tooltip: 'আরও',
+            onSelected: showMoreMenu,
             itemBuilder: (context) => const [
               PopupMenuItem(
+                value: 'summary',
+                child: ListTile(
+                  leading: Icon(Icons.dashboard),
+                  title: Text('হিসাবের সারসংক্ষেপ'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'today',
+                child: ListTile(
+                  leading: Icon(Icons.today),
+                  title: Text('আজকের পেমেন্ট'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuDivider(),
+              PopupMenuItem(
                 value: 'backup',
-                child: Text('Database Backup'),
+                child: ListTile(
+                  leading: Icon(Icons.backup),
+                  title: Text('Backup'),
+                  contentPadding: EdgeInsets.zero,
+                ),
               ),
               PopupMenuItem(
                 value: 'restore',
-                child: Text('Database Restore'),
+                child: ListTile(
+                  leading: Icon(Icons.restore),
+                  title: Text('Restore'),
+                  contentPadding: EdgeInsets.zero,
+                ),
               ),
             ],
           ),
         ],
-        centerTitle: true,
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: addCustomer,
@@ -1030,7 +1965,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
             ),
             const SizedBox(height: 4),
             const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
+              padding: EdgeInsets.symmetric(
+                horizontal: 8,
+              ),
               child: Text(
                 'Seroil Colony, 4 No. Road, Ghoramara, '
                 'Chandrima Rajshahi-6100',
@@ -1038,6 +1975,34 @@ class _BillingHomePageState extends State<BillingHomePage> {
               ),
             ),
             const SizedBox(height: 12),
+
+            if (searchText.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                ),
+                child: Card(
+                  child: ListTile(
+                    leading: const Icon(
+                      Icons.search,
+                    ),
+                    title: Text(
+                      'খোঁজা হচ্ছে: $searchText',
+                    ),
+                    trailing: IconButton(
+                      onPressed: () {
+                        setState(() {
+                          searchText = '';
+                        });
+                      },
+                      icon: const Icon(
+                        Icons.clear,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -1045,7 +2010,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   const SizedBox(width: 8),
                   ChoiceChip(
                     label: const Text('সকল'),
-                    selected: selectedBillDate == 0,
+                    selected:
+                        selectedBillDate == 0,
                     onSelected: (_) {
                       showAllUsers();
                     },
@@ -1053,7 +2019,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   const SizedBox(width: 8),
                   ChoiceChip(
                     label: const Text('৭ তারিখ'),
-                    selected: selectedBillDate == 7,
+                    selected:
+                        selectedBillDate == 7,
                     onSelected: (_) {
                       selectBillDate(7);
                     },
@@ -1061,7 +2028,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   const SizedBox(width: 8),
                   ChoiceChip(
                     label: const Text('১৪ তারিখ'),
-                    selected: selectedBillDate == 14,
+                    selected:
+                        selectedBillDate == 14,
                     onSelected: (_) {
                       selectBillDate(14);
                     },
@@ -1069,7 +2037,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   const SizedBox(width: 8),
                   ChoiceChip(
                     label: const Text('২১ তারিখ'),
-                    selected: selectedBillDate == 21,
+                    selected:
+                        selectedBillDate == 21,
                     onSelected: (_) {
                       selectBillDate(21);
                     },
@@ -1077,7 +2046,9 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 ],
               ),
             ),
+
             const SizedBox(height: 12),
+
             Text(
               reportTitle,
               style: const TextStyle(
@@ -1085,55 +2056,85 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 fontWeight: FontWeight.bold,
               ),
             ),
+
             const SizedBox(height: 8),
-                        SizedBox(
+
+            SizedBox(
               height: 100,
               child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
+                scrollDirection:
+                    Axis.horizontal,
                 child: Row(
                   children: [
                     summaryCard(
                       'মোট বিল',
-                      '${totalBill.toStringAsFixed(0)} ৳',
+                      '${money(totalBill)} ৳',
                       Icons.receipt_long,
                     ),
                     summaryCard(
                       'পরিশোধ',
-                      '${totalPaid.toStringAsFixed(0)} ৳',
+                      '${money(totalPaid)} ৳',
                       Icons.payments,
                     ),
                     summaryCard(
                       'বকেয়া',
-                      '${totalDue.toStringAsFixed(0)} ৳',
+                      '${money(totalDue)} ৳',
                       Icons.money_off,
                     ),
                   ],
                 ),
               ),
             ),
+
             const SizedBox(height: 8),
+
             Expanded(
               child: loading
                   ? const Center(
-                      child: CircularProgressIndicator(),
+                      child:
+                          CircularProgressIndicator(),
                     )
-                  : customers.isEmpty
-                      ? const Center(
+                  : visibleCustomers.isEmpty
+                      ? Center(
                           child: Text(
-                            'কোনো ইউজার পাওয়া যায়নি',
+                            searchText.isNotEmpty
+                                ? 'কোনো ইউজার পাওয়া যায়নি'
+                                : 'কোনো ইউজার পাওয়া যায়নি',
                           ),
                         )
                       : RefreshIndicator(
-                          onRefresh: loadCustomers,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.only(
+                          onRefresh:
+                              loadCustomers,
+                          child:
+                              ListView.builder(
+                            padding:
+                                const EdgeInsets.only(
                               bottom: 90,
                             ),
-                            itemCount: customers.length,
-                            itemBuilder: (context, index) {
-                              return customerCard(
-                                customers[index],
-                                index,
+                            itemCount:
+                                visibleCustomers.length,
+                            itemBuilder:
+                                (context, index) {
+                              final customer =
+                                  visibleCustomers[
+                                      index];
+
+                              final realIndex =
+                                  customers.indexOf(
+                                customer,
+                              );
+
+                              return GestureDetector(
+                                onTap: () {
+                                  showCustomerDetails(
+                                    customer,
+                                  );
+                                },
+                                child:
+                                    customerCard(
+                                  customer,
+                                  realIndex,
+                                ),
                               );
                             },
                           ),
@@ -1144,4 +2145,69 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-}
+              Widget summaryCard(
+    String title,
+    String value,
+    IconData icon,
+  ) {
+    return Container(
+      width: 145,
+      margin: const EdgeInsets.only(
+        left: 8,
+        right: 4,
+      ),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context)
+              .colorScheme
+              .outline
+              .withValues(alpha: 0.25),
+        ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 20,
+            child: Icon(
+              icon,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              mainAxisAlignment:
+                  MainAxisAlignment.center,
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow:
+                      TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow:
+                      TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+            }
