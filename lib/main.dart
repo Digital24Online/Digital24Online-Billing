@@ -601,7 +601,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
         ),
       ),
     );
-       amount.dispose(); note.dispose();
+        amount.dispose(); note.dispose();
   }
 
   Future<void> showPaymentHistory(Customer c) async {
@@ -648,7 +648,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       final packagePrices = <String, double>{};
       for (final p in packages) {
         if ((p['active'] ?? 1) == 1) {
-                    packagePrices['${p['name'] ?? ''}'.trim().toLowerCase()] =
+          packagePrices['${p['name'] ?? ''}'.trim().toLowerCase()] =
               ((p['price'] ?? 0) as num).toDouble();
         }
       }
@@ -698,7 +698,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           content: SizedBox(
             width: double.maxFinite,
             height: 500,
-            child: Column(children: [
+                        child: Column(children: [
               reportLine(t('মোট বিল', 'Total Bill'), '${money(bill)} ৳'),
               reportLine(t('মোট পরিশোধ', 'Total Paid'), '${money(paid)} ৳'),
               reportLine(t('বকেয়া', 'Due'), '${money((bill - paid).clamp(0, double.infinity))} ৳'),
@@ -724,7 +724,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
     } catch (e) { msg('$e'); }
   }
 
-    Widget reportLine(String a, String b) => Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [Expanded(child: Text(a)), Text(b, style: const TextStyle(fontWeight: FontWeight.bold))]));
+  Widget reportLine(String a, String b) => Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [Expanded(child: Text(a)), Text(b, style: const TextStyle(fontWeight: FontWeight.bold))]));
 
   Future<void> printReceipt(Customer c, Map<String, dynamic> p) async {
     final doc = pw.Document();
@@ -759,7 +759,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
     )));
     await Printing.layoutPdf(onLayout: (_) async => doc.save(), name: 'Receipt-$receipt.pdf');
   }
-
+  
   Future<void> printMonthlyReport(String month) async {
     final rows = await db.getBills(month);
     double total = 0, paid = 0;
@@ -779,7 +779,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
             return ['${r['user_id']}', '${r['name']}', '${r['package_name'] ?? ''}', money(b), money(p), money((b - p).clamp(0, double.infinity))];
           }).toList(),
         ),
-                pw.SizedBox(height: 12),
+        pw.SizedBox(height: 12),
         pw.Text('Total Bill: BDT ${money(total)}'), pw.Text('Total Paid: BDT ${money(paid)}'), pw.Text('Total Due: BDT ${money((total - paid).clamp(0, double.infinity))}'),
         pw.SizedBox(height: 20), pw.Text('Printed: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}'),
       ],
@@ -819,7 +819,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))) ],
         ),
       );
-    } catch (e) { msg('${t('আজকের Collection দেখাতে সমস্যা: ', 'Today collection error: ')}$e'); }
+         } catch (e) { msg('${t('আজকের Collection দেখাতে সমস্যা: ', 'Today collection error: ')}$e'); }
   }
 
   Future<void> reports() async {
@@ -829,7 +829,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
   Future<void> packageManagement() async {
     await showDialog<void>(context: context, builder: (ctx) => PackageManager(db: db, english: widget.english));
   }
-  
+
   Future<void> staffManagement() async {
     await showDialog<void>(context: context, builder: (ctx) => StaffManager(db: db, english: widget.english));
   }
@@ -855,7 +855,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))), FilledButton(onPressed: () => Navigator.pop(ctx, a.text.isNotEmpty && a.text == b.text), child: Text(t('চালু করুন', 'Enable')))],
     ));
-    if (ok == true) {
+        if (ok == true) {
       await p.setString('app_lock_hash', sha256.convert(a.text.codeUnits).toString());
       await p.setBool('app_lock_enabled', true);
       msg(t('App Lock চালু হয়েছে', 'App Lock enabled'));
@@ -875,7 +875,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
     ));
     c.dispose();
   }
-  
+
   Future<void> languageSwitch() async {
     final next = !widget.english;
     final p = await SharedPreferences.getInstance();
@@ -902,7 +902,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
               if (v == 'language') await languageSwitch();
               if (v == 'refresh') await loadCustomers();
             },
-            itemBuilder: (_) => [
+                        itemBuilder: (_) => [
               PopupMenuItem(value: 'today', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.today), title: Text(t('আজকের Collection', 'Today Collection')))),
               PopupMenuItem(value: 'monthly', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.calendar_month), title: Text(t('Monthly Billing', 'Monthly Billing')))),
               PopupMenuItem(value: 'packages', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.speed), title: Text(t('Package Management', 'Package Management')))),
@@ -915,7 +915,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           ),
         ],
       ),
-            floatingActionButton: FloatingActionButton.extended(onPressed: addCustomer, icon: const Icon(Icons.person_add), label: Text(t('ইউজার যোগ', 'Add Customer'))),
+      floatingActionButton: FloatingActionButton.extended(onPressed: addCustomer, icon: const Icon(Icons.person_add), label: Text(t('ইউজার যোগ', 'Add Customer'))),
       body: RefreshIndicator(
         onRefresh: loadCustomers,
         child: ListView(padding: const EdgeInsets.only(bottom: 100), children: [
@@ -931,7 +931,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           const SizedBox(height: 8),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Row(children: [chip('সকল', 0), chip('৭ তারিখ', 7), chip('১৪ তারিখ', 14), chip('২১ তারিখ', 21)])),
           const SizedBox(height: 8),
-          Center(child: Text(selectedBillDate == 0 ? t('সকল ইউজারের হিসাব', 'All Customers') : t('${bnNumber(selectedBillDate)} তারিখের হিসাব', 'Billing date $selectedBillDate'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+                    Center(child: Text(selectedBillDate == 0 ? t('সকল ইউজারের হিসাব', 'All Customers') : t('${bnNumber(selectedBillDate)} তারিখের হিসাব', 'Billing date $selectedBillDate'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
           if (searchText.isNotEmpty) Center(child: Text('${t('খোঁজা হচ্ছে', 'Searching')}: $searchText • ${filtered.length}')),
           const SizedBox(height: 6),
           if (loading) const SizedBox(height: 300, child: Center(child: CircularProgressIndicator()))
@@ -941,7 +941,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-  
+
   Widget chip(String label, int value) => Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 2), child: ChoiceChip(
     label: Text(widget.english ? ({'সকল': 'All', '৭ তারিখ': '7', '১৪ তারিখ': '14', '২১ তারিখ': '21'}[label] ?? label) : label),
     selected: selectedBillDate == value,
@@ -969,7 +969,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+                          children: [
                           Text(c.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                           Text(
                             'ID: ${c.userId}',
@@ -997,7 +997,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                           value: 'status',
                           child: Text(c.active ? t('Closed করুন', 'Close') : t('Active করুন', 'Activate')),
                         ),
-                                                PopupMenuItem(value: 'delete', child: Text(t('মুছে ফেলুন', 'Delete'))),
+                        PopupMenuItem(value: 'delete', child: Text(t('মুছে ফেলুন', 'Delete'))),
                       ],
                     ),
                   ],
@@ -1176,7 +1176,7 @@ class _StaffManagerState extends State<StaffManager> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
   }
-
+  
   Future<void> add() async {
     final n = TextEditingController();
     final m = TextEditingController();
@@ -1276,7 +1276,7 @@ class _ReportManagerState extends State<ReportManager> {
     final d = await showDatePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2100), initialDate: isFrom ? from : to);
     if (d != null) setState(() { if (isFrom) from = d; else to = d; });
   }
-  
+
   double sum(List<Map<String, dynamic>> r) => r.fold(0, (s, x) => s + ((x['amount'] ?? 0) as num).toDouble());
 
   @override Widget build(BuildContext context) {
@@ -1297,7 +1297,7 @@ class _ReportManagerState extends State<ReportManager> {
             const SizedBox(width: 6),
             Expanded(child: OutlinedButton(onPressed: busy ? null : loadDue, child: Text(t('Due Report', 'Due Report')))),
           ]),
-          const SizedBox(height: 8),
+                    const SizedBox(height: 8),
           if (busy) const LinearProgressIndicator(),
           Expanded(
             child: payments.isNotEmpty
