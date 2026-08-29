@@ -391,7 +391,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   });
                   final bid = await db.ensureBill(cid, monthKey(), date, b);
                   if (p > 0) {
-                    await db.addPayment(customerId: cid, billId: bid, amount: p, date: today(), note: 'প্রাথমিক পরিশোধ');
+                    await db.addPayment({'customer_id': cid, 'bill_id': bid, 'amount': p, 'payment_date': today(), 'note': 'প্রাথমিক পরিশোধ'});
                   }
                   if (ctx.mounted) Navigator.pop(ctx);
                   await loadCustomers();
@@ -583,7 +583,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 if (a <= 0 || a > due + 0.0001) { msg(t('সঠিক পরিমাণ দিন', 'Enter a valid amount')); return; }
                 setD(() => saving = true);
                 try {
-                  final paymentId = await db.addPayment(customerId: c.id!, billId: bid, amount: a, date: today(), staffId: staffId, note: note.text.trim());
+                  final paymentId = await db.addPayment({'customer_id': c.id!, 'bill_id': bid, 'amount': a, 'payment_date': today(), 'staff_id': staffId, 'note': note.text.trim()});
                   final history = await db.getPaymentHistory(c.id!, billId: bid);
                   final payment = history.firstWhere((x) => (x['id'] as num).toInt() == paymentId, orElse: () => history.first);
                   if (ctx.mounted) Navigator.pop(ctx);
