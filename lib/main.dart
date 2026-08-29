@@ -901,6 +901,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
               if (v == 'lock') await appLockSettings();
               if (v == 'language') await languageSwitch();
               if (v == 'refresh') await loadCustomers();
+              if (v == 'restore') await db.restoreDatabase();
             },
                         itemBuilder: (_) => [
               PopupMenuItem(value: 'today', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.today), title: Text(t('আজকের Collection', 'Today Collection')))),
@@ -911,6 +912,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
               PopupMenuItem(value: 'lock', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.lock), title: Text(t('App Lock / Password', 'App Lock / Password')))),
               PopupMenuItem(value: 'language', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.language), title: Text(widget.english ? 'বাংলা' : 'English'))),
               PopupMenuItem(value: 'refresh', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.refresh), title: Text(t('Refresh', 'Refresh')))),
+                          PopupMenuItem(value: 'restore', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.restore), title: Text(t('Restore Backup', 'Restore Backup')))),
             ],
           ),
         ],
