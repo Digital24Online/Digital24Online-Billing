@@ -1,4 +1,11 @@
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'database_helper.dart';
 
 void main() {
@@ -6,11 +13,44 @@ void main() {
   runApp(const Digital24OnlineBilling());
 }
 
-class Digital24OnlineBilling extends StatelessWidget {
+class Digital24OnlineBilling extends StatefulWidget {
   const Digital24OnlineBilling({super.key});
 
   @override
+  State<Digital24OnlineBilling> createState() => _AppState();
+}
+
+class _AppState extends State<Digital24OnlineBilling> {
+  bool locked = false;
+  bool ready = false;
+  bool english = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      locked = p.getBool('app_lock_enabled') ?? false;
+      english = p.getBool('english_language') ?? false;
+      ready = true;
+    });
+  }
+
+  void unlock() => setState(() => locked = false);
+
+  @override
   Widget build(BuildContext context) {
+    if (!ready) {
+      return const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+      );
+    }
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Digital 24 Online Billing',
@@ -19,7 +59,104 @@ class Digital24OnlineBilling extends StatelessWidget {
         colorSchemeSeed: Colors.blue,
         scaffoldBackgroundColor: const Color(0xFFF5F7FA),
       ),
-      home: const BillingHomePage(),
+      home: locked
+          ? LockScreen(onUnlocked: unlock)
+          : BillingHomePage(
+              english: english,
+              onLanguageChanged: (v) => setState(() => english = v),
+            ),
+    );
+  }
+}
+
+class LockScreen extends StatefulWidget {
+  final VoidCallback onUnlocked;
+  const LockScreen({super.key, required this.onUnlocked});
+
+  @override
+  State<LockScreen> createState() => _LockScreenState();
+}
+
+class _LockScreenState extends State<LockScreen> {
+  final controller = TextEditingController();
+  bool busy = false;
+  String? error;
+
+  String _hash(String value) => sha256.convert(value.codeUnits).toString();
+
+  Future<void> unlock() async {
+    if (controller.text.isEmpty) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    final p = await SharedPreferences.getInstance();
+    final saved = p.getString('app_lock_hash');
+    if (saved != null && _hash(controller.text) == saved) {
+      if (!mounted) return;
+      widget.onUnlocked();
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      busy = false;
+      error = 'পাসওয়ার্ড সঠিক নয়';
+    });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 430),
+          child: Card(
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircleAvatar(radius: 38, child: Icon(Icons.lock, size: 38)),
+                  const SizedBox(height: 16),
+                  const Text('Digital 24 Online Billing', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  const Text('অ্যাপ আনলক করতে পাসওয়ার্ড দিন'),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: controller,
+                    obscureText: true,
+                    onSubmitted: (_) => unlock(),
+                    decoration: InputDecoration(
+                      labelText: 'পাসওয়ার্ড',
+                      errorText: error,
+                      prefixIcon: const Icon(Icons.password),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: busy ? null : unlock,
+                      icon: busy
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.login),
+                      label: const Text('আনলক'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -29,6 +166,7 @@ class Customer {
   final String userId;
   final String name;
   final String mobile;
+  final String address;
   final String packageName;
   final int billDate;
   final double bill;
@@ -41,104 +179,78 @@ class Customer {
     required this.userId,
     required this.name,
     required this.mobile,
+    required this.address,
     required this.packageName,
     required this.billDate,
     required this.bill,
     required this.paid,
     required this.paymentDate,
-    this.active = true,
+    required this.active,
   });
 
-  double get due {
-    final value = bill - paid;
-    return value < 0 ? 0 : value;
+  double get due => (bill - paid).clamp(0, double.infinity).toDouble();
+
+  factory Customer.fromMap(Map<String, dynamic> m) {
+    return Customer(
+      id: (m['id'] as num?)?.toInt(),
+      userId: '${m['user_id'] ?? ''}',
+      name: '${m['name'] ?? ''}',
+      mobile: '${m['mobile'] ?? ''}',
+      address: '${m['address'] ?? ''}',
+      packageName: '${m['package_name'] ?? ''}',
+      billDate: (m['bill_date'] as num?)?.toInt() ?? 7,
+      bill: ((m['total_bill'] ?? 0) as num).toDouble(),
+      paid: ((m['total_paid'] ?? 0) as num).toDouble(),
+      paymentDate: '${m['payment_date'] ?? ''}',
+      active: (m['status'] ?? 1) == 1,
+    );
   }
 }
 
 class BillingHomePage extends StatefulWidget {
-  const BillingHomePage({super.key});
+  final bool english;
+  final ValueChanged<bool> onLanguageChanged;
+  const BillingHomePage({super.key, required this.english, required this.onLanguageChanged});
 
   @override
-  State<BillingHomePage> createState() =>
-      _BillingHomePageState();
+  State<BillingHomePage> createState() => _BillingHomePageState();
 }
 
-class _BillingHomePageState
-    extends State<BillingHomePage> {
-  final DatabaseHelper db =
-      DatabaseHelper.instance;
-
-  final List<Customer> customers = [];
-
+class _BillingHomePageState extends State<BillingHomePage> {
+  final db = DatabaseHelper.instance;
+  final customers = <Customer>[];
   int selectedBillDate = 0;
-  bool loading = true;
   String searchText = '';
+  bool loading = true;
 
-  double get totalBill {
-    return customers.fold(
-      0,
-      (sum, customer) => sum + customer.bill,
-    );
+  String t(String bn, String en) => widget.english ? en : bn;
+  String today() => DateFormat('yyyy-MM-dd').format(DateTime.now());
+  String monthKey() => DateFormat('yyyy-MM').format(DateTime.now());
+  String money(num n) => n.toDouble() % 1 == 0 ? n.toStringAsFixed(0) : n.toStringAsFixed(2);
+
+  String bnNumber(num n) {
+    const e = '0123456789';
+    const b = '০১২৩৪৫৬৭৮৯';
+    return n.toString().split('').map((x) {
+      final i = e.indexOf(x);
+      return i < 0 ? x : b[i];
+    }).join();
   }
 
-  double get totalPaid {
-    return customers.fold(
-      0,
-      (sum, customer) => sum + customer.paid,
-    );
-  }
+  double get totalBill => customers.fold(0, (s, c) => s + c.bill);
+  double get totalPaid => customers.fold(0, (s, c) => s + c.paid);
+  double get totalDue => customers.fold(0, (s, c) => s + c.due);
+  int get activeCount => customers.where((c) => c.active).length;
+  int get closedCount => customers.where((c) => !c.active).length;
 
-  double get totalDue {
-    return customers.fold(
-      0,
-      (sum, customer) => sum + customer.due,
-    );
-  }
-
-  int get totalUsers {
-    return customers.length;
-  }
-
-  int get activeUsers {
-    return customers
-        .where((customer) => customer.active)
-        .length;
-  }
-
-  int get closedUsers {
-    return customers
-        .where((customer) => !customer.active)
-        .length;
-  }
-
-  String get reportTitle {
-    if (selectedBillDate == 0) {
-      return 'সকল ইউজারের হিসাব';
-    }
-
-    return '${banglaNumber(selectedBillDate)} তারিখের হিসাব';
-  }
-
-  List<Customer> get filteredCustomers {
-    final query = searchText.trim().toLowerCase();
-
-    if (query.isEmpty) {
-      return customers;
-    }
-
-    return customers.where((customer) {
-      return customer.userId
-              .toLowerCase()
-              .contains(query) ||
-          customer.name
-              .toLowerCase()
-              .contains(query) ||
-          customer.mobile
-              .toLowerCase()
-              .contains(query) ||
-          customer.packageName
-              .toLowerCase()
-              .contains(query);
+  List<Customer> get filtered {
+    final q = searchText.trim().toLowerCase();
+    if (q.isEmpty) return customers;
+    return customers.where((c) {
+      return c.userId.toLowerCase().contains(q) ||
+          c.name.toLowerCase().contains(q) ||
+          c.mobile.contains(q) ||
+          c.packageName.toLowerCase().contains(q);
     }).toList();
   }
 
@@ -148,2913 +260,1079 @@ class _BillingHomePageState
     loadCustomers();
   }
 
-  String todayDate() {
-    final now = DateTime.now().toLocal();
-
-    final year =
-        now.year.toString().padLeft(4, '0');
-    final month =
-        now.month.toString().padLeft(2, '0');
-    final day =
-        now.day.toString().padLeft(2, '0');
-
-    return '$year-$month-$day';
-  }
-
-  String money(double value) {
-    if (value == value.roundToDouble()) {
-      return value.toStringAsFixed(0);
-    }
-
-    return value.toStringAsFixed(2);
-  }
-
-  String banglaNumber(int number) {
-    const english = '0123456789';
-    const bangla = '০১২৩৪৫৬৭৮৯';
-
-    return number.toString().split('').map((char) {
-      final index = english.indexOf(char);
-      return index >= 0
-          ? bangla[index]
-          : char;
-    }).join();
+  void msg(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   Future<void> loadCustomers() async {
-    if (mounted) {
-      setState(() {
-        loading = true;
-      });
-    }
-
+    if (mounted) setState(() => loading = true);
     try {
-      final data = selectedBillDate == 0
-          ? await db.getCustomers()
-          : await db.getCustomersByBillDate(
-              selectedBillDate,
-            );
-
-      final list = data.map((item) {
-        final bill =
-            (item['amount'] as num?)
-                    ?.toDouble() ??
-                0;
-
-        final paid =
-            (item['paid_amount'] as num?)
-                    ?.toDouble() ??
-                0;
-
-        return Customer(
-          id: item['id'] as int?,
-          userId:
-              item['user_id']?.toString() ?? '',
-          name:
-              item['name']?.toString() ?? '',
-          mobile:
-              item['mobile']?.toString() ?? '',
-          packageName:
-              item['package_name']?.toString() ??
-                  '',
-          billDate: int.tryParse(
-                item['bill_date']
-                        ?.toString() ??
-                    '',
-              ) ??
-              7,
-          bill: bill,
-          paid: paid,
-          paymentDate:
-              item['payment_date']
-                      ?.toString() ??
-                  '',
-          active:
-              (item['active'] ?? 1) == 1,
-        );
-      }).toList();
-
-      if (!mounted) return;
-
-      setState(() {
-        customers
-          ..clear()
-          ..addAll(list);
-        loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        loading = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'ডেটা লোড করতে সমস্যা হয়েছে: $e',
-          ),
-        ),
+      final rows = await db.getCustomers(
+        billDate: selectedBillDate == 0 ? null : selectedBillDate,
+        search: searchText,
       );
-    }
-  }
-
-  Future<bool> userIdExists(
-    String userId,
-  ) async {
-    final existing =
-        await db.getCustomerByUserId(
-      userId.trim(),
-    );
-
-    return existing != null;
-  }
-    Future<void> addCustomer() async {
-    final userIdController =
-        TextEditingController();
-    final nameController =
-        TextEditingController();
-    final mobileController =
-        TextEditingController();
-    final packageController =
-        TextEditingController();
-    final billController =
-        TextEditingController();
-    final paidController =
-        TextEditingController();
-
-    int selectedDate = 7;
-    bool saving = false;
-
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text(
-                'নতুন ইউজার যোগ করুন',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller:
-                          userIdController,
-                      textInputAction:
-                          TextInputAction.next,
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'ইউজার আইডি নাম্বার *',
-                        prefixIcon:
-                            Icon(Icons.badge),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller:
-                          nameController,
-                      textInputAction:
-                          TextInputAction.next,
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'ইউজারের নাম *',
-                        prefixIcon:
-                            Icon(Icons.person),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller:
-                          mobileController,
-                      keyboardType:
-                          TextInputType.phone,
-                      textInputAction:
-                          TextInputAction.next,
-                      decoration:
-                          const InputDecoration(
-                        labelText: 'মোবাইল নাম্বার',
-                        prefixIcon:
-                            Icon(Icons.phone),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller:
-                          packageController,
-                      textInputAction:
-                          TextInputAction.next,
-                      decoration:
-                          const InputDecoration(
-                        labelText: 'প্যাকেজ',
-                        prefixIcon:
-                            Icon(Icons.speed),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int>(
-                      initialValue: selectedDate,
-                      decoration:
-                          const InputDecoration(
-                        labelText: 'বিল ডেট',
-                        prefixIcon:
-                            Icon(Icons.calendar_month),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 7,
-                          child:
-                              Text('৭ তারিখ'),
-                        ),
-                        DropdownMenuItem(
-                          value: 14,
-                          child:
-                              Text('১৪ তারিখ'),
-                        ),
-                        DropdownMenuItem(
-                          value: 21,
-                          child:
-                              Text('২১ তারিখ'),
-                        ),
-                      ],
-                      onChanged: saving
-                          ? null
-                          : (value) {
-                              if (value != null) {
-                                setDialogState(() {
-                                  selectedDate =
-                                      value;
-                                });
-                              }
-                            },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller:
-                          billController,
-                      keyboardType:
-                          const TextInputType
-                              .numberWithOptions(
-                        decimal: true,
-                      ),
-                      textInputAction:
-                          TextInputAction.next,
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'মাসিক বিলের টাকা *',
-                        prefixIcon:
-                            Icon(Icons.receipt),
-                        suffixText: '৳',
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller:
-                          paidController,
-                      keyboardType:
-                          const TextInputType
-                              .numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'প্রাথমিক পরিশোধ',
-                        prefixIcon:
-                            Icon(Icons.payments),
-                        suffixText: '৳',
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: saving
-                      ? null
-                      : () {
-                          Navigator.pop(
-                            dialogContext,
-                          );
-                        },
-                  child:
-                      const Text('বাতিল'),
-                ),
-                FilledButton.icon(
-                  onPressed: saving
-                      ? null
-                      : () async {
-                          final userId =
-                              userIdController
-                                  .text
-                                  .trim();
-                          final name =
-                              nameController
-                                  .text
-                                  .trim();
-
-                          if (userId.isEmpty ||
-                              name.isEmpty) {
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'ইউজার আইডি ও নাম লিখুন',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          final billAmount =
-                              double.tryParse(
-                                    billController
-                                        .text
-                                        .trim(),
-                                  ) ??
-                                  0;
-
-                          final paidAmount =
-                              double.tryParse(
-                                    paidController
-                                        .text
-                                        .trim(),
-                                  ) ??
-                                  0;
-
-                          if (billAmount <= 0) {
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'সঠিক বিলের টাকা লিখুন',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          if (paidAmount < 0) {
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'সঠিক পরিশোধের টাকা লিখুন',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          if (paidAmount >
-                              billAmount) {
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'পরিশোধের টাকা বিলের চেয়ে বেশি হতে পারবে না',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          setDialogState(() {
-                            saving = true;
-                          });
-
-                          try {
-                            final exists =
-                                await userIdExists(
-                              userId,
-                            );
-
-                            if (exists) {
-                              if (dialogContext
-                                  .mounted) {
-                                setDialogState(() {
-                                  saving = false;
-                                });
-                              }
-
-                              if (context.mounted) {
-                                ScaffoldMessenger
-                                    .of(context)
-                                    .showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'এই ইউজার আইডি ইতোমধ্যে আছে',
-                                    ),
-                                  ),
-                                );
-                              }
-
-                              return;
-                            }
-
-                            final today =
-                                todayDate();
-
-                            final customerId =
-                                await db.addCustomer({
-                              'user_id': userId,
-                              'name': name,
-                              'mobile':
-                                  mobileController
-                                      .text
-                                      .trim(),
-                              'package_name':
-                                  packageController
-                                      .text
-                                      .trim(),
-                              'bill_date':
-                                  selectedDate,
-                              'amount':
-                                  billAmount,
-                              'total_amount':
-                                  billAmount,
-                              'paid_amount':
-                                  paidAmount,
-                              'due_amount':
-                                  billAmount -
-                                      paidAmount,
-                              'payment_date':
-                                  paidAmount > 0
-                                      ? today
-                                      : '',
-                              'active': 1,
-                            });
-
-                            if (paidAmount > 0) {
-                              await db.addPayment({
-                                'customer_id':
-                                    customerId,
-                                'user_id': userId,
-                                'amount':
-                                    paidAmount,
-                                'payment_date':
-                                    today,
-                                'note':
-                                    'প্রাথমিক পরিশোধ',
-                              });
-                            }
-
-                            if (!dialogContext
-                                .mounted) {
-                              return;
-                            }
-
-                            Navigator.pop(
-                              dialogContext,
-                            );
-
-                            await loadCustomers();
-
-                            if (!mounted) return;
-
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'ইউজার সফলভাবে সংরক্ষণ হয়েছে',
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            if (dialogContext
-                                .mounted) {
-                              setDialogState(() {
-                                saving = false;
-                              });
-                            }
-
-                            if (!context.mounted) {
-                              return;
-                            }
-
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'ইউজার সংরক্ষণে সমস্যা হয়েছে: $e',
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                  icon: saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child:
-                              CircularProgressIndicator(
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Icon(
-                          Icons.save,
-                        ),
-                  label: const Text(
-                    'সংরক্ষণ',
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    userIdController.dispose();
-    nameController.dispose();
-    mobileController.dispose();
-    packageController.dispose();
-    billController.dispose();
-    paidController.dispose();
-  }
-
-
-
-  Widget _paymentInfoRow(
-    String title,
-    String value,
-  ) {
-    return Padding(
-      padding:
-          const EdgeInsets.symmetric(
-        vertical: 3,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(title),
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  Future<void> editCustomer(int index) async {
-    final customer = customers[index];
-
-    if (customer.id == null) return;
-
-    final userIdController =
-        TextEditingController(text: customer.userId);
-    final nameController =
-        TextEditingController(text: customer.name);
-    final mobileController =
-        TextEditingController(text: customer.mobile);
-    final packageController =
-        TextEditingController(text: customer.packageName);
-    final billController =
-        TextEditingController(
-      text: money(customer.bill),
-    );
-
-    int selectedDate = customer.billDate;
-    bool saving = false;
-
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text(
-                'ইউজার তথ্য পরিবর্তন',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: userIdController,
-                      enabled: !saving,
-                      decoration: const InputDecoration(
-                        labelText: 'ইউজার আইডি *',
-                        prefixIcon:
-                            Icon(Icons.badge),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: nameController,
-                                            enabled: !saving,
-                      decoration: const InputDecoration(
-                        labelText: 'ইউজারের নাম *',
-                        prefixIcon:
-                            Icon(Icons.person),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: mobileController,
-                      enabled: !saving,
-                      keyboardType:
-                          TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'মোবাইল নাম্বার',
-                        prefixIcon:
-                            Icon(Icons.phone),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: packageController,
-                      enabled: !saving,
-                      decoration: const InputDecoration(
-                        labelText: 'প্যাকেজ',
-                        prefixIcon:
-                            Icon(Icons.speed),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int>(
-                      initialValue: selectedDate,
-                      decoration:
-                          const InputDecoration(
-                        labelText: 'বিল ডেট',
-                        prefixIcon:
-                            Icon(Icons.calendar_month),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 7,
-                          child:
-                              Text('৭ তারিখ'),
-                        ),
-                        DropdownMenuItem(
-                          value: 14,
-                          child:
-                              Text('১৪ তারিখ'),
-                        ),
-                        DropdownMenuItem(
-                          value: 21,
-                          child:
-                              Text('২১ তারিখ'),
-                        ),
-                      ],
-                      onChanged: saving
-                          ? null
-                          : (value) {
-                              if (value != null) {
-                                                                setDialogState(() {
-                                  selectedDate =
-                                      value;
-                                });
-                              }
-                            },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: billController,
-                      enabled: !saving,
-                      keyboardType:
-                          const TextInputType
-                              .numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'মাসিক বিল *',
-                        prefixIcon:
-                            Icon(Icons.receipt),
-                        suffixText: '৳',
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding:
-                          const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        borderRadius:
-                            BorderRadius.circular(
-                          10,
-                        ),
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
-                      ),
-                      child: Text(
-                        'বর্তমান পরিশোধ: '
-                        '${money(customer.paid)} ৳\n'
-                        'বর্তমান বকেয়া: '
-                        '${money(customer.due)} ৳\n\n'
-                        'পেমেন্ট পরিবর্তন করতে '
-                        '“পেমেন্ট গ্রহণ” ব্যবহার করুন।',
-                        style: const TextStyle(
-                          height: 1.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: saving
-                      ? null
-                      : () {
-                          Navigator.pop(
-                            dialogContext,
-                          );
-                        },
-                  child:
-                      const Text('বাতিল'),
-                ),
-                FilledButton.icon(
-                  onPressed: saving
-                      ? null
-                      : () async {
-                          final userId =
-                              userIdController
-                                                              .text
-                                  .trim();
-                          final name =
-                              nameController
-                                  .text
-                                  .trim();
-
-                          if (userId.isEmpty ||
-                              name.isEmpty) {
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'ইউজার আইডি ও নাম লিখুন',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          final billAmount =
-                              double.tryParse(
-                                    billController
-                                        .text
-                                        .trim(),
-                                  ) ??
-                                  0;
-
-                          if (billAmount <= 0) {
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'সঠিক বিলের টাকা লিখুন',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          if (customer.paid >
-                              billAmount) {
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'নতুন বিল বর্তমান পরিশোধের '
-                                  'টাকার চেয়ে কম হতে পারবে না। '
-                                  'পরিশোধ: ${money(customer.paid)} ৳',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          setDialogState(() {
-                            saving = true;
-                          });
-
-                          try {
-                            final other =
-                                await db
-                                    .getCustomerByUserId(
-                              userId,
-                            );
-
-                            if (other != null &&
-                                other['id'] !=
-                                    customer.id) {
-                              if (dialogContext
-                                  .mounted) {
-                                setDialogState(() {
-                                  saving = false;
-                                });
-                              }
-                              
-                              if (context.mounted) {
-                                ScaffoldMessenger
-                                    .of(context)
-                                    .showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'এই ইউজার আইডি অন্য একজন ব্যবহার করছে',
-                                    ),
-                                  ),
-                                );
-                              }
-
-                              return;
-                            }
-
-                            final newDue =
-                                billAmount -
-                                    customer.paid;
-
-                            await db.updateCustomer(
-                              customer.id!,
-                              {
-                                'user_id': userId,
-                                'name': name,
-                                'mobile':
-                                    mobileController
-                                        .text
-                                        .trim(),
-                                'package_name':
-                                    packageController
-                                        .text
-                                        .trim(),
-                                'bill_date':
-                                    selectedDate,
-                                'amount':
-                                    billAmount,
-                                'total_amount':
-                                    billAmount,
-                                'due_amount':
-                                    newDue,
-                              },
-                            );
-
-                            if (!dialogContext
-                                .mounted) {
-                              return;
-                            }
-
-                            Navigator.pop(
-                              dialogContext,
-                            );
-
-                            await loadCustomers();
-
-                            if (!mounted) return;
-
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'ইউজারের তথ্য সফলভাবে পরিবর্তন হয়েছে',
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            if (dialogContext
-                                .mounted) {
-                              setDialogState(() {
-                                saving = false;
-                              });
-                            }
-
-                            if (!context.mounted) {
-                              return;
-                            }
-
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'তথ্য পরিবর্তনে সমস্যা হয়েছে: $e',
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                  icon: saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child:
-                              CircularProgressIndicator(
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Icon(Icons.save),
-                  label: const Text(
-                    'সংরক্ষণ',
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    userIdController.dispose();
-    nameController.dispose();
-    mobileController.dispose();
-    packageController.dispose();
-    billController.dispose();
-  }
-
-  Future<void> toggleCustomer(
-    int index,
-  ) async {
-    final customer = customers[index];
-
-    if (customer.id == null) return;
-
-    final newStatus = !customer.active;
-
-    try {
-      await db.updateCustomerStatus(
-        customer.id!,
-        newStatus,
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        customer.active = newStatus;
-      });
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        SnackBar(
-          content: Text(
-            newStatus
-                ? 'ইউজার Active করা হয়েছে'
-                : 'ইউজার Closed করা হয়েছে',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        SnackBar(
-          content: Text(
-            'স্ট্যাটাস পরিবর্তন করা যায়নি: $e',
-          ),
-        ),
-      );
-    }
-  }
-
-  Future<void> deleteCustomer(
-    int index,
-  ) async {
-    final customer = customers[index];
-
-    if (customer.id == null) return;
-
-    final confirm =
-        await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-                    title: const Text(
-            'ইউজার মুছে ফেলবেন?',
-          ),
-          content: Text(
-            '${customer.userId} - ${customer.name}\n\n'
-            'এই ইউজারের তথ্য এবং সংশ্লিষ্ট '
-            'পেমেন্ট/বিল হিস্ট্রি মুছে যাবে।\n\n'
-            'এই কাজটি পরে ফিরিয়ে আনা যাবে না।',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  false,
-                );
-              },
-              child:
-                  const Text('বাতিল'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  true,
-                );
-              },
-              child:
-                  const Text('মুছে ফেলুন'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirm != true) return;
-
-    try {
-      await db.deleteCustomer(
-        customer.id!,
-      );
-
-      if (!mounted) return;
-
-      await loadCustomers();
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        const SnackBar(
-          content: Text(
-            'ইউজার মুছে ফেলা হয়েছে',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        SnackBar(
-          content: Text(
-            'ইউজার মুছতে সমস্যা হয়েছে: $e',
-          ),
-        ),
-      );
-    }
-  }
-
-  Future<void> selectBillDate(
-    int date,
-  ) async {
-    if (selectedBillDate == date) return;
-
-    setState(() {
-      selectedBillDate = date;
-      searchText = '';
-    });
-
-    await loadCustomers();
-  }
-
-  Future<void> showAllUsers() async {
-    if (selectedBillDate == 0) return;
-
-    setState(() {
-      selectedBillDate = 0;
-      searchText = '';
-    });
-
-    await loadCustomers();
-  }
-    Future<void> showCustomerDetails(
-    Customer customer,
-  ) async {
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text(
-            'ইউজারের বিস্তারিত তথ্য',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                _detailRow(
-                  'ইউজার আইডি',
-                  customer.userId,
-                ),
-                _detailRow(
-                  'নাম',
-                  customer.name,
-                ),
-                _detailRow(
-                  'মোবাইল',
-                  customer.mobile.isEmpty
-                      ? '-'
-                      : customer.mobile,
-                ),
-                _detailRow(
-                  'প্যাকেজ',
-                  customer.packageName.isEmpty
-                      ? '-'
-                      : customer.packageName,
-                ),
-                _detailRow(
-                  'বিল ডেট',
-                  '${banglaNumber(customer.billDate)} তারিখ',
-                ),
-                _detailRow(
-                  'মাসিক বিল',
-                  '${money(customer.bill)} টাকা',
-                ),
-                _detailRow(
-                  'পরিশোধ',
-                  '${money(customer.paid)} টাকা',
-                ),
-                _detailRow(
-                  'বকেয়া',
-                  '${money(customer.due)} টাকা',
-                ),
-                _detailRow(
-                  'সর্বশেষ পেমেন্ট',
-                  customer.paymentDate.isEmpty
-                      ? 'কোনো পেমেন্ট নেই'
-                      : customer.paymentDate,
-                ),
-                _detailRow(
-                  'স্ট্যাটাস',
-                  customer.active
-                      ? 'Active'
-                      : 'Closed',
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-              },
-              child: const Text('বন্ধ করুন'),
-            ),
-            FilledButton.icon(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                showPaymentHistory(customer);
-              },
-              icon: const Icon(Icons.history),
-              label: const Text('পেমেন্ট হিস্ট্রি'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _detailRow(
-    String title,
-    String value,
-  ) {
-    return Padding(
-      padding:
-          const EdgeInsets.symmetric(
-        vertical: 5,
-      ),
-      child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              '$title:',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(value),
-          ),
-        ],
-      ),
-    );
-  }   
-  
-  Future<void> showPaymentHistory(
-    Customer customer,
-  ) async {
-    if (customer.id == null) return;
-
-    try {
-      final payments =
-          await db.getPaymentHistory(
-        customer.id!,
-      );
-
-      if (!mounted) return;
-
-      await showDialog(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: Text(
-              'পেমেন্ট হিস্ট্রি\n'
-              '${customer.userId} - ${customer.name}',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 17,
-              ),
-            ),
-            content: SizedBox(
-              width: double.maxFinite,
-              height: 420,
-              child: payments.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'এখনও কোনো পেমেন্ট হিস্ট্রি নেই',
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount:
-                          payments.length,
-                      separatorBuilder:
-                          (context, index) =>
-                              const Divider(
-                        height: 1,
-                      ),
-                      itemBuilder:
-                          (context, index) {
-                        final payment =
-                            payments[index];
-
-                        final amount =
-                            (payment['amount']
-                                        as num?)
-                                    ?.toDouble() ??
-                                0;
-
-                        final date =
-                            payment['payment_date']
-                                    ?.toString() ??
-                                '';
-
-                        final note =
-                            payment['note']
-                                    ?.toString() ??
-                                '';
-
-                        return ListTile(
-                          contentPadding:
-                              EdgeInsets.zero,
-                          leading:
-                              const CircleAvatar(
-                            child: Icon(
-                              Icons.payments,
-                            ),
-                          ),
-                          title: Text(
-                            '${money(amount)} ৳',
-                            style:
-                                const TextStyle(
-                              fontWeight:
-                                  FontWeight.bold,
-                            ),
-                          ),
-                          subtitle: Text(
-                            'তারিখ: $date'
-                            '${note.isNotEmpty ? '\n$note' : ''}',
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(
-                    dialogContext,
-                  );
-                },
-                child:
-                    const Text('বন্ধ করুন'),
-              ),
-            ],
-          );
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        SnackBar(
-                    content: Text(
-            'পেমেন্ট হিস্ট্রি দেখাতে সমস্যা হয়েছে: $e',
-          ),
-        ),
-      );
-    }
-  }
-
-  Future<void> showDashboardDetails() async {
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text(
-            'হিসাবের সারসংক্ষেপ',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _dashboardRow(
-                  'মোট ইউজার',
-                  '${banglaNumber(totalUsers)} জন',
-                  Icons.people,
-                ),
-                _dashboardRow(
-                  'Active ইউজার',
-                  '${banglaNumber(activeUsers)} জন',
-                  Icons.wifi,
-                ),
-                _dashboardRow(
-                  'Closed ইউজার',
-                  '${banglaNumber(closedUsers)} জন',
-                  Icons.wifi_off,
-                ),
-                const Divider(),
-                _dashboardRow(
-                  'মোট বিল',
-                  '${money(totalBill)} ৳',
-                  Icons.receipt_long,
-                ),
-                _dashboardRow(
-                  'মোট পরিশোধ',
-                  '${money(totalPaid)} ৳',
-                  Icons.payments,
-                ),
-                _dashboardRow(
-                  'মোট বকেয়া',
-                  '${money(totalDue)} ৳',
-                  Icons.money_off,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                );
-              },
-              child:
-                  const Text('বন্ধ করুন'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _dashboardRow(
-    String title,
-    String value,
-    IconData icon,
-  ) {
-    return Padding(
-      padding:
-          const EdgeInsets.symmetric(
-        vertical: 7,
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 21),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(title),
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> showTodayPayments() async {
-    final today = todayDate();
-
-    try {
-      final payments =
-          await db.getPaymentsByDate(
-        today,
-      );
-
-      final summary =
-          await db.getPaymentSummary(
-        today,
-      );
-
-      if (!mounted) return;
-
-      await showDialog(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: Text(
-              'আজকের পেমেন্ট\n$today',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            content: SizedBox(
-              width: double.maxFinite,
-              height: 430,
-              child: payments.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'আজ কোনো পেমেন্ট গ্রহণ করা হয়নি',
-                        textAlign:
-                            TextAlign.center,
-                      ),
-                    )
-                  : Column(
-                      children: [
-                        Container(
-                          width:
-                              double.infinity,
-                          padding:
-                              const EdgeInsets.all(
-                            14,
-                          ),
-                          decoration:
-                              BoxDecoration(
-                            borderRadius:
-                                BorderRadius
-                                    .circular(
-                              12,
-                            ),
-                            color: Theme.of(
-                              context,
-                            )
-                                .colorScheme
-                                .primaryContainer,
-                          ),
-                          child: Column(
-                            children: [
-                              const Text(
-                                'আজ মোট কালেকশন',
-                                style:
-                                    TextStyle(
-                                  fontWeight:
-                                      FontWeight
-                                          .w500,
-                                ),
-                              ),
-                              const SizedBox(
-                                height: 5,
-                              ),
-                              Text(
-                                '${money(summary['total'] ?? 0)} ৳',
-                                style:
-                                    const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight:
-                                      FontWeight
-                                          .bold,
-                                ),
-                              ),
-                              const SizedBox(
-                                height: 3,
-                              ),
-                              Text(
-                                '${(summary['payment_count'] ?? 0).toInt()} টি পেমেন্ট',
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(
-                          height: 10,
-                        ),
-                        Expanded(
-                          child:
-                              ListView.separated(
-                            itemCount:
-                                payments.length,
-                            separatorBuilder:
-                                (context,
-                                        index) =>
-                                    const Divider(
-                              height: 1,
-                            ),
-                            itemBuilder:
-                                (context,
-                                    index) {
-                              final payment =
-                                  payments[index];
-
-                              final amount =
-                                  (payment['amount']
-                                              as num?)
-                                          ?.toDouble() ??
-                                      0;
-
-                              final userId =
-                                  payment['user_id']
-                                          ?.toString() ??
-                                      '';
-
-                              return ListTile(
-                                contentPadding:
-                                    EdgeInsets.zero,
-                                leading:
-                                    const CircleAvatar(
-                                  child: Icon(
-                                    Icons.payments,
-                                  ),
-                                ),
-                                title: Text(
-                                  userId,
-                                  style:
-                                      const TextStyle(
-                                    fontWeight:
-                                        FontWeight
-                                            .bold,
-                                  ),
-                                ),
-                                trailing: Text(
-                                  '${money(amount)} ৳',
-                                  style:
-                                      const TextStyle(
-                                    fontWeight:
-                                        FontWeight
-                                            .bold,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(
-                    dialogContext,
-                  );
-                },
-                child:
-                    const Text('বন্ধ করুন'),
-              ),
-            ],
-          );
-        },
-      );
-        } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        SnackBar(
-          content: Text(
-            'আজকের পেমেন্ট দেখাতে সমস্যা হয়েছে: $e',
-          ),
-        ),
-      );
-    }
-  }
-    Future<void> backupData() async {
-    try {
-      final path = await db.backupDatabase();
-
-      if (!mounted) return;
-
-      if (path == null || path.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Backup বাতিল করা হয়েছে'),
-          ),
-        );
-        return;
+      final currentBills = await db.getBills(monthKey());
+      final packages = await db.getPackages();
+      final packagePrices = <String, double>{};
+      for (final p in packages) {
+        if ((p['active'] ?? 1) == 1) {
+          packagePrices['${p['name'] ?? ''}'.trim().toLowerCase()] =
+              ((p['price'] ?? 0) as num).toDouble();
+        }
       }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Backup সফলভাবে সংরক্ষণ হয়েছে\n$path',
-          ),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      final billsByCustomer = <int, Map<String, dynamic>>{};
+      for (final b in currentBills) {
+        final id = b['customer_id'];
+        if (id is num) billsByCustomer[id.toInt()] = b;
+      }
+      final list = <Customer>[];
+      for (final r in rows) {
+        final id = (r['id'] as num?)?.toInt();
+        final current = id == null ? null : billsByCustomer[id];
+        final packageName = '${r['package_name'] ?? ''}'.trim();
+        final packagePrice = packagePrices[packageName.toLowerCase()] ?? 0;
+        final billAmount = current == null
+            ? packagePrice
+            : ((current['amount'] ?? 0) as num).toDouble();
+        final paidAmount = current == null
+            ? 0.0
+            : ((current['paid'] ?? 0) as num).toDouble();
+        list.add(Customer(
+          id: id,
+          userId: '${r['user_id'] ?? ''}',
+          name: '${r['name'] ?? ''}',
+          mobile: '${r['mobile'] ?? ''}',
+          address: '${r['address'] ?? ''}',
+          packageName: packageName,
+          billDate: (r['bill_date'] as num?)?.toInt() ?? 7,
+          bill: billAmount,
+          paid: paidAmount,
+          paymentDate: '${r['payment_date'] ?? ''}',
+          active: (r['status'] ?? 1) == 1,
+        ));
+      }
+      if (!mounted) return;
+      setState(() {
+        customers..clear()..addAll(list);
+        loading = false;
+      });
     } catch (e) {
       if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Backup করতে সমস্যা হয়েছে: $e',
-          ),
-        ),
-      );
+      setState(() => loading = false);
+      msg('${t('ডেটা লোডে সমস্যা: ', 'Load error: ')}$e');
     }
   }
 
-  Future<void> restoreData() async {
-    final confirm = await showDialog<bool>(
+  Future<bool> userIdExists(String uid, {int? exceptId}) async {
+    final rows = await db.getCustomers(search: uid.trim());
+    return rows.any((r) => '${r['user_id']}'.toLowerCase() == uid.trim().toLowerCase() && r['id'] != exceptId);
+  }
+
+  Future<void> addCustomer() async {
+    final uid = TextEditingController();
+    final name = TextEditingController();
+    final mobile = TextEditingController();
+    final address = TextEditingController();
+    final pkg = TextEditingController();
+    final bill = TextEditingController();
+    final paid = TextEditingController(text: '0');
+    int date = 7;
+    bool saving = false;
+
+    await showDialog<void>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text(
-            'Backup Restore করবেন?',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: const Text(
-            'Restore করলে বর্তমানে অ্যাপে থাকা '
-            'ইউজার, বিল এবং পেমেন্টের তথ্য '
-            'Backup ফাইলের তথ্য দিয়ে প্রতিস্থাপিত হবে।\n\n'
-            'Restore করার আগে বর্তমান ডেটার একটি Backup '
-            'রাখা ভালো।\n\n'
-            'আপনি কি নিশ্চিত?',
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text(t('নতুন ইউজার যোগ করুন', 'Add New Customer')),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              field(uid, t('ইউজার আইডি *', 'User ID *'), Icons.badge),
+              const SizedBox(height: 10),
+              field(name, t('ইউজারের নাম *', 'Customer name *'), Icons.person),
+              const SizedBox(height: 10),
+              field(mobile, t('মোবাইল', 'Mobile'), Icons.phone, type: TextInputType.phone),
+              const SizedBox(height: 10),
+              field(address, t('ঠিকানা', 'Address'), Icons.home),
+              const SizedBox(height: 10),
+              field(pkg, t('প্যাকেজ', 'Package'), Icons.speed),
+              const SizedBox(height: 10),
+              dateDrop(date, (v) => setD(() => date = v)),
+              const SizedBox(height: 10),
+              field(bill, t('মাসিক বিল *', 'Monthly Bill *'), Icons.receipt, type: const TextInputType.numberWithOptions(decimal: true)),
+              const SizedBox(height: 10),
+              field(paid, t('প্রাথমিক পরিশোধ', 'Initial Payment'), Icons.payments, type: const TextInputType.numberWithOptions(decimal: true)),
+            ]),
           ),
           actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  false,
-                );
+            TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: Text(t('বাতিল', 'Cancel'))),
+            FilledButton.icon(
+              onPressed: saving ? null : () async {
+                final id = uid.text.trim();
+                final nm = name.text.trim();
+                final b = double.tryParse(bill.text.trim()) ?? 0;
+                final p = double.tryParse(paid.text.trim()) ?? 0;
+                if (id.isEmpty || nm.isEmpty || b <= 0 || p < 0 || p > b) {
+                  msg(t('আইডি, নাম ও সঠিক বিল/পরিশোধ দিন', 'Enter valid ID, name, bill and payment'));
+                  return;
+                }
+                setD(() => saving = true);
+                try {
+                  if (await userIdExists(id)) throw Exception(t('এই ইউজার আইডি ইতোমধ্যে আছে', 'User ID already exists'));
+                  final cid = await db.addCustomer({
+                    'user_id': id,
+                    'name': nm,
+                    'mobile': mobile.text.trim(),
+                    'address': address.text.trim(),
+                    'package_name': pkg.text.trim(),
+                    'bill_date': date,
+                    'status': 1,
+                  });
+                  final bid = await db.ensureBill(cid, monthKey(), date, b);
+                  if (p > 0) {
+                    await db.addPayment(customerId: cid, billId: bid, amount: p, date: today(), note: 'প্রাথমিক পরিশোধ');
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  await loadCustomers();
+                  msg(t('ইউজার সফলভাবে সংরক্ষণ হয়েছে', 'Customer saved successfully'));
+                } catch (e) {
+                  if (ctx.mounted) setD(() => saving = false);
+                  msg('$e');
+                }
               },
-              child: const Text('বাতিল'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  true,
-                );
-              },
-              child: const Text('Restore'),
+              icon: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
+              label: Text(t('সংরক্ষণ', 'Save')),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
+    for (final c in [uid, name, mobile, address, pkg, bill, paid]) c.dispose();
+  }
 
-    if (confirm != true) return;
+  Widget field(TextEditingController c, String label, IconData icon, {TextInputType type = TextInputType.text}) {
+    return TextField(controller: c, keyboardType: type, decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon), border: const OutlineInputBorder()));
+  }
 
+  Widget dateDrop(int value, ValueChanged<int> onChanged) {
+    return DropdownButtonFormField<int>(
+      initialValue: value,
+      decoration: InputDecoration(labelText: t('বিল ডেট', 'Billing Date'), prefixIcon: const Icon(Icons.calendar_month), border: const OutlineInputBorder()),
+      items: const [7, 14, 21].map((x) => DropdownMenuItem(value: x, child: Text('$x'))).toList(),
+      onChanged: (v) => onChanged(v ?? 7),
+    );
+  }
+
+  Future<void> editCustomer(Customer c) async {
+    if (c.id == null) return;
+    final uid = TextEditingController(text: c.userId);
+    final name = TextEditingController(text: c.name);
+    final mobile = TextEditingController(text: c.mobile);
+    final address = TextEditingController(text: c.address);
+    final pkg = TextEditingController(text: c.packageName);
+    int date = c.billDate;
+    bool saving = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text(t('ইউজার তথ্য পরিবর্তন', 'Edit Customer')),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            field(uid, t('ইউজার আইডি', 'User ID'), Icons.badge),
+            const SizedBox(height: 10), field(name, t('নাম', 'Name'), Icons.person),
+            const SizedBox(height: 10), field(mobile, t('মোবাইল', 'Mobile'), Icons.phone, type: TextInputType.phone),
+            const SizedBox(height: 10), field(address, t('ঠিকানা', 'Address'), Icons.home),
+            const SizedBox(height: 10), field(pkg, t('প্যাকেজ', 'Package'), Icons.speed),
+            const SizedBox(height: 10), dateDrop(date, (v) => setD(() => date = v)),
+          ])),
+          actions: [
+            TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: Text(t('বাতিল', 'Cancel'))),
+            FilledButton.icon(
+              onPressed: saving ? null : () async {
+                if (uid.text.trim().isEmpty || name.text.trim().isEmpty) return;
+                setD(() => saving = true);
+                try {
+                  if (await userIdExists(uid.text.trim(), exceptId: c.id)) throw Exception(t('এই ইউজার আইডি অন্য একজন ব্যবহার করছে', 'User ID is already used'));
+                  await db.updateCustomer(c.id!, {
+                    'user_id': uid.text.trim(), 'name': name.text.trim(), 'mobile': mobile.text.trim(),
+                    'address': address.text.trim(), 'package_name': pkg.text.trim(), 'bill_date': date,
+                  });
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  await loadCustomers();
+                  msg(t('তথ্য পরিবর্তন হয়েছে', 'Customer updated'));
+                } catch (e) {
+                  if (ctx.mounted) setD(() => saving = false);
+                  msg('$e');
+                }
+              },
+              icon: const Icon(Icons.save), label: Text(t('সংরক্ষণ', 'Save')),
+            ),
+          ],
+        ),
+      ),
+    );
+    for (final c in [uid, name, mobile, address, pkg]) c.dispose();
+  }
+
+  Future<void> toggleCustomer(Customer c) async {
+    if (c.id == null) return;
     try {
-      await db.restoreDatabase();
-
-      if (!mounted) return;
-
+      await db.setCustomerStatus(c.id!, !c.active);
       await loadCustomers();
-      
-      if (!mounted) return;
+      msg(c.active ? t('ইউজার Closed করা হয়েছে', 'Customer closed') : t('ইউজার Active করা হয়েছে', 'Customer activated'));
+    } catch (e) { msg('$e'); }
+  }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Backup সফলভাবে Restore হয়েছে',
-          ),
+  Future<void> deleteCustomer(Customer c) async {
+    if (c.id == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('ইউজার মুছে ফেলবেন?', 'Delete customer?')),
+        content: Text('${c.userId} - ${c.name}\n\n${t('এই কাজটি ফিরিয়ে আনা যাবে না।', 'This action cannot be undone.')}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('মুছে ফেলুন', 'Delete'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await db.deleteCustomer(c.id!);
+      await loadCustomers();
+      msg(t('ইউজার মুছে ফেলা হয়েছে', 'Customer deleted'));
+    } catch (e) { msg('$e'); }
+  }
+
+  Future<void> showDetails(Customer c) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('ইউজারের বিস্তারিত তথ্য', 'Customer Details')),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          detail('ইউজার আইডি', c.userId), detail('নাম', c.name), detail('মোবাইল', c.mobile.isEmpty ? '-' : c.mobile),
+          detail('ঠিকানা', c.address.isEmpty ? '-' : c.address), detail('প্যাকেজ', c.packageName.isEmpty ? '-' : c.packageName),
+          detail('বিল ডেট', '${bnNumber(c.billDate)} তারিখ'), detail('মোট বিল', '${money(c.bill)} ৳'),
+          detail('মোট পরিশোধ', '${money(c.paid)} ৳'), detail('মোট বকেয়া', '${money(c.due)} ৳'),
+          detail('সর্বশেষ পেমেন্ট', c.paymentDate.isEmpty ? '-' : c.paymentDate), detail('স্ট্যাটাস', c.active ? 'Active' : 'Closed'),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))),
+          FilledButton.icon(onPressed: () { Navigator.pop(ctx); showPaymentHistory(c); }, icon: const Icon(Icons.history), label: Text(t('পেমেন্ট হিস্ট্রি', 'Payment History'))),
+        ],
+      ),
+    );
+  }
+
+    Widget detail(String a, String b) => Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [SizedBox(width: 110, child: Text('$a:', style: const TextStyle(fontWeight: FontWeight.bold))), Expanded(child: Text(b))]));
+
+  Future<int> currentBill(Customer c) async => db.ensureBill(c.id!, monthKey(), c.billDate, c.bill > 0 ? c.bill : 0);
+
+  Future<void> takePayment(Customer c) async {
+    if (c.id == null) return;
+    final bid = await currentBill(c);
+    final monthRows = await db.getBills(monthKey());
+    final current = monthRows.where((r) => (r['id'] as num).toInt() == bid).toList();
+    final billAmount = current.isEmpty ? c.bill : ((current.first['amount'] ?? 0) as num).toDouble();
+    final paidAmount = current.isEmpty ? 0.0 : ((current.first['paid'] ?? 0) as num).toDouble();
+    final due = (billAmount - paidAmount).clamp(0, double.infinity).toDouble();
+    if (due <= 0) { msg(t('এই মাসের কোনো বকেয়া নেই', 'No due for this month')); return; }
+
+    final amount = TextEditingController(text: money(due));
+    final note = TextEditingController();
+    final staff = await db.getStaff();
+    int? staffId;
+    bool saving = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text(t('পেমেন্ট গ্রহণ', 'Receive Payment')),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('${c.userId} - ${c.name}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Text('${t('এই মাসের বিল', 'Current month bill')}: ${money(billAmount)} ৳'),
+            Text('${t('পরিশোধ', 'Paid')}: ${money(paidAmount)} ৳'),
+            Text('${t('বকেয়া', 'Due')}: ${money(due)} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            field(amount, t('পরিমাণ *', 'Amount *'), Icons.payments, type: const TextInputType.numberWithOptions(decimal: true)),
+            if (staff.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              DropdownButtonFormField<int?>(
+                initialValue: staffId,
+                decoration: InputDecoration(labelText: t('স্টাফ', 'Staff'), border: const OutlineInputBorder()),
+                items: [
+                  DropdownMenuItem<int?>(value: null, child: Text(t('নিজে/নির্ধারিত নয়', 'Self / Not assigned'))),
+                  ...staff.map((s) => DropdownMenuItem<int?>(value: (s['id'] as num).toInt(), child: Text('${s['name']}'))),
+                ],
+                onChanged: (v) => setD(() => staffId = v),
+              ),
+            ],
+            const SizedBox(height: 10), field(note, t('নোট', 'Note'), Icons.note),
+          ])),
+          actions: [
+            TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: Text(t('বাতিল', 'Cancel'))),
+            FilledButton.icon(
+              onPressed: saving ? null : () async {
+                final a = double.tryParse(amount.text.trim()) ?? 0;
+                if (a <= 0 || a > due + 0.0001) { msg(t('সঠিক পরিমাণ দিন', 'Enter a valid amount')); return; }
+                setD(() => saving = true);
+                try {
+                  final paymentId = await db.addPayment(customerId: c.id!, billId: bid, amount: a, date: today(), staffId: staffId, note: note.text.trim());
+                  final history = await db.getPaymentHistory(c.id!, billId: bid);
+                  final payment = history.firstWhere((x) => (x['id'] as num).toInt() == paymentId, orElse: () => history.first);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  await loadCustomers();
+                  await printReceipt(c, payment);
+                  msg(t('পেমেন্ট গ্রহণ হয়েছে', 'Payment received'));
+                } catch (e) {
+                  if (ctx.mounted) setD(() => saving = false);
+                  msg('${t('পেমেন্টে সমস্যা: ', 'Payment error: ')}$e');
+                }
+              },
+              icon: const Icon(Icons.receipt_long), label: Text(t('গ্রহণ ও Receipt', 'Receive & Receipt')),
+            ),
+          ],
         ),
-      );
+      ),
+    );
+       amount.dispose(); note.dispose();
+  }
+
+  Future<void> showPaymentHistory(Customer c) async {
+    if (c.id == null) return;
+    final rows = await db.getPaymentHistory(c.id!);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${t('পেমেন্ট হিস্ট্রি', 'Payment History')}\n${c.userId} - ${c.name}'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 440,
+          child: rows.isEmpty
+              ? Center(child: Text(t('কোনো পেমেন্ট নেই', 'No payments')))
+              : ListView.separated(
+                  itemCount: rows.length,
+                  separatorBuilder: (_, __) => const Divider(),
+                  itemBuilder: (_, i) {
+                    final r = rows[i];
+                    final a = ((r['amount'] ?? 0) as num).toDouble();
+                    return ListTile(
+                      leading: const CircleAvatar(child: Icon(Icons.payments)),
+                      title: Text('${money(a)} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('${r['payment_date'] ?? ''}\n${r['receipt_no'] ?? ''}\n${r['billing_month'] ?? ''} • ${r['staff_name'] ?? ''}'),
+                      trailing: IconButton(icon: const Icon(Icons.print), onPressed: () => printReceipt(c, r)),
+                    );
+                  },
+                ),
+        ),
+        actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close')))],
+      ),
+    );
+  }
+
+  Future<void> monthlyBilling() async {
+    try {
+      final rows = await db.getCustomers();
+      final existingBills = await db.getBills(monthKey());
+      final packages = await db.getPackages();
+      final existingIds = <int>{
+        for (final b in existingBills)
+          if (b['customer_id'] is num) (b['customer_id'] as num).toInt(),
+      };
+      final packagePrices = <String, double>{};
+      for (final p in packages) {
+        if ((p['active'] ?? 1) == 1) {
+                    packagePrices['${p['name'] ?? ''}'.trim().toLowerCase()] =
+              ((p['price'] ?? 0) as num).toDouble();
+        }
+      }
+      int prepared = 0;
+      int skipped = 0;
+      for (final r in rows) {
+        if ((r['status'] ?? 1) != 1) continue;
+        final id = (r['id'] as num).toInt();
+        if (existingIds.contains(id)) continue;
+        final packageName = '${r['package_name'] ?? ''}'.trim().toLowerCase();
+        final amount = packagePrices[packageName] ?? 0;
+        if (amount <= 0) {
+          skipped++;
+          continue;
+        }
+        await db.ensureBill(
+          id,
+          monthKey(),
+          (r['bill_date'] as num?)?.toInt() ?? 7,
+          amount,
+        );
+        prepared++;
+      }
+      final suffix = skipped > 0
+          ? ' • ${t('$skipped জনের active package/price নেই', '$skipped customers have no active package/price')}'
+          : '';
+      msg('${t('এই মাসের Billing প্রস্তুত: ', 'Monthly billing prepared: ')}$prepared$suffix');
+      await loadCustomers();
+      await showMonthlyBills(monthKey());
     } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Restore করতে সমস্যা হয়েছে: $e',
-          ),
-        ),
-      );
+      msg('${t('Billing তৈরিতে সমস্যা: ', 'Billing error: ')}$e');
     }
   }
 
-  Future<void> showBackupMenu() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.only(
-              bottom: 15,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const ListTile(
-                  leading: Icon(
-                    Icons.storage,
-                  ),
-                  title: Text(
-                    'ডেটা Backup ও Restore',
-                    style: TextStyle(
-                      fontWeight:
-                          FontWeight.bold,
-                    ),
-                  ),
-                  subtitle: Text(
-                    'অ্যাপের গুরুত্বপূর্ণ তথ্য নিরাপদে সংরক্ষণ করুন',
-                  ),
-                ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(
-                    Icons.backup,
-                  ),
-                  title: const Text(
-                    'Backup তৈরি করুন',
-                  ),
-                  subtitle: const Text(
-                    'ইউজার, পেমেন্ট ও বিলের তথ্য সংরক্ষণ',
-                  ),
-                  onTap: () async {
-                    Navigator.pop(
-                      sheetContext,
-                    );
-                    await backupData();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.restore,
-                  ),
-                  title: const Text(
-                    'Backup Restore করুন',
-                  ),
-                  subtitle: const Text(
-                    'আগের Backup থেকে তথ্য ফিরিয়ে আনুন',
-                  ),
-                  onTap: () async {
-                    Navigator.pop(
-                      sheetContext,
-                    );
-                    await restoreData();
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> showSearchDialog() async {
-    final controller = TextEditingController(
-      text: searchText,
-    );
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text(
-            'ইউজার খুঁজুন',
-          ),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              hintText:
-                  'আইডি, নাম বা মোবাইল লিখুন',
-              prefixIcon:
-                  Icon(Icons.search),
-              border:
-                  OutlineInputBorder(),
-            ),
-            onChanged: (value) {
-              setState(() {
-                searchText = value;
-              });
-            },
+  Future<void> showMonthlyBills(String month) async {
+    try {
+      final rows = await db.getBills(month);
+      double bill = 0, paid = 0;
+      for (final r in rows) {
+        bill += ((r['amount'] ?? 0) as num).toDouble();
+        paid += ((r['paid'] ?? 0) as num).toDouble();
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('${t('মাসিক Billing', 'Monthly Billing')} — $month'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 500,
+            child: Column(children: [
+              reportLine(t('মোট বিল', 'Total Bill'), '${money(bill)} ৳'),
+              reportLine(t('মোট পরিশোধ', 'Total Paid'), '${money(paid)} ৳'),
+              reportLine(t('বকেয়া', 'Due'), '${money((bill - paid).clamp(0, double.infinity))} ৳'),
+              const Divider(),
+              Expanded(child: ListView.builder(itemCount: rows.length, itemBuilder: (_, i) {
+                final r = rows[i];
+                final a = ((r['amount'] ?? 0) as num).toDouble();
+                final p = ((r['paid'] ?? 0) as num).toDouble();
+                return ListTile(
+                  title: Text('${r['user_id']} - ${r['name']}'),
+                  subtitle: Text('${r['package_name'] ?? ''} • ${t('বিল', 'Bill')} ${money(a)} • ${t('পরিশোধ', 'Paid')} ${money(p)}'),
+                  trailing: Text('${money((a - p).clamp(0, double.infinity))} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
+                );
+              })),
+            ]),
           ),
           actions: [
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  searchText = '';
-                });
-
-                Navigator.pop(
-                  dialogContext,
-                                  );
-              },
-              child:
-                  const Text('পরিষ্কার'),
-            ),
-            FilledButton(
-              onPressed: () {
-                setState(() {
-                  searchText =
-                      controller.text.trim();
-                });
-
-                Navigator.pop(
-                  dialogContext,
-                );
-              },
-              child:
-                  const Text('খুঁজুন'),
-            ),
+            TextButton(onPressed: () => printMonthlyReport(month), child: Text(t('PDF Report', 'PDF Report'))),
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))),
           ],
-        );
-      },
-    );
-
-    controller.dispose();
-  }
-
-  Future<void> takePayment(
-    int index,
-  ) async {
-    final customer = customers[index];
-
-    if (customer.id == null) return;
-
-    if (customer.due <= 0) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        const SnackBar(
-          content: Text(
-            'এই ইউজারের কোনো বকেয়া নেই',
-          ),
         ),
       );
+    } catch (e) { msg('$e'); }
+  }
+
+    Widget reportLine(String a, String b) => Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [Expanded(child: Text(a)), Text(b, style: const TextStyle(fontWeight: FontWeight.bold))]));
+
+  Future<void> printReceipt(Customer c, Map<String, dynamic> p) async {
+    final doc = pw.Document();
+    final amount = ((p['amount'] ?? 0) as num).toDouble();
+    final receipt = '${p['receipt_no'] ?? ''}';
+    final date = '${p['payment_date'] ?? ''}';
+    final month = '${p['billing_month'] ?? monthKey()}';
+    doc.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a5,
+      margin: const pw.EdgeInsets.all(28),
+      build: (_) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Center(child: pw.Text('DIGITAL 24 ONLINE', style: pw.TextStyle(fontSize: 21, fontWeight: pw.FontWeight.bold))),
+        pw.Center(child: pw.Text('Internet Service Provider')),
+        pw.Divider(),
+        pw.Center(child: pw.Text('PAYMENT RECEIPT', style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold))),
+        pw.SizedBox(height: 14),
+        pw.Text('Receipt No: $receipt'), pw.Text('Date: $date'), pw.Text('Bill Month: $month'),
+        pw.SizedBox(height: 10),
+        pw.Text('Customer ID: ${c.userId}'), pw.Text('Name: ${c.name}'), pw.Text('Phone: ${c.mobile}'), pw.Text('Package: ${c.packageName}'), pw.Text('Bill Date: ${c.billDate}'),
+        pw.SizedBox(height: 14),
+        pw.Table(border: pw.TableBorder.all(), columnWidths: {0: const pw.FlexColumnWidth(2), 1: const pw.FlexColumnWidth(1)}, children: [
+          pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Description')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Amount'))]),
+          pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Paid Amount')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('BDT ${money(amount)}'))]),
+          pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Payment Note')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('${p['note'] ?? ''}'))]),
+        ]),
+        pw.SizedBox(height: 24),
+        pw.Text('Thank you for your payment.'),
+        pw.SizedBox(height: 30),
+        pw.Text('Digital 24 Online Billing'),
+        pw.Text('Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100'),
+      ],
+    )));
+    await Printing.layoutPdf(onLayout: (_) async => doc.save(), name: 'Receipt-$receipt.pdf');
+  }
+
+  Future<void> printMonthlyReport(String month) async {
+    final rows = await db.getBills(month);
+    double total = 0, paid = 0;
+    for (final r in rows) { total += ((r['amount'] ?? 0) as num).toDouble(); paid += ((r['paid'] ?? 0) as num).toDouble(); }
+    final doc = pw.Document();
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (_) => [
+        pw.Center(child: pw.Text('DIGITAL 24 ONLINE', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
+        pw.Center(child: pw.Text('Monthly Billing Report - $month')),
+        pw.SizedBox(height: 14),
+        pw.Table.fromTextArray(
+          headers: ['User ID', 'Name', 'Package', 'Bill', 'Paid', 'Due'],
+          data: rows.map((r) {
+            final b = ((r['amount'] ?? 0) as num).toDouble();
+            final p = ((r['paid'] ?? 0) as num).toDouble();
+            return ['${r['user_id']}', '${r['name']}', '${r['package_name'] ?? ''}', money(b), money(p), money((b - p).clamp(0, double.infinity))];
+          }).toList(),
+        ),
+                pw.SizedBox(height: 12),
+        pw.Text('Total Bill: BDT ${money(total)}'), pw.Text('Total Paid: BDT ${money(paid)}'), pw.Text('Total Due: BDT ${money((total - paid).clamp(0, double.infinity))}'),
+        pw.SizedBox(height: 20), pw.Text('Printed: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}'),
+      ],
+    ));
+    await Printing.layoutPdf(onLayout: (_) async => doc.save(), name: 'Monthly-Report-$month.pdf');
+  }
+
+  Future<void> todayCollection() async {
+    final date = today();
+    try {
+      final rows = await db.getPaymentsReport(date, date);
+      final total = rows.fold<double>(0, (sum, r) => sum + ((r['amount'] ?? 0) as num).toDouble());
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(t('আজকের Collection', 'Today Collection')),
+          content: SizedBox(
+            width: double.maxFinite, height: 440,
+            child: Column(children: [
+              reportLine(t('মোট Collection', 'Total Collection'), '${money(total)} ৳'),
+              const Divider(),
+              Expanded(child: rows.isEmpty
+                ? Center(child: Text(t('আজ কোনো পেমেন্ট নেই', 'No payments today')))
+                : ListView.separated(
+                    itemCount: rows.length, separatorBuilder: (_, __) => const Divider(),
+                    itemBuilder: (_, i) {
+                      final r = rows[i];
+                      return ListTile(
+                        title: Text('${r['user_id'] ?? ''} - ${r['name'] ?? ''}'),
+                        subtitle: Text('${r['payment_date'] ?? ''} • ${r['staff_name'] ?? ''}\n${r['receipt_no'] ?? ''}'),
+                        trailing: Text('${money(((r['amount'] ?? 0) as num).toDouble())} ৳'),
+                      );
+                    },
+                  )),
+            ]),
+          ),
+          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))) ],
+        ),
+      );
+    } catch (e) { msg('${t('আজকের Collection দেখাতে সমস্যা: ', 'Today collection error: ')}$e'); }
+  }
+
+  Future<void> reports() async {
+    await showDialog<void>(context: context, builder: (ctx) => ReportManager(db: db, english: widget.english, onPrintReceipt: printReceipt));
+  }
+
+  Future<void> packageManagement() async {
+    await showDialog<void>(context: context, builder: (ctx) => PackageManager(db: db, english: widget.english));
+  }
+  
+  Future<void> staffManagement() async {
+    await showDialog<void>(context: context, builder: (ctx) => StaffManager(db: db, english: widget.english));
+  }
+
+  Future<void> appLockSettings() async {
+    final p = await SharedPreferences.getInstance();
+    final enabled = p.getBool('app_lock_enabled') ?? false;
+    if (enabled) {
+      final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+        title: Text(t('App Lock বন্ধ করবেন?', 'Disable App Lock?')),
+        content: Text(t('পাসওয়ার্ড সুরক্ষা বন্ধ হবে।', 'Password protection will be disabled.')),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('না', 'No'))), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('হ্যাঁ', 'Yes')))],
+      ));
+      if (ok == true) { await p.setBool('app_lock_enabled', false); msg(t('App Lock বন্ধ হয়েছে', 'App Lock disabled')); }
       return;
     }
+    final a = TextEditingController(), b = TextEditingController();
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(t('App Lock চালু করুন', 'Enable App Lock')),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: a, obscureText: true, decoration: InputDecoration(labelText: t('নতুন পাসওয়ার্ড', 'New password'))),
+        const SizedBox(height: 10), TextField(controller: b, obscureText: true, decoration: InputDecoration(labelText: t('আবার লিখুন', 'Confirm password'))),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))), FilledButton(onPressed: () => Navigator.pop(ctx, a.text.isNotEmpty && a.text == b.text), child: Text(t('চালু করুন', 'Enable')))],
+    ));
+    if (ok == true) {
+      await p.setString('app_lock_hash', sha256.convert(a.text.codeUnits).toString());
+      await p.setBool('app_lock_enabled', true);
+      msg(t('App Lock চালু হয়েছে', 'App Lock enabled'));
+    }
+    a.dispose(); b.dispose();
+  }
 
-    final paymentController =
-        TextEditingController();
+  Future<void> searchDialog() async {
+    final c = TextEditingController(text: searchText);
+    await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(t('ইউজার খুঁজুন', 'Search Customer')),
+      content: TextField(controller: c, autofocus: true, decoration: InputDecoration(hintText: t('আইডি/নাম/মোবাইল/প্যাকেজ', 'ID/name/mobile/package'), prefixIcon: const Icon(Icons.search), border: const OutlineInputBorder())),
+      actions: [
+        TextButton(onPressed: () { setState(() => searchText = ''); Navigator.pop(ctx); loadCustomers(); }, child: Text(t('পরিষ্কার', 'Clear'))),
+        FilledButton(onPressed: () { setState(() => searchText = c.text.trim()); Navigator.pop(ctx); loadCustomers(); }, child: Text(t('খুঁজুন', 'Search'))),
+      ],
+    ));
+    c.dispose();
+  }
+  
+  Future<void> languageSwitch() async {
+    final next = !widget.english;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('english_language', next);
+    widget.onLanguageChanged(next);
+  }
 
-    final noteController =
-        TextEditingController();
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Digital 24 Online Billing'),
+        centerTitle: true,
+        actions: [
+          IconButton(tooltip: t('সার্চ', 'Search'), onPressed: searchDialog, icon: const Icon(Icons.search)),
+          PopupMenuButton<String>(
+            onSelected: (v) async {
+              if (v == 'today') await todayCollection();
+              if (v == 'monthly') await monthlyBilling();
+              if (v == 'packages') await packageManagement();
+              if (v == 'staff') await staffManagement();
+              if (v == 'reports') await reports();
+              if (v == 'lock') await appLockSettings();
+              if (v == 'language') await languageSwitch();
+              if (v == 'refresh') await loadCustomers();
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(value: 'today', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.today), title: Text(t('আজকের Collection', 'Today Collection')))),
+              PopupMenuItem(value: 'monthly', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.calendar_month), title: Text(t('Monthly Billing', 'Monthly Billing')))),
+              PopupMenuItem(value: 'packages', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.speed), title: Text(t('Package Management', 'Package Management')))),
+              PopupMenuItem(value: 'staff', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.groups), title: Text(t('Staff Collection', 'Staff Collection')))),
+              PopupMenuItem(value: 'reports', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.assessment), title: Text(t('Reports', 'Reports')))),
+              PopupMenuItem(value: 'lock', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.lock), title: Text(t('App Lock / Password', 'App Lock / Password')))),
+              PopupMenuItem(value: 'language', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.language), title: Text(widget.english ? 'বাংলা' : 'English'))),
+              PopupMenuItem(value: 'refresh', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.refresh), title: Text(t('Refresh', 'Refresh')))),
+            ],
+          ),
+        ],
+      ),
+            floatingActionButton: FloatingActionButton.extended(onPressed: addCustomer, icon: const Icon(Icons.person_add), label: Text(t('ইউজার যোগ', 'Add Customer'))),
+      body: RefreshIndicator(
+        onRefresh: loadCustomers,
+        child: ListView(padding: const EdgeInsets.only(bottom: 100), children: [
+          const SizedBox(height: 10),
+          const Center(child: Text('Digital 24 Online', style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold))),
+          const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100', textAlign: TextAlign.center)),
+          const SizedBox(height: 10),
+          SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
+            summary('মোট ইউজার', '${bnNumber(customers.length)}', Icons.people),
+            summary('Active', '$activeCount', Icons.wifi), summary('Closed', '$closedCount', Icons.wifi_off),
+            summary('মোট বিল', '${money(totalBill)} ৳', Icons.receipt_long), summary('পরিশোধ', '${money(totalPaid)} ৳', Icons.payments), summary('বকেয়া', '${money(totalDue)} ৳', Icons.money_off),
+          ])),
+          const SizedBox(height: 8),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Row(children: [chip('সকল', 0), chip('৭ তারিখ', 7), chip('১৪ তারিখ', 14), chip('২১ তারিখ', 21)])),
+          const SizedBox(height: 8),
+          Center(child: Text(selectedBillDate == 0 ? t('সকল ইউজারের হিসাব', 'All Customers') : t('${bnNumber(selectedBillDate)} তারিখের হিসাব', 'Billing date $selectedBillDate'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+          if (searchText.isNotEmpty) Center(child: Text('${t('খোঁজা হচ্ছে', 'Searching')}: $searchText • ${filtered.length}')),
+          const SizedBox(height: 6),
+          if (loading) const SizedBox(height: 300, child: Center(child: CircularProgressIndicator()))
+          else if (filtered.isEmpty) SizedBox(height: 300, child: Center(child: Text(t('কোনো ইউজার পাওয়া যায়নি', 'No customer found'))))
+          else ...filtered.map(customerCard),
+        ]),
+      ),
+    );
+  }
+  
+  Widget chip(String label, int value) => Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 2), child: ChoiceChip(
+    label: Text(widget.english ? ({'সকল': 'All', '৭ তারিখ': '7', '১৪ তারিখ': '14', '২১ তারিখ': '21'}[label] ?? label) : label),
+    selected: selectedBillDate == value,
+    onSelected: (_) async { setState(() { selectedBillDate = value; searchText = ''; }); await loadCustomers(); },
+  )));
 
-    bool saving = false;
+  Widget summary(String title, String value, IconData icon) => Container(width: 142, height: 82, margin: const EdgeInsets.symmetric(horizontal: 4), padding: const EdgeInsets.all(9), decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(children: [CircleAvatar(radius: 19, child: Icon(icon, size: 19)), const SizedBox(width: 7), Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 11)), Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))]))]));
 
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text(
-                'পেমেন্ট গ্রহণ',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content:
-                  SingleChildScrollView(
-                child: Column(
-                  mainAxisSize:
-                      MainAxisSize.min,
+  Widget customerCard(Customer c) => Card(
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        child: InkWell(
+          onTap: () => showDetails(c),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      '${customer.userId} - ${customer.name}',
-                      textAlign:
-                          TextAlign.center,
-                      style:
-                          const TextStyle(
-                        fontWeight:
-                            FontWeight.bold,
-                        fontSize: 16,
-                      ),
+                    CircleAvatar(
+                      child: Text(c.userId.isEmpty ? '?' : c.userId[0]),
                     ),
-                    const SizedBox(
-                      height: 15,
-                    ),
-                    Container(
-                      width:
-                          double.infinity,
-                      padding:
-                          const EdgeInsets.all(
-                        12,
-                      ),
-                      decoration:
-                          BoxDecoration(
-                        borderRadius:
-                            BorderRadius
-                                .circular(
-                          10,
-                        ),
-                        color: Theme.of(
-                          context,
-                        )
-                            .colorScheme
-                            .surfaceContainerHighest,
-                      ),
-                                            child: Column(
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Text(c.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                           Text(
-                            'মোট বিল: '
-                            '${money(customer.bill)} টাকা',
-                          ),
-                          const SizedBox(
-                            height: 4,
-                          ),
-                          Text(
-                            'ইতোমধ্যে পরিশোধ: '
-                            '${money(customer.paid)} টাকা',
-                          ),
-                          const SizedBox(
-                            height: 4,
-                          ),
-                          Text(
-                            'বর্তমান বকেয়া: '
-                            '${money(customer.due)} টাকা',
-                            style:
-                                const TextStyle(
-                              fontWeight:
-                                  FontWeight.bold,
+                            'ID: ${c.userId}',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(
-                      height: 15,
-                    ),
-                    TextField(
-                      controller:
-                          paymentController,
-                      enabled: !saving,
-                      autofocus: true,
-                      keyboardType:
-                          const TextInputType
-                              .numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'আজ কত টাকা পরিশোধ করেছে? *',
-                        prefixIcon:
-                            Icon(
-                          Icons.payments,
+                    PopupMenuButton<String>(
+                      onSelected: (v) async {
+                        if (v == 'details') await showDetails(c);
+                        if (v == 'edit') await editCustomer(c);
+                        if (v == 'history') await showPaymentHistory(c);
+                        if (v == 'status') await toggleCustomer(c);
+                        if (v == 'delete') await deleteCustomer(c);
+                      },
+                      itemBuilder: (_) => [
+                        PopupMenuItem(value: 'details', child: Text(t('বিস্তারিত', 'Details'))),
+                        PopupMenuItem(value: 'edit', child: Text(t('তথ্য পরিবর্তন', 'Edit'))),
+                        PopupMenuItem(value: 'history', child: Text(t('পেমেন্ট হিস্ট্রি', 'Payment History'))),
+                        PopupMenuItem(
+                          value: 'status',
+                          child: Text(c.active ? t('Closed করুন', 'Close') : t('Active করুন', 'Activate')),
                         ),
-                        suffixText: '৳',
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(
-                      height: 10,
-                    ),
-                    TextField(
-                      controller:
-                          noteController,
-                      enabled: !saving,
-                      maxLines: 2,
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'নোট (ঐচ্ছিক)',
-                        prefixIcon:
-                            Icon(
-                          Icons.note,
-                        ),
-                        border:
-                            OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: saving
-                      ? null
-                      : () {
-                          Navigator.pop(
-                            dialogContext,
-                          );
-                        },
-                  child:
-                      const Text('বাতিল'),
-                ),
-                FilledButton.icon(
-                  onPressed: saving
-                      ? null
-                      : () async {
-                          final payment =
-                              double.tryParse(
-                                    paymentController
-                                        .text
-                                        .trim(),
-                                  ) ??
-                                  0;
-
-                          if (payment <= 0) {
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'সঠিক পরিমাণ টাকা লিখুন',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          if (payment >
-                              customer.due) {
-                            ScaffoldMessenger
-                                                              .of(context)
-                                .showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'সর্বোচ্চ '
-                                  '${money(customer.due)} '
-                                  'টাকা নেওয়া যাবে',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          setDialogState(() {
-                            saving = true;
-                          });
-
-                          try {
-                            final newPaid =
-                                customer.paid +
-                                    payment;
-
-                            final newDue =
-                                customer.bill -
-                                    newPaid;
-
-                            final today =
-                                todayDate();
-
-                            await db.updateCustomer(
-                              customer.id!,
-                              {
-                                'paid_amount':
-                                    newPaid,
-                                'due_amount':
-                                    newDue,
-                                'payment_date':
-                                    today,
-                              },
-                            );
-
-                            await db.addPayment(
-                              {
-                                'customer_id':
-                                    customer.id!,
-                                'user_id':
-                                    customer
-                                        .userId,
-                                'amount':
-                                    payment,
-                                'payment_date':
-                                    today,
-                                'note':
-                                    noteController
-                                        .text
-                                        .trim()
-                                        .isEmpty
-                                    ? 'Customer Payment'
-                                    : noteController
-                                        .text
-                                        .trim(),
-                                'created_at':
-                                    DateTime
-                                        .now()
-                                        .toIso8601String(),
-                              },
-                            );
-
-                            if (!dialogContext
-                                .mounted) {
-                              return;
-                            }
-
-                            Navigator.pop(
-                              dialogContext,
-                            );
-
-                            await loadCustomers();
-
-                            if (!mounted) return;
-
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '${money(payment)} টাকা '
-                                  'পেমেন্ট গ্রহণ করা হয়েছে',
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            if (dialogContext
-                                                                .mounted) {
-                              setDialogState(() {
-                                saving =
-                                    false;
-                              });
-                            }
-
-                            if (!context.mounted) {
-                              return;
-                            }
-
-                            ScaffoldMessenger
-                                .of(context)
-                                .showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'পেমেন্ট সংরক্ষণে সমস্যা হয়েছে: $e',
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                  icon: saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child:
-                              CircularProgressIndicator(
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Icon(
-                          Icons.save,
-                        ),
-                  label: const Text(
-                    'পেমেন্ট সংরক্ষণ',
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    paymentController.dispose();
-    noteController.dispose();
-  }
-    Widget customerCard(
-    Customer customer,
-    int index,
-  ) {
-    final isDue = customer.due > 0;
-
-    return Card(
-      margin: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 5,
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => showCustomerDetails(customer),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    child: Text(
-                      customer.userId.isEmpty
-                          ? '?'
-                          : customer.userId
-                              .substring(
-                                0,
-                                customer.userId.length > 1
-                                    ? 1
-                                    : customer.userId.length,
-                              ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          customer.name,
-                          style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight:
-                                FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'ID: ${customer.userId}',
-                          style: TextStyle(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary,
-                            fontWeight:
-                                FontWeight.w600,
-                          ),
-                        ),
+                                                PopupMenuItem(value: 'delete', child: Text(t('মুছে ফেলুন', 'Delete'))),
                       ],
                     ),
-                  ),
-                                    PopupMenuButton<String>(
-                    onSelected: (value) async {
-                      if (value == 'details') {
-                        await showCustomerDetails(
-                          customer,
-                        );
-                      } else if (value == 'edit') {
-                        await editCustomer(index);
-                      } else if (value == 'history') {
-                        await showPaymentHistory(
-                          customer,
-                        );
-                      } else if (value == 'status') {
-                        await toggleCustomer(index);
-                      } else if (value == 'delete') {
-                        await deleteCustomer(index);
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'details',
-                        child: ListTile(
-                          contentPadding:
-                              EdgeInsets.zero,
-                          leading:
-                              Icon(Icons.info_outline),
-                          title:
-                              Text('বিস্তারিত'),
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: ListTile(
-                          contentPadding:
-                              EdgeInsets.zero,
-                          leading:
-                              Icon(Icons.edit),
-                          title:
-                              Text('তথ্য পরিবর্তন'),
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'history',
-                        child: ListTile(
-                          contentPadding:
-                              EdgeInsets.zero,
-                          leading:
-                              Icon(Icons.history),
-                          title:
-                              Text('পেমেন্ট হিস্ট্রি'),
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: 'status',
-                        child: ListTile(
-                          contentPadding:
-                              EdgeInsets.zero,
-                          leading: Icon(
-                            customer.active
-                                ? Icons.wifi_off
-                                : Icons.wifi,
-                          ),
-                          title: Text(
-                            customer.active
-                                ? 'Closed করুন'
-                                : 'Active করুন',
-                          ),
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: ListTile(
-                          contentPadding:
-                              EdgeInsets.zero,
-                          leading: Icon(
-                            Icons.delete_outline,
-                          ),
-                          title:
-                              Text('ইউজার মুছে ফেলুন'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const Divider(height: 20),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _infoChip(
-                    Icons.phone,
-                    customer.mobile.isEmpty
-                        ? 'মোবাইল নেই'
-                        : customer.mobile,
-                  ),
-                  _infoChip(
-                    Icons.speed,
-                    customer.packageName.isEmpty
-                        ? 'প্যাকেজ নেই'
-                        : customer.packageName,
-                  ),
-                  _infoChip(
-                    Icons.calendar_month,
-                    'বিল ডেট: '
-                    '${banglaNumber(customer.billDate)}',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                                children: [
-                  Expanded(
-                    child: _amountBox(
-                      'বিল',
-                      customer.bill,
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: _amountBox(
-                      'পরিশোধ',
-                      customer.paid,
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: _amountBox(
-                      'বকেয়া',
-                      customer.due,
-                      isDue: isDue,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      customer.active
-                          ? '● Active'
-                          : '● Closed',
-                      style: TextStyle(
-                        fontWeight:
-                            FontWeight.bold,
-                        color: customer.active
-                            ? Colors.green
-                            : Colors.red,
-                      ),
-                    ),
-                  ),
-                  if (isDue)
-                    FilledButton.icon(
-                      onPressed: () =>
-                          takePayment(index),
-                      icon: const Icon(
-                        Icons.payments,
-                        size: 18,
-                      ),
-                      label: const Text(
-                        'পেমেন্ট',
-                      ),
-                    )
-                  else
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          showPaymentHistory(
-                        customer,
-                      ),
-                      icon: const Icon(
-                        Icons.history,
-                        size: 18,
-                      ),
-                      label: const Text(
-                        'হিস্ট্রি',
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _infoChip(
-    IconData icon,
-    String text,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 6,
-      ),
-      decoration: BoxDecoration(
-        borderRadius:
-            BorderRadius.circular(20),
-        border: Border.all(
-          color: Theme.of(context)
-              .colorScheme
-              .outlineVariant,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 16,
-          ),
-                    const SizedBox(width: 5),
-          Text(text),
-        ],
-      ),
-    );
-  }
-
-  Widget _amountBox(
-    String title,
-    double amount, {
-    bool isDue = false,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 8,
-      ),
-      decoration: BoxDecoration(
-        borderRadius:
-            BorderRadius.circular(10),
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest,
-      ),
-      child: Column(
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            '${money(amount)} ৳',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: isDue
-                  ? Colors.red
-                  : null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget summaryCard(
-    String title,
-    String value,
-    IconData icon,
-  ) {
-    return Container(
-      width: 145,
-      margin: const EdgeInsets.symmetric(
-        horizontal: 5,
-      ),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        borderRadius:
-            BorderRadius.circular(14),
-        border: Border.all(
-          color: Theme.of(context)
-              .colorScheme
-              .outlineVariant,
-        ),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 20,
-            child: Icon(icon, size: 20),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              mainAxisAlignment:
-                  MainAxisAlignment.center,
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 12,
-                  ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight:
-                        FontWeight.bold,
-                    fontSize: 15,
-                  ),
+                const Divider(),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: [
+                    _tag(Icons.phone, c.mobile.isEmpty ? t('মোবাইল নেই', 'No mobile') : c.mobile),
+                    _tag(Icons.speed, c.packageName.isEmpty ? t('প্যাকেজ নেই', 'No package') : c.packageName),
+                    _tag(Icons.calendar_month, '${t('বিল ডেট: ', 'Billing date ')}${c.billDate}'),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: amountBox(t('বিল', 'Bill'), c.bill)),
+                    const SizedBox(width: 6),
+                    Expanded(child: amountBox(t('পরিশোধ', 'Paid'), c.paid)),
+                    const SizedBox(width: 6),
+                    Expanded(child: amountBox(t('বকেয়া', 'Due'), c.due, due: c.due > 0)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        c.active ? '● Active' : '● Closed',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: c.active ? Colors.green : Colors.red,
+                        ),
+                      ),
+                    ),
+                    if (c.due > 0)
+                      FilledButton.icon(
+                        onPressed: () => takePayment(c),
+                        icon: const Icon(Icons.payments, size: 18),
+                        label: Text(t('পেমেন্ট', 'Payment')),
+                      )
+                    else
+                      OutlinedButton.icon(
+                        onPressed: () => showPaymentHistory(c),
+                        icon: const Icon(Icons.history, size: 18),
+                        label: Text(t('হিস্ট্রি', 'History')),
+                      ),
+                  ],
                 ),
               ],
             ),
           ),
+        ),
+      );
+  
+  Widget _tag(IconData i, String text) => Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), decoration: BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(i, size: 15), const SizedBox(width: 4), Text(text)]));
+  Widget amountBox(String title, double value, {bool due = false}) => Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), color: Theme.of(context).colorScheme.surfaceContainerHighest), child: Column(children: [Text(title, style: const TextStyle(fontSize: 11)), Text('${money(value)} ৳', style: TextStyle(fontWeight: FontWeight.bold, color: due ? Colors.red : null))]));
+}
+
+class PackageManager extends StatefulWidget {
+  final DatabaseHelper db;
+  final bool english;
+  const PackageManager({super.key, required this.db, required this.english});
+  @override State<PackageManager> createState() => _PackageManagerState();
+}
+
+class _PackageManagerState extends State<PackageManager> {
+  List<Map<String, dynamic>> rows = [];
+  String t(String b, String e) => widget.english ? e : b;
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    try {
+      final r = await widget.db.getPackages();
+      if (mounted) setState(() => rows = r);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> edit([Map<String, dynamic>? old]) async {
+    final n = TextEditingController(text: '${old?['name'] ?? ''}');
+    final speed = TextEditingController(text: '${old?['speed'] ?? ''}');
+    final price = TextEditingController(text: '${old?['price'] ?? ''}');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(old == null ? t('নতুন প্যাকেজ', 'New Package') : t('প্যাকেজ পরিবর্তন', 'Edit Package')),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: n, decoration: InputDecoration(labelText: t('প্যাকেজের নাম', 'Package name'))),
+          const SizedBox(height: 10),
+          TextField(controller: speed, decoration: InputDecoration(labelText: t('স্পিড', 'Speed'))),
+          const SizedBox(height: 10),
+          TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: t('মূল্য', 'Price'))),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('সংরক্ষণ', 'Save'))),
         ],
       ),
     );
+        if (ok == true) {
+      try {
+        final name = n.text.trim();
+        final p = double.tryParse(price.text.trim()) ?? -1;
+        if (name.isEmpty || p < 0) throw Exception(t('সঠিক প্যাকেজ ও মূল্য দিন', 'Enter a valid package and price'));
+        if (old == null) {
+          await widget.db.addPackage(name, speed.text.trim(), p);
+        } else {
+          await widget.db.updatePackage((old['id'] as num).toInt(), name, speed.text.trim(), p);
+        }
+        await load();
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+    n.dispose(); speed.dispose(); price.dispose();
   }
 
-  @override
-    Widget build(
-    BuildContext context,
-  ) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Digital 24 Online Billing',
-        ),
-        centerTitle: true,
+  @override Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(t('Package Management', 'Package Management')),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 460,
+        child: rows.isEmpty
+            ? Center(child: Text(t('কোনো প্যাকেজ নেই', 'No packages')))
+            : ListView.builder(
+                itemCount: rows.length,
+                itemBuilder: (_, i) {
+                  final r = rows[i];
+                  final active = (r['active'] ?? 1) == 1;
+                  return ListTile(
+                    title: Text('${r['name'] ?? ''}'),
+                    subtitle: Text('${r['speed'] ?? ''} • ${r['price'] ?? 0} ৳'),
+                    leading: Icon(active ? Icons.speed : Icons.speed_outlined),
+                    trailing: Wrap(children: [
+                      IconButton(onPressed: () => edit(r), icon: const Icon(Icons.edit)),
+                      Switch(value: active, onChanged: (v) async {
+                        await widget.db.setPackageActive((r['id'] as num).toInt(), v);
+                        await load();
+                      }),
+                    ]),
+                  );
+                },
+              ),
+      ),
+      actions: [
+        TextButton(onPressed: () => edit(), child: Text(t('নতুন প্যাকেজ', 'Add Package'))),
+        FilledButton(onPressed: () => Navigator.pop(context), child: Text(t('বন্ধ', 'Close'))),
+      ],
+    );
+  }
+}
+
+class StaffManager extends StatefulWidget {
+  final DatabaseHelper db;
+  final bool english;
+  const StaffManager({super.key, required this.db, required this.english});
+  @override State<StaffManager> createState() => _StaffManagerState();
+}
+
+class _StaffManagerState extends State<StaffManager> {
+  List<Map<String, dynamic>> rows = [];
+  String t(String b, String e) => widget.english ? e : b;
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    try {
+      final r = await widget.db.getStaff();
+      if (mounted) setState(() => rows = r);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> add() async {
+    final n = TextEditingController();
+    final m = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('স্টাফ যোগ', 'Add Staff')),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: n, decoration: InputDecoration(labelText: t('নাম', 'Name'))),
+          const SizedBox(height: 10),
+          TextField(controller: m, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: t('মোবাইল', 'Mobile'))),
+        ]),
         actions: [
-          IconButton(
-            tooltip: 'ইউজার খুঁজুন',
-            onPressed: showSearchDialog,
-            icon: const Icon(
-              Icons.search,
-            ),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) async {
-              if (value == 'dashboard') {
-                await showDashboardDetails();
-              } else if (value == 'today') {
-                await showTodayPayments();
-              } else if (value == 'backup') {
-                await showBackupMenu();
-              } else if (value == 'refresh') {
-                await loadCustomers();
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'dashboard',
-                child: ListTile(
-                  contentPadding:
-                      EdgeInsets.zero,
-                  leading: Icon(
-                    Icons.dashboard,
-                  ),
-                  title:
-                      Text('সারসংক্ষেপ'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'today',
-                child: ListTile(
-                  contentPadding:
-                      EdgeInsets.zero,
-                  leading: Icon(
-                    Icons.today,
-                  ),
-                  title:
-                      Text('আজকের পেমেন্ট'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'backup',
-                child: ListTile(
-                  contentPadding:
-                      EdgeInsets.zero,
-                  leading: Icon(
-                    Icons.backup,
-                  ),
-                  title:
-                      Text('Backup / Restore'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'refresh',
-                child: ListTile(
-                  contentPadding:
-                      EdgeInsets.zero,
-                  leading: Icon(
-                    Icons.refresh,
-                  ),
-                  title:
-                      Text('Refresh'),
-                ),
-              ),
-            ],
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('সংরক্ষণ', 'Save'))),
         ],
       ),
-      floatingActionButton:
-          FloatingActionButton.extended(
-        onPressed: addCustomer,
-        icon: const Icon(
-          Icons.person_add,
-        ),
-        label: const Text(
-          'ইউজার যোগ',
-        ),
+    );
+    if (ok == true && n.text.trim().isNotEmpty) {
+      try {
+        await widget.db.addStaff(n.text.trim(), m.text.trim());
+        await load();
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+    n.dispose(); m.dispose();
+  }
+
+  @override Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(t('Staff Collection', 'Staff Collection')),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 420,
+        child: rows.isEmpty
+            ? Center(child: Text(t('কোনো active staff নেই', 'No active staff')))
+            : ListView.builder(
+                itemCount: rows.length,
+                itemBuilder: (_, i) => ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.person)),
+                  title: Text('${rows[i]['name'] ?? ''}'),
+                  subtitle: Text('${rows[i]['mobile'] ?? ''}'),
+                ),
+              ),
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            const Text(
-              'Digital 24 Online',
-              style: TextStyle(
-                fontSize: 25,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 3),
-            const Padding(
-              padding:
-                  EdgeInsets.symmetric(
-                horizontal: 12,
-              ),
-              child: Text(
-                'Seroil Colony, 4 No. Road, '
-                'Ghoramara, Chandrima '
-                'Rajshahi-6100',
-                textAlign:
-                    TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Padding(
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal: 10,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Text(
-                        'সকল',
-                      ),
-                      selected:
-                          selectedBillDate ==
-                              0,
-                      onSelected: (_) {
-                        showAllUsers();
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Text(
-                        '৭ তারিখ',
-                      ),
-                      selected:
-                          selectedBillDate ==
-                              7,
-                      onSelected: (_) {
-                        selectBillDate(7);
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Text(
-                        '১৪ তারিখ',
-                      ),
-                      selected:
-                          selectedBillDate ==
-                              14,
-                      onSelected: (_) {
-                        selectBillDate(14);
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Text(
-                        '২১ তারিখ',
-                      ),
-                      selected:
-                          selectedBillDate ==
-                              21,
-                      onSelected: (_) {
-                        selectBillDate(21);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 7),
-            Text(
-              reportTitle,
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (searchText.isNotEmpty)
-              Padding(
-                padding:
-                    const EdgeInsets.only(
-                  top: 4,
-                ),
-                child: Text(
-                  'খোঁজা হচ্ছে: "$searchText"'
-                  '  •  ${banglaNumber(filteredCustomers.length)} জন',
-                  style: const TextStyle(
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            const SizedBox(height: 7),
-            SizedBox(
-              height: 100,
-              child:
-                  SingleChildScrollView(
-                scrollDirection:
-                    Axis.horizontal,
-                child: Row(
-                  children: [
-                    summaryCard(
-                      'মোট বিল',
-                      '${money(totalBill)} ৳',
-                      Icons.receipt_long,
-                    ),
-                    summaryCard(
-                      'পরিশোধ',
-                      '${money(totalPaid)} ৳',
-                      Icons.payments,
-                    ),
-                    summaryCard(
-                      'বকেয়া',
-                      '${money(totalDue)} ৳',
-                      Icons.money_off,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 5),
-            Expanded(
-              child: loading
-                  ? const Center(
-                      child:
-                          CircularProgressIndicator(),
-                    )
-                  : filteredCustomers.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisSize:
-                                MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons
-                                    .person_search,
-                                size: 55,
-                              ),
-                              const SizedBox(
-                                height: 10,
-                              ),
-                              Text(
-                                searchText
-                                        .isEmpty
-                                    ? 'কোনো ইউজার পাওয়া যায়নি'
-                                    : 'কোনো ইউজার পাওয়া যায়নি',
-                              ),
-                              if (searchText
-                                  .isNotEmpty)
-                                TextButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      searchText =
-                                          '';
-                                    });
-                                  },
-                                  child:
-                                      const Text(
-                                    'সার্চ পরিষ্কার করুন',
-                                  ),
-                                ),
-                            ],
-                          ),
-                        )
-                      : RefreshIndicator(
-                          onRefresh:
-                              loadCustomers,
-                          child:
-                              ListView.builder(
-                            padding:
-                                const EdgeInsets
-                                    .only(
-                              bottom: 100,
-                            ),
-                            itemCount:
-                                filteredCustomers
-                                    .length,
-                            itemBuilder:
-                                (context,
-                                    index) {
-                              return customerCard(
-                                filteredCustomers[
-                                    index],
-                                customers.indexOf(
-                                  filteredCustomers[
-                                      index],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-            ),
-          ],
-        ),
+      actions: [
+        TextButton(onPressed: add, child: Text(t('স্টাফ যোগ', 'Add Staff'))),
+        FilledButton(onPressed: () => Navigator.pop(context), child: Text(t('বন্ধ', 'Close'))),
+      ],
+    );
+  }
+}
+
+class ReportManager extends StatefulWidget {
+  final DatabaseHelper db;
+  final bool english;
+  final Future<void> Function(Customer, Map<String, dynamic>) onPrintReceipt;
+  const ReportManager({super.key, required this.db, required this.english, required this.onPrintReceipt});
+  @override State<ReportManager> createState() => _ReportManagerState();
+}
+
+class _ReportManagerState extends State<ReportManager> {
+  DateTime from = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime to = DateTime.now();
+  String month = DateFormat('yyyy-MM').format(DateTime.now());
+  List<Map<String, dynamic>> payments = [];
+  List<Map<String, dynamic>> dues = [];
+  bool busy = false;
+  String t(String b, String e) => widget.english ? e : b;
+
+  Future<void> loadPayments() async {
+    setState(() => busy = true);
+    try {
+      payments = await widget.db.getPaymentsReport(DateFormat('yyyy-MM-dd').format(from), DateFormat('yyyy-MM-dd').format(to));
+      dues = [];
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> loadDue() async {
+    setState(() => busy = true);
+    try {
+      dues = await widget.db.getDueReport(month);
+      payments = [];
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> pick(bool isFrom) async {
+    final d = await showDatePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2100), initialDate: isFrom ? from : to);
+    if (d != null) setState(() { if (isFrom) from = d; else to = d; });
+  }
+  
+  double sum(List<Map<String, dynamic>> r) => r.fold(0, (s, x) => s + ((x['amount'] ?? 0) as num).toDouble());
+
+  @override Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(t('Reports', 'Reports')),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 540,
+        child: Column(children: [
+          Row(children: [
+            Expanded(child: OutlinedButton(onPressed: () => pick(true), child: Text(DateFormat('yyyy-MM-dd').format(from)))),
+            const SizedBox(width: 6),
+            Expanded(child: OutlinedButton(onPressed: () => pick(false), child: Text(DateFormat('yyyy-MM-dd').format(to)))),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: FilledButton(onPressed: busy ? null : loadPayments, child: Text(t('Collection Report', 'Collection Report')))),
+            const SizedBox(width: 6),
+            Expanded(child: OutlinedButton(onPressed: busy ? null : loadDue, child: Text(t('Due Report', 'Due Report')))),
+          ]),
+          const SizedBox(height: 8),
+          if (busy) const LinearProgressIndicator(),
+          Expanded(
+            child: payments.isNotEmpty
+                ? ListView.separated(
+                    itemCount: payments.length,
+                    separatorBuilder: (_, __) => const Divider(),
+                    itemBuilder: (_, i) {
+                      final r = payments[i];
+                      return ListTile(
+                        title: Text('${r['user_id'] ?? ''} - ${r['name'] ?? ''}'),
+                        subtitle: Text('${r['payment_date'] ?? ''} • ${r['staff_name'] ?? ''}\n${r['receipt_no'] ?? ''}'),
+                        trailing: Text('${r['amount'] ?? 0} ৳'),
+                      );
+                    },
+                  )
+                : dues.isNotEmpty
+                    ? ListView.separated(
+                        itemCount: dues.length,
+                        separatorBuilder: (_, __) => const Divider(),
+                        itemBuilder: (_, i) {
+                          final r = dues[i];
+                          final due = ((r['amount'] ?? 0) as num).toDouble() - ((r['paid'] ?? 0) as num).toDouble();
+                          return ListTile(
+                            title: Text('${r['user_id'] ?? ''} - ${r['name'] ?? ''}'),
+                            subtitle: Text('${r['package_name'] ?? ''}'),
+                            trailing: Text('${due.clamp(0, double.infinity).toStringAsFixed(0)} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          );
+                        },
+                      )
+                    : Center(child: Text(t('রিপোর্ট নির্বাচন করুন', 'Select a report'))),
+          ),
+          if (payments.isNotEmpty) Text('${t('মোট Collection', 'Total Collection')}: ${sum(payments).toStringAsFixed(0)} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
+        ]),
       ),
+      actions: [FilledButton(onPressed: () => Navigator.pop(context), child: Text(t('বন্ধ', 'Close')))],
     );
   }
 }
