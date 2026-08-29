@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart';
@@ -905,7 +906,7 @@ class DatabaseHelper {
         'bill_date': billDate,
         'amount': amount,
         'created_at':
-            DateTime.now().toIso8601String(),
+                        DateTime.now().toIso8601String(),
       },
     );
   }
@@ -997,7 +998,7 @@ class DatabaseHelper {
     String month,
   ) async {
     final db = await database;
-
+    
     final result = await db.rawQuery(
       '''
       SELECT
@@ -1098,7 +1099,7 @@ class DatabaseHelper {
         data['payment_date']
                 ?.toString() ??
             _today();
-
+    
     final billId =
         (data['bill_id'] as num?)
             ?.toInt();
@@ -1203,7 +1204,7 @@ class DatabaseHelper {
             ],
             limit: 1,
           );
-
+          
           if (bill.isNotEmpty) {
             final paidResult =
                 await txn.rawQuery(
@@ -1297,7 +1298,7 @@ class DatabaseHelper {
           whereArgs: [customerId],
           limit: 1,
         );
-
+        
         if (customerRows.isNotEmpty) {
           final customer =
               customerRows.first;
@@ -1396,7 +1397,7 @@ class DatabaseHelper {
 
       LEFT JOIN bills b
         ON b.id = p.bill_id
-
+        
       WHERE p.customer_id = ?
 
       $billCondition
@@ -1497,7 +1498,7 @@ class DatabaseHelper {
       SELECT
         p.*,
         c.user_id,
-        c.name,
+                c.name,
         c.mobile,
         s.name AS staff_name,
         b.billing_month
@@ -1596,7 +1597,7 @@ class DatabaseHelper {
           '${DateTime.now().millisecondsSinceEpoch}'
           '.db',
     );
-
+    
     await source.copy(
       backupPath,
     );
@@ -1609,10 +1610,373 @@ class DatabaseHelper {
   // ============================================================
 
   Future<void> restoreDatabase() async {
-    throw UnsupportedError(
-      'Restore করার জন্য Backup file নির্বাচন করার '
-      'UI এখনো main.dart-এ যুক্ত করা হয়নি।',
+    // Android-এর Downloads folder-এ থাকা JSON backup খুঁজে নেওয়া।
+    final candidates = <String>[
+      '/storage/emulated/0/Download/digital24_backup.json',
+      '/storage/emulated/0/Download/digital24_backup.json (3)',
+      '/storage/emulated/0/Downloads/digital24_backup.json',
+      '/storage/emulated/0/Downloads/digital24_backup.json (3)',
+    ];
+
+    String? backupPath;
+
+    for (final path in candidates) {
+      if (await File(path).exists()) {
+        backupPath = path;
+        break;
+      }
+    }
+
+    // Downloads-এ নামের শেষে (1), (2), (3) ইত্যাদি থাকলে খুঁজে নেওয়া।
+    if (backupPath == null) {
+      for (final directoryPath in [
+        '/storage/emulated/0/Download',
+        '/storage/emulated/0/Downloads',
+      ]) {
+        final directory = Directory(directoryPath);
+        if (!await directory.exists()) continue;
+
+        await for (final entity in directory.list()) {
+          if (entity is! File) continue;
+
+          final name = basename(entity.path).toLowerCase();
+          if (name.startsWith('digital24_backup') &&
+              name.endsWith('.json') ||
+              name.startsWith('digital24_backup.json (') ||
+              name == 'digital24_backup.json') {
+            backupPath = entity.path;
+            break;
+          }
+        }
+
+        if (backupPath != null) break;
+      }
+    }
+
+    if (backupPath == null) {
+      throw Exception(
+        'Downloads folder-এ digital24_backup.json পাওয়া যায়নি।',
+      );
+    }
+
+    final file = File(backupPath);
+    final raw = await file.readAsString();
+
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) {
+      throw Exception('Backup JSON-এর format সঠিক নয়।');
+    }
+
+    final backup = Map<String, dynamic>.from(decoded);
+    final customers = _restoreList(backup['customers']);
+    final packages = _restoreList(backup['packages']);
+    final staff = _restoreList(backup['staff']);
+    final bills = _restoreList(backup['bills']);
+    final payments = _restoreList(backup['payments']);
+
+    final db = await database;
+
+    await db.transaction((txn) async {
+      // Restore মানে backup-কে বর্তমান database-এর পূর্ণ snapshot হিসেবে
+      // ফিরিয়ে আনা। Foreign-key ঠিক রাখতে child table আগে পরিষ্কার।
+      await txn.delete('payments');
+      await txn.delete('bills');
+      await txn.delete('staff');
+      await txn.delete('packages');
+      await txn.delete('customers');
+
+      // Parent tables আগে।
+      for (final row in packages) {
+        await txn.insert(
+          'packages',
+          _packageRow(row),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      for (final row in staff) {
+        await txn.insert(
+          'staff',
+          _staffRow(row),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      
+      for (final row in customers) {
+        await txn.insert(
+          'customers',
+          _customerRow(row),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      // Child tables পরে।
+      for (final row in bills) {
+        final customerId = _intValue(row['customer_id'] ?? row['customerId']);
+        if (customerId == null) continue;
+
+        final exists = await txn.query(
+          'customers',
+          where: 'id = ?',
+          whereArgs: [customerId],
+          limit: 1,
+        );
+        if (exists.isEmpty) continue;
+
+        await txn.insert(
+          'bills',
+          _billRow(row, customerId),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      for (final row in payments) {
+        final customerId = _intValue(row['customer_id'] ?? row['customerId']);
+        if (customerId == null) continue;
+
+        final customerExists = await txn.query(
+          'customers',
+          where: 'id = ?',
+          whereArgs: [customerId],
+          limit: 1,
+        );
+        if (customerExists.isEmpty) continue;
+
+        final billId = _intValue(row['bill_id'] ?? row['billId']);
+        final staffId = _intValue(row['staff_id'] ?? row['staffId']);
+
+        if (billId != null) {
+          final billExists = await txn.query(
+            'bills',
+            where: 'id = ?',
+            whereArgs: [billId],
+            limit: 1,
+          );
+          if (billExists.isEmpty) continue;
+        }
+
+        if (staffId != null) {
+          final staffExists = await txn.query(
+            'staff',
+            where: 'id = ?',
+            whereArgs: [staffId],
+            limit: 1,
+          );
+          if (staffExists.isEmpty) {
+            // Staff reference না মিললে payment-টি staff ছাড়া restore হবে।
+          }
+        }
+
+        final paymentRow = _paymentRow(
+          row,
+          customerId,
+          billId,
+          staffId,
+        );
+
+        if (staffId != null) {
+          final staffExists = await txn.query(
+            'staff',
+            where: 'id = ?',
+            whereArgs: [staffId],
+            limit: 1,
+          );
+          if (staffExists.isEmpty) {
+            paymentRow['staff_id'] = null;
+          }
+        }
+
+        await txn.insert(
+          'payments',
+          paymentRow,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      // Restore-এর পরে customer-এর legacy paid/due fields আবার হিসাব করা।
+      await txn.rawUpdate('''
+        UPDATE customers
+        SET paid_amount = COALESCE(
+          (
+            SELECT SUM(p.amount)
+            FROM payments p
+            WHERE p.customer_id = customers.id
+          ),
+          0
+        ),
+                due_amount = MAX(
+          COALESCE(amount, 0) -
+          COALESCE(
+            (
+              SELECT SUM(p.amount)
+              FROM payments p
+              WHERE p.customer_id = customers.id
+            ),
+            0
+          ),
+          0
+        ),
+        updated_at = ?
+      ''', [DateTime.now().toIso8601String()]);
+    });
+  }
+
+  List<Map<String, dynamic>> _restoreList(dynamic value) {
+    if (value is! List) return <Map<String, dynamic>>[];
+
+    return value
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  int? _intValue(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString());
+  }
+
+  double _doubleValue(dynamic value) {
+    if (value == null) return 0;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? 0;
+  }
+
+  String _stringValue(dynamic value, [String fallback = '']) {
+    if (value == null) return fallback;
+    return value.toString();
+  }
+
+  int _boolInt(dynamic value, [int fallback = 1]) {
+    if (value == null) return fallback;
+    if (value is bool) return value ? 1 : 0;
+    if (value is num) return value != 0 ? 1 : 0;
+
+    final s = value.toString().toLowerCase().trim();
+    if (s == 'true' || s == 'yes' || s == 'active' || s == '1') {
+      return 1;
+    }
+    if (s == 'false' || s == 'no' || s == 'inactive' || s == '0') {
+      return 0;
+    }
+    return fallback;
+  }
+
+  Map<String, dynamic> _customerRow(
+    Map<String, dynamic> row,
+  ) {
+    final now = DateTime.now().toIso8601String();
+
+    final amount = _doubleValue(
+      row['amount'] ?? row['bill_amount'] ?? row['total_amount'],
     );
+    final paid = _doubleValue(row['paid_amount'] ?? row['paid']);
+    final due = row['due_amount'] != null
+        ? _doubleValue(row['due_amount'])
+        : (amount - paid).clamp(0, double.infinity).toDouble();
+
+    return {
+      if (_intValue(row['id']) != null) 'id': _intValue(row['id']),
+      'user_id': _stringValue(row['user_id'] ?? row['userId']),
+      'name': _stringValue(row['name']),
+      'mobile': _stringValue(row['mobile'] ?? row['phone']),
+      'address': _stringValue(row['address']),
+      'package_id': _intValue(row['package_id'] ?? row['packageId']),
+      'package_name': _stringValue(
+        row['package_name'] ?? row['packageName'] ?? row['package'],
+      ),
+      'bill_date': _intValue(row['bill_date'] ?? row['billDate']) ?? 7,
+      'amount': amount,
+      'total_amount': _doubleValue(row['total_amount'] ?? amount),
+      'paid_amount': paid,
+      'due_amount': due,
+      'payment_date': _stringValue(
+        row['payment_date'] ?? row['paymentDate'],
+      ),
+      'status': _boolInt(row['status'], 1),
+      'active': _boolInt(row['active'], _boolInt(row['status'], 1)),
+      'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
+      'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], now),
+    };
+  }
+  
+  Map<String, dynamic> _packageRow(
+    Map<String, dynamic> row,
+  ) {
+    final now = DateTime.now().toIso8601String();
+
+    return {
+      if (_intValue(row['id']) != null) 'id': _intValue(row['id']),
+      'name': _stringValue(row['name']),
+      'speed': _stringValue(row['speed']),
+      'price': _doubleValue(row['price']),
+      'active': _boolInt(row['active'], 1),
+      'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
+    };
+  }
+
+  Map<String, dynamic> _staffRow(
+    Map<String, dynamic> row,
+  ) {
+    final now = DateTime.now().toIso8601String();
+
+    return {
+      if (_intValue(row['id']) != null) 'id': _intValue(row['id']),
+      'name': _stringValue(row['name']),
+      'mobile': _stringValue(row['mobile'] ?? row['phone']),
+      'active': _boolInt(row['active'], 1),
+      'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
+    };
+  }
+
+  Map<String, dynamic> _billRow(
+    Map<String, dynamic> row,
+    int customerId,
+  ) {
+    final now = DateTime.now().toIso8601String();
+
+    return {
+      if (_intValue(row['id']) != null) 'id': _intValue(row['id']),
+      'customer_id': customerId,
+      'billing_month': _stringValue(
+        row['billing_month'] ?? row['billingMonth'],
+        _currentMonth(),
+      ),
+      'bill_date': _intValue(row['bill_date'] ?? row['billDate']) ?? 7,
+      'amount': _doubleValue(row['amount']),
+      'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
+    };
+  }
+
+  Map<String, dynamic> _paymentRow(
+    Map<String, dynamic> row,
+    int customerId,
+    int? billId,
+    int? staffId,
+  ) {
+        final now = DateTime.now().toIso8601String();
+    final existingReceipt = _stringValue(
+      row['receipt_no'] ?? row['receiptNo'],
+    );
+
+    return {
+      if (_intValue(row['id']) != null) 'id': _intValue(row['id']),
+      'customer_id': customerId,
+      'bill_id': billId,
+      'user_id': _stringValue(row['user_id'] ?? row['userId']),
+      'amount': _doubleValue(row['amount']),
+      'payment_date': _stringValue(
+        row['payment_date'] ?? row['paymentDate'],
+        _today(),
+      ),
+      'receipt_no': existingReceipt.isNotEmpty
+          ? existingReceipt
+          : _receiptNumber(),
+      'staff_id': staffId,
+      'note': _stringValue(row['note']),
+      'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
+    };
   }
 
   // ============================================================
@@ -1646,4 +2010,4 @@ class DatabaseHelper {
       _db = null;
     }
   }
-  }
+}
