@@ -1,5 +1,10 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:crypto/crypto.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -7,6 +12,12 @@ import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'database_helper.dart';
+
+const _brandBlue = Color(0xFF0867C8);
+const _brandCyan = Color(0xFF11A8C7);
+const _brandPurple = Color(0xFF6D3FD3);
+const _brandPink = Color(0xFFE91E63);
+const _pageBg = Color(0xFFF4F7FB);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,8 +67,39 @@ class _AppState extends State<Digital24OnlineBilling> {
       title: 'Digital 24 Online Billing',
       theme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: Colors.blue,
-        scaffoldBackgroundColor: const Color(0xFFF5F7FA),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: _brandBlue,
+          brightness: Brightness.light,
+        ),
+        scaffoldBackgroundColor: _pageBg,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Color(0xFF10233F),
+          elevation: 0,
+          centerTitle: false,
+        ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(18)),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+            borderSide: BorderSide(color: Color(0xFFDCE5F0)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+            borderSide: BorderSide(color: _brandBlue, width: 1.5),
+          ),
+        ),
       ),
       home: locked
           ? LockScreen(onUnlocked: unlock)
@@ -501,7 +543,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
     );
     if (ok != true) return;
     try {
-      await db.deleteCustomer(c.id!);
+            await db.deleteCustomer(c.id!);
       await loadCustomers();
       msg(t('ইউজার মুছে ফেলা হয়েছে', 'Customer deleted'));
     } catch (e) { msg('$e'); }
@@ -526,7 +568,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-
+  
     Widget detail(String a, String b) => Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [SizedBox(width: 110, child: Text('$a:', style: const TextStyle(fontWeight: FontWeight.bold))), Expanded(child: Text(b))]));
 
   Future<int> currentBill(Customer c) async => db.ensureBill(c.id!, monthKey(), c.billDate, c.bill > 0 ? c.bill : 0);
@@ -573,7 +615,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 onChanged: (v) => setD(() => staffId = v),
               ),
             ],
-            const SizedBox(height: 10), field(note, t('নোট', 'Note'), Icons.note),
+                        const SizedBox(height: 10), field(note, t('নোট', 'Note'), Icons.note),
           ])),
           actions: [
             TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: Text(t('বাতিল', 'Cancel'))),
@@ -631,7 +673,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   },
                 ),
         ),
-        actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close')))],
+                actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close')))],
       ),
     );
   }
@@ -716,7 +758,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => printMonthlyReport(month), child: Text(t('PDF Report', 'PDF Report'))),
+                        TextButton(onPressed: () => printMonthlyReport(month), child: Text(t('PDF Report', 'PDF Report'))),
             FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))),
           ],
         ),
@@ -809,7 +851,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       final r = rows[i];
                       return ListTile(
                         title: Text('${r['user_id'] ?? ''} - ${r['name'] ?? ''}'),
-                        subtitle: Text('${r['payment_date'] ?? ''} • ${r['staff_name'] ?? ''}\n${r['receipt_no'] ?? ''}'),
+                                                subtitle: Text('${r['payment_date'] ?? ''} • ${r['staff_name'] ?? ''}\n${r['receipt_no'] ?? ''}'),
                         trailing: Text('${money(((r['amount'] ?? 0) as num).toDouble())} ৳'),
                       );
                     },
@@ -859,8 +901,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
       await p.setString('app_lock_hash', sha256.convert(a.text.codeUnits).toString());
       await p.setBool('app_lock_enabled', true);
       msg(t('App Lock চালু হয়েছে', 'App Lock enabled'));
-    }
-    a.dispose(); b.dispose();
+        }
+        a.dispose(); b.dispose();
   }
 
   Future<void> searchDialog() async {
@@ -883,72 +925,788 @@ class _BillingHomePageState extends State<BillingHomePage> {
     widget.onLanguageChanged(next);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Digital 24 Online Billing'),
-        centerTitle: true,
+  Future<void> backupDatabase() async {
+    try {
+      await db.exportBackupToFile();
+      msg(t(
+        'Database Backup সফলভাবে সংরক্ষণ করা হয়েছে।',
+        'Database backup saved successfully.',
+      ));
+    } catch (e) {
+      msg('${t('Backup-এ সমস্যা: ', 'Backup error: ')}$e');
+    }
+  }
+
+  Future<void> restoreBackup() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('Restore Backup', 'Restore Backup')),
+        content: Text(
+          t(
+            'Restore করলে বর্তমান Customer, Billing, Payment, Package ও Staff data নির্বাচিত Backup-এর data দিয়ে প্রতিস্থাপিত হবে। আগে একটি Backup রেখে নিন। আপনি কি চালিয়ে যেতে চান?',
+            'Restore will replace the current Customer, Billing, Payment, Package and Staff data with the selected backup. Please keep a backup first. Continue?',
+          ),
+        ),
         actions: [
-          IconButton(tooltip: t('সার্চ', 'Search'), onPressed: searchDialog, icon: const Icon(Icons.search)),
-          PopupMenuButton<String>(
-            onSelected: (v) async {
-              if (v == 'today') await todayCollection();
-              if (v == 'monthly') await monthlyBilling();
-              if (v == 'packages') await packageManagement();
-              if (v == 'staff') await staffManagement();
-              if (v == 'reports') await reports();
-              if (v == 'lock') await appLockSettings();
-              if (v == 'language') await languageSwitch();
-              if (v == 'refresh') await loadCustomers();
-              if (v == 'restore') await db.restoreDatabase();
-            },
-                        itemBuilder: (_) => [
-              PopupMenuItem(value: 'today', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.today), title: Text(t('আজকের Collection', 'Today Collection')))),
-              PopupMenuItem(value: 'monthly', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.calendar_month), title: Text(t('Monthly Billing', 'Monthly Billing')))),
-              PopupMenuItem(value: 'packages', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.speed), title: Text(t('Package Management', 'Package Management')))),
-              PopupMenuItem(value: 'staff', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.groups), title: Text(t('Staff Collection', 'Staff Collection')))),
-              PopupMenuItem(value: 'reports', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.assessment), title: Text(t('Reports', 'Reports')))),
-              PopupMenuItem(value: 'lock', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.lock), title: Text(t('App Lock / Password', 'App Lock / Password')))),
-              PopupMenuItem(value: 'language', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.language), title: Text(widget.english ? 'বাংলা' : 'English'))),
-              PopupMenuItem(value: 'refresh', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.refresh), title: Text(t('Refresh', 'Refresh')))),
-                          PopupMenuItem(value: 'restore', child: ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.restore), title: Text(t('Restore Backup', 'Restore Backup')))),
-            ],
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(t('বাতিল', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(t('Restore করুন', 'Restore')),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(onPressed: addCustomer, icon: const Icon(Icons.person_add), label: Text(t('ইউজার যোগ', 'Add Customer'))),
-      body: RefreshIndicator(
-        onRefresh: loadCustomers,
-        child: ListView(padding: const EdgeInsets.only(bottom: 100), children: [
-          const SizedBox(height: 10),
-          const Center(child: Text('Digital 24 Online', style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold))),
-          const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100', textAlign: TextAlign.center)),
-          const SizedBox(height: 10),
-          SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-            summary('মোট ইউজার', '${bnNumber(customers.length)}', Icons.people),
-            summary('Active', '$activeCount', Icons.wifi), summary('Closed', '$closedCount', Icons.wifi_off),
-            summary('মোট বিল', '${money(totalBill)} ৳', Icons.receipt_long), summary('পরিশোধ', '${money(totalPaid)} ৳', Icons.payments), summary('বকেয়া', '${money(totalDue)} ৳', Icons.money_off),
-          ])),
-          const SizedBox(height: 8),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Row(children: [chip('সকল', 0), chip('৭ তারিখ', 7), chip('১৪ তারিখ', 14), chip('২১ তারিখ', 21)])),
-          const SizedBox(height: 8),
-                    Center(child: Text(selectedBillDate == 0 ? t('সকল ইউজারের হিসাব', 'All Customers') : t('${bnNumber(selectedBillDate)} তারিখের হিসাব', 'Billing date $selectedBillDate'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
-          if (searchText.isNotEmpty) Center(child: Text('${t('খোঁজা হচ্ছে', 'Searching')}: $searchText • ${filtered.length}')),
-          const SizedBox(height: 6),
-          if (loading) const SizedBox(height: 300, child: Center(child: CircularProgressIndicator()))
-          else if (filtered.isEmpty) SizedBox(height: 300, child: Center(child: Text(t('কোনো ইউজার পাওয়া যায়নি', 'No customer found'))))
-          else ...filtered.map(customerCard),
-        ]),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await db.restoreDatabase();
+      await loadCustomers();
+      msg(t(
+        'Backup সফলভাবে Restore হয়েছে।',
+        'Backup restored successfully.',
+      ));
+    } catch (e) {
+      msg('${t('Restore-এ সমস্যা: ', 'Restore error: ')}$e');
+    }
+  }
+
+  Future<void> exportUserListPdf() async {
+    try {
+      final rows = List<Customer>.from(filtered);
+      if (rows.isEmpty) {
+        msg(t('PDF করার মতো কোনো ইউজার নেই।', 'There are no customers to export.'));
+        return;
+      }
+
+      final logoData = await rootBundle.load('assets/logo.png');
+      final logo = pw.MemoryImage(
+        logoData.buffer.asUint8List(),
+      );
+
+      final doc = pw.Document();
+
+      double totalBillValue = 0;
+      double totalPaidValue = 0;
+      double totalDueValue = 0;
+
+      for (final c in rows) {
+        totalBillValue += c.bill;
+        totalPaidValue += c.paid;
+        totalDueValue += c.due;
+      }
+
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4.landscape,
+          margin: const pw.EdgeInsets.all(24),
+          header: (_) => pw.Column(
+            children: [
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Container(
+                    width: 72,
+                    height: 42,
+                    child: pw.Image(logo, fit: pw.BoxFit.contain),
+                  ),
+                  pw.SizedBox(width: 12),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'DIGITAL 24 ONLINE',
+                        style: pw.TextStyle(
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text('Internet Service Provider'),
+                      pw.Text(
+                        'Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100',
+                        style: const pw.TextStyle(fontSize: 8),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.Divider(),
+              pw.Center(
+                child: pw.Text(
+                  'CUSTOMER / PAYMENT REPORT',
+                  style: pw.TextStyle(
+                    fontSize: 14,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+              pw.SizedBox(height: 8),
+            ],
+          ),
+          footer: (context) => pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Text(
+              'Page ${context.pageNumber} / ${context.pagesCount}',
+              style: const pw.TextStyle(fontSize: 8),
+            ),
+          ),
+          build: (_) => [
+            pw.TableHelper.fromTextArray(
+              headers: const [
+                'SN',
+                'Cust ID',
+                'Username',
+                'Name',
+                'Mobile',
+                'Package',
+                'Bill Date',
+                'Bill',
+                'Paid',
+                'Due',
+                'Status',
+              ],
+              data: rows.asMap().entries.map((entry) {
+                final i = entry.key;
+                final c = entry.value;
+                return [
+                  '${i + 1}',
+                  '${c.id ?? '-'}',
+                  c.userId,
+                  c.name,
+                  c.mobile,
+                  c.packageName,
+                  '${c.billDate}',
+                  money(c.bill),
+                  money(c.paid),
+                  money(c.due),
+                  c.active ? 'Active' : 'Closed',
+                ];
+              }).toList(),
+              cellStyle: const pw.TextStyle(fontSize: 7),
+              headerStyle: pw.TextStyle(
+                fontSize: 7,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              cellPadding: const pw.EdgeInsets.all(4),
+              border: pw.TableBorder.all(width: 0.35),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.blueGrey100,
+              ),
+            ),
+            pw.SizedBox(height: 12),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Customers: ${rows.length}'),
+                pw.Text('Total Bill: BDT ${money(totalBillValue)}'),
+                pw.Text('Total Paid: BDT ${money(totalPaidValue)}'),
+                pw.Text('Total Due: BDT ${money(totalDueValue)}'),
+              ],
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              'Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
+              style: const pw.TextStyle(fontSize: 8),
+            ),
+          ],
+        ),
+      );
+
+      final bytes = await doc.save();
+      final fileName =
+          'Digital24Online_Customer_Report_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+
+      final saved = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Customer PDF',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        bytes: Uint8List.fromList(bytes),
+      );
+
+      if (saved != null && !Platform.isAndroid) {
+        final file = File(saved);
+        if (!await file.exists() || await file.length() == 0) {
+          await file.writeAsBytes(bytes, flush: true);
+        }
+      }
+
+      msg(t(
+        'Customer PDF তৈরি হয়েছে।',
+        'Customer PDF created successfully.',
+      ));
+    } catch (e) {
+      msg('${t('PDF তৈরিতে সমস্যা: ', 'PDF error: ')}$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = constraints.maxWidth >= 900;
+
+        return Scaffold(
+          appBar: AppBar(
+            titleSpacing: 12,
+            title: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Image.asset(
+                    'assets/logo.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Digital 24 Online',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        t(
+                          'Internet Service Provider',
+                          'Internet Service Provider',
+                        ),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              IconButton(
+                tooltip: t('সার্চ', 'Search'),
+                onPressed: searchDialog,
+                icon: const Icon(Icons.search_rounded),
+              ),
+              IconButton(
+                tooltip: t('Customer PDF', 'Customer PDF'),
+                onPressed: exportUserListPdf,
+                icon: const Icon(Icons.picture_as_pdf_rounded),
+              ),
+              PopupMenuButton<String>(
+                onSelected: (v) async {
+                  if (v == 'today') await todayCollection();
+                  if (v == 'monthly') await monthlyBilling();
+                  if (v == 'packages') await packageManagement();
+                  if (v == 'staff') await staffManagement();
+                  if (v == 'reports') await reports();
+                  if (v == 'lock') await appLockSettings();
+                  if (v == 'language') await languageSwitch();
+                  if (v == 'refresh') await loadCustomers();
+                  if (v == 'backup') await backupDatabase();
+                  if (v == 'restore') await restoreBackup();
+                  if (v == 'pdf') await exportUserListPdf();
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'today',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.today_rounded),
+                      title: Text(t('আজকের Collection', 'Today Collection')),
+                    ),
+                  ),
+                                    PopupMenuItem(
+                    value: 'monthly',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.calendar_month_rounded),
+                      title: Text(t('Monthly Billing', 'Monthly Billing')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'packages',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.speed_rounded),
+                      title: Text(t('Package Management', 'Package Management')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'staff',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.groups_rounded),
+                      title: Text(t('Staff Collection', 'Staff Collection')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'reports',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.assessment_rounded),
+                      title: Text(t('Reports', 'Reports')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'pdf',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.picture_as_pdf_rounded),
+                      title: Text(
+                        t('সম্পূর্ণ User List PDF', 'Full User List PDF'),
+                      ),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'backup',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.backup_rounded),
+                      title: Text(t('Backup Database', 'Backup Database')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'restore',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.restore_rounded),
+                      title: Text(t('Restore Backup', 'Restore Backup')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'lock',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.lock_rounded),
+                      title: Text(t('App Lock / Password', 'App Lock / Password')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'language',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.language_rounded),
+                      title: Text(widget.english ? 'বাংলা' : 'English'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'refresh',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.refresh_rounded),
+                      title: Text(t('Refresh', 'Refresh')),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+                    floatingActionButton: FloatingActionButton.extended(
+            onPressed: addCustomer,
+            icon: const Icon(Icons.person_add_alt_1_rounded),
+            label: Text(t('ইউজার যোগ', 'Add Customer')),
+          ),
+          body: RefreshIndicator(
+            onRefresh: loadCustomers,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 110),
+              children: [
+                _heroHeader(desktop),
+                const SizedBox(height: 12),
+                _summaryStrip(),
+                const SizedBox(height: 12),
+                _filterBar(),
+                const SizedBox(height: 12),
+                if (searchText.isNotEmpty)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(
+                        '${t('খোঁজা হচ্ছে', 'Searching')}: $searchText • ${filtered.length}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                if (loading)
+                  const SizedBox(
+                    height: 300,
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (filtered.isEmpty)
+                  SizedBox(
+                    height: 300,
+                    child: Center(
+                      child: Text(
+                        t('কোনো ইউজার পাওয়া যায়নি', 'No customer found'),
+                      ),
+                    ),
+                  )
+                else if (desktop)
+                  _customerTable()
+                else
+                  ...filtered.map(customerCard),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _heroHeader(bool desktop) {
+    return Container(
+      padding: EdgeInsets.all(desktop ? 22 : 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: const LinearGradient(
+          colors: [_brandBlue, _brandPurple, _brandPink],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            blurRadius: 22,
+            offset: Offset(0, 10),
+            color: Color(0x22000000),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: desktop ? 78 : 64,
+            height: desktop ? 78 : 64,
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Image.asset('assets/logo.png', fit: BoxFit.contain),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Digital 24 Online',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: desktop ? 27 : 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                const Text(
+                  'Internet Service Provider',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget chip(String label, int value) => Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 2), child: ChoiceChip(
-    label: Text(widget.english ? ({'সকল': 'All', '৭ তারিখ': '7', '১৪ তারিখ': '14', '২১ তারিখ': '21'}[label] ?? label) : label),
-    selected: selectedBillDate == value,
-    onSelected: (_) async { setState(() { selectedBillDate = value; searchText = ''; }); await loadCustomers(); },
-  )));
+  Widget _summaryStrip() {
+    final items = [
+      ('মোট ইউজার', '${bnNumber(customers.length)}', Icons.people_alt_rounded, _brandBlue),
+      ('Active', '$activeCount', Icons.wifi_rounded, Colors.green),
+      ('Closed', '$closedCount', Icons.wifi_off_rounded, Colors.red),
+      ('মোট বিল', '${money(totalBill)} ৳', Icons.receipt_long_rounded, _brandPurple),
+      ('পরিশোধ', '${money(totalPaid)} ৳', Icons.payments_rounded, _brandCyan),
+      ('বকেয়া', '${money(totalDue)} ৳', Icons.money_off_rounded, _brandPink),
+    ];
+
+    return SizedBox(
+      height: 92,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final item = items[i];
+          return Container(
+            width: 154,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE2E9F2)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x0D000000),
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+                        child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: (item.$4 as Color).withOpacity(.12),
+                  foregroundColor: item.$4 as Color,
+                  child: Icon(item.$3, size: 20),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.$1,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 10),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        item.$2,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _filterBar() {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E9F2)),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: chip('সকল', 0)),
+          Expanded(child: chip('৭ তারিখ', 7)),
+          Expanded(child: chip('১৪ তারিখ', 14)),
+          Expanded(child: chip('২১ তারিখ', 21)),
+        ],
+      ),
+    );
+  }
+
+  Widget _customerTable() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFDDE6F0)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          headingRowHeight: 50,
+          dataRowMinHeight: 58,
+          dataRowMaxHeight: 70,
+          columnSpacing: 22,
+          headingRowColor: WidgetStatePropertyAll(
+            const Color(0xFF129EB7),
+          ),
+          columns: [
+            DataColumn(
+              label: Text(
+                'SN',
+                style: _tableHeaderStyle,
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                t('Cust ID', 'Cust ID'),
+                style: _tableHeaderStyle,
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                t('Username', 'Username'),
+                style: _tableHeaderStyle,
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                t('Name', 'Name'),
+                style: _tableHeaderStyle,
+              ),
+            ),
+                        DataColumn(
+              label: Text(
+                t('Package', 'Package'),
+                style: _tableHeaderStyle,
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                t('Bill', 'Bill'),
+                style: _tableHeaderStyle,
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                t('Paid', 'Paid'),
+                style: _tableHeaderStyle,
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                t('Balance/Due', 'Balance/Due'),
+                style: _tableHeaderStyle,
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                t('Status', 'Status'),
+                style: _tableHeaderStyle,
+              ),
+            ),
+          ],
+          rows: filtered.asMap().entries.map((entry) {
+            final index = entry.key;
+            final c = entry.value;
+            return DataRow(
+              onSelectChanged: (_) => showDetails(c),
+              cells: [
+                DataCell(Text('${index + 1}')),
+                DataCell(Text('${c.id ?? '-'}')),
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        c.active ? Icons.lock_open_rounded : Icons.lock_rounded,
+                        size: 18,
+                        color: c.active ? Colors.green : Colors.grey,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(c.userId),
+                    ],
+                  ),
+                ),
+                DataCell(
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 190),
+                    child: Text(
+                      c.name,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                DataCell(Text(c.packageName.isEmpty ? '-' : c.packageName)),
+                DataCell(Text('${money(c.bill)} ৳')),
+                DataCell(Text('${money(c.paid)} ৳')),
+                DataCell(
+                  Text(
+                    '${money(c.due)} ৳',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: c.due > 0 ? Colors.red : Colors.green,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: (c.active ? Colors.green : Colors.red).withOpacity(.10),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      c.active ? 'Active' : 'Closed',
+                      style: TextStyle(
+                        color: c.active ? Colors.green : Colors.red,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+  
+  TextStyle get _tableHeaderStyle => const TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.w800,
+        fontSize: 12,
+      );
+
+  Widget chip(String label, int value) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: ChoiceChip(
+          label: Text(
+            widget.english
+                ? ({'সকল': 'All', '৭ তারিখ': '7', '১৪ তারিখ': '14', '২১ তারিখ': '21'}[label] ?? label)
+                : label,
+          ),
+          selected: selectedBillDate == value,
+          showCheckmark: false,
+          onSelected: (_) async {
+            setState(() {
+              selectedBillDate = value;
+              searchText = '';
+            });
+            await loadCustomers();
+          },
+        ),
+      );
 
   Widget summary(String title, String value, IconData icon) => Container(width: 142, height: 82, margin: const EdgeInsets.symmetric(horizontal: 4), padding: const EdgeInsets.all(9), decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(children: [CircleAvatar(radius: 19, child: Icon(icon, size: 19)), const SizedBox(width: 7), Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 11)), Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))]))]));
 
@@ -983,7 +1741,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         ],
                       ),
                     ),
-                    PopupMenuButton<String>(
+                                        PopupMenuButton<String>(
                       onSelected: (v) async {
                         if (v == 'details') await showDetails(c);
                         if (v == 'edit') await editCustomer(c);
@@ -1055,7 +1813,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           ),
         ),
       );
-  
+    
   Widget _tag(IconData i, String text) => Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), decoration: BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(i, size: 15), const SizedBox(width: 4), Text(text)]));
   Widget amountBox(String title, double value, {bool due = false}) => Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), color: Theme.of(context).colorScheme.surfaceContainerHighest), child: Column(children: [Text(title, style: const TextStyle(fontSize: 11)), Text('${money(value)} ৳', style: TextStyle(fontWeight: FontWeight.bold, color: due ? Colors.red : null))]));
 }
@@ -1098,7 +1856,7 @@ class _PackageManagerState extends State<PackageManager> {
           TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: t('মূল্য', 'Price'))),
         ])),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('সংরক্ষণ', 'Save'))),
         ],
       ),
@@ -1175,7 +1933,7 @@ class _StaffManagerState extends State<StaffManager> {
       final r = await widget.db.getStaff();
       if (mounted) setState(() => rows = r);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
   }
   
