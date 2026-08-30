@@ -1,6 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -905,7 +906,7 @@ class DatabaseHelper {
         'billing_month': month,
         'bill_date': billDate,
         'amount': amount,
-        'created_at':
+                'created_at':
                         DateTime.now().toIso8601String(),
       },
     );
@@ -1006,7 +1007,7 @@ class DatabaseHelper {
           SUM(amount),
           0
         ) AS bill,
-
+        
         (
           SELECT COALESCE(
             SUM(p.amount),
@@ -1107,7 +1108,7 @@ class DatabaseHelper {
     final staffId =
         (data['staff_id'] as num?)
             ?.toInt();
-
+    
     final userId =
         data['user_id']
                 ?.toString() ??
@@ -1204,7 +1205,7 @@ class DatabaseHelper {
             ],
             limit: 1,
           );
-          
+                    
           if (bill.isNotEmpty) {
             final paidResult =
                 await txn.rawQuery(
@@ -1308,7 +1309,7 @@ class DatabaseHelper {
                           as num?)
                       ?.toDouble() ??
                   0;
-
+          
           final due =
               totalAmount -
                   totalPaid;
@@ -1409,7 +1410,7 @@ class DatabaseHelper {
       args,
     );
   }
-
+  
   Future<List<Map<String, dynamic>>>
       getPaymentsByDate(
     String date,
@@ -1510,7 +1511,7 @@ class DatabaseHelper {
 
       LEFT JOIN staff s
         ON s.id = p.staff_id
-
+        
       LEFT JOIN bills b
         ON b.id = p.bill_id
 
@@ -1575,7 +1576,7 @@ class DatabaseHelper {
   }
 
   // ============================================================
-  // BACKUP
+  // BACKUP / RESTORE
   // ============================================================
 
   Future<String?> backupDatabase() async {
@@ -1584,241 +1585,218 @@ class DatabaseHelper {
       'digital24_billing.db',
     );
 
-    final source =
-        File(dbPath);
-
+    final source = File(dbPath);
     if (!await source.exists()) {
       return null;
     }
 
     final backupPath = join(
       await getDatabasesPath(),
-      'digital24_backup_'
-          '${DateTime.now().millisecondsSinceEpoch}'
-          '.db',
-    );
-    
-    await source.copy(
-      backupPath,
+      'digital24_backup_${DateTime.now().millisecondsSinceEpoch}.db',
     );
 
-    return backupPath;
+    try {
+      final db = await database;
+      await db.execute('PRAGMA wal_checkpoint(FULL)');
+      await closeDatabase();
+
+      for (final suffix in ['-wal', '-shm', '-journal']) {
+        final sidecar = File('$dbPath$suffix');
+        if (await sidecar.exists()) {
+          await sidecar.delete();
+        }
+      }
+      
+      await source.copy(backupPath);
+      return backupPath;
+    } finally {
+      await database;
+    }
   }
 
-  // ============================================================
-  // RESTORE
-  // ============================================================
+  Future<bool> _hasRequiredTables(String path) async {
+    Database? testDb;
+    try {
+      testDb = await openDatabase(
+        path,
+        readOnly: true,
+      );
+
+      final rows = await testDb.rawQuery('''
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name IN ('customers', 'packages', 'bills', 'staff', 'payments')
+      ''');
+
+      final names = rows
+          .map((e) => e['name']?.toString())
+          .whereType<String>()
+          .toSet();
+
+      return {
+        'customers',
+        'packages',
+        'bills',
+        'staff',
+        'payments',
+      }.every(names.contains);
+    } catch (_) {
+      return false;
+    } finally {
+      await testDb?.close();
+    }
+  }
+
+  Future<void> exportBackupToFile() async {
+    final dbPath = join(
+      await getDatabasesPath(),
+      'digital24_billing.db',
+    );
+    final source = File(dbPath);
+
+    if (!await source.exists()) {
+      throw Exception('বর্তমান Database পাওয়া যায়নি।');
+    }
+
+    List<int> bytes;
+    try {
+      final db = await database;
+      await db.execute('PRAGMA wal_checkpoint(FULL)');
+      await closeDatabase();
+
+      for (final suffix in ['-wal', '-shm', '-journal']) {
+        final sidecar = File('$dbPath$suffix');
+        if (await sidecar.exists()) {
+          await sidecar.delete();
+        }
+      }
+
+      bytes = await source.readAsBytes();
+    } finally {
+      await database;
+    }
+    final stamp = DateTime.now();
+    final fileName =
+        'Digital24Online_Backup_${stamp.year}'
+        '${stamp.month.toString().padLeft(2, '0')}'
+        '${stamp.day.toString().padLeft(2, '0')}_'
+        '${stamp.hour.toString().padLeft(2, '0')}'
+        '${stamp.minute.toString().padLeft(2, '0')}'
+        '${stamp.second.toString().padLeft(2, '0')}.db';
+
+    final saved = await FilePicker.platform.saveFile(
+      dialogTitle: 'Backup Database',
+      fileName: fileName,
+      type: FileType.custom,
+      allowedExtensions: ['db'],
+      bytes: Uint8List.fromList(bytes),
+    );
+
+    if (saved != null && !Platform.isAndroid) {
+      final savedFile = File(saved);
+      if (!await savedFile.exists() || await savedFile.length() == 0) {
+        await savedFile.writeAsBytes(bytes, flush: true);
+      }
+    }
+  }
 
   Future<void> restoreDatabase() async {
-    // Android-এর Downloads folder-এ থাকা JSON backup খুঁজে নেওয়া।
-    final candidates = <String>[
-      '/storage/emulated/0/Download/digital24_backup.json',
-      '/storage/emulated/0/Download/digital24_backup.json (3)',
-      '/storage/emulated/0/Downloads/digital24_backup.json',
-      '/storage/emulated/0/Downloads/digital24_backup.json (3)',
-    ];
-
-    String? backupPath;
-
-    for (final path in candidates) {
-      if (await File(path).exists()) {
-        backupPath = path;
-        break;
-      }
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['db'],
+      allowMultiple: false,
+      withData: true,
+    );
+    
+    if (result == null || result.files.isEmpty) {
+      throw Exception('কোনো Backup Database নির্বাচন করা হয়নি।');
     }
 
-    // Downloads-এ নামের শেষে (1), (2), (3) ইত্যাদি থাকলে খুঁজে নেওয়া।
-    if (backupPath == null) {
-      for (final directoryPath in [
-        '/storage/emulated/0/Download',
-        '/storage/emulated/0/Downloads',
-      ]) {
-        final directory = Directory(directoryPath);
-        if (!await directory.exists()) continue;
+    final picked = result.files.single;
+    final currentDbPath = join(
+      await getDatabasesPath(),
+      'digital24_billing.db',
+    );
 
-        await for (final entity in directory.list()) {
-          if (entity is! File) continue;
+    String? sourcePath = picked.path;
+    String? temporaryPath;
 
-          final name = basename(entity.path).toLowerCase();
-          if (name.startsWith('digital24_backup') &&
-              name.endsWith('.json') ||
-              name.startsWith('digital24_backup.json (') ||
-              name == 'digital24_backup.json') {
-            backupPath = entity.path;
-            break;
-          }
-        }
-
-        if (backupPath != null) break;
+    if (sourcePath == null || !await File(sourcePath).exists()) {
+      final bytes = picked.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Backup ফাইলটি পড়া যায়নি।');
       }
+
+      temporaryPath = join(
+        await getDatabasesPath(),
+        '_restore_${DateTime.now().millisecondsSinceEpoch}.db',
+      );
+      await File(temporaryPath).writeAsBytes(bytes, flush: true);
+      sourcePath = temporaryPath;
     }
 
-    if (backupPath == null) {
+    if (sourcePath == currentDbPath) {
       throw Exception(
-        'Downloads folder-এ digital24_backup.json পাওয়া যায়নি।',
+        'বর্তমান Database-কে Restore source হিসেবে নির্বাচন করা যাবে না।',
       );
     }
 
-    final file = File(backupPath);
-    final raw = await file.readAsString();
+    try {
+      if (!await _hasRequiredTables(sourcePath)) {
+        throw Exception(
+          'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
+        );
+      }
 
-    final decoded = jsonDecode(raw);
-    if (decoded is! Map) {
-      throw Exception('Backup JSON-এর format সঠিক নয়।');
+      final currentFile = File(currentDbPath);
+      final safetyPath = join(
+        await getDatabasesPath(),
+        '_before_restore_${DateTime.now().millisecondsSinceEpoch}.db',
+      );
+
+      if (await currentFile.exists()) {
+        await currentFile.copy(safetyPath);
+      }
+
+      await closeDatabase();
+
+      for (final suffix in ['-wal', '-shm', '-journal']) {
+        final sidecar = File('$currentDbPath$suffix');
+        if (await sidecar.exists()) {
+          await sidecar.delete();
+        }
+      }
+
+      await File(sourcePath).copy(currentDbPath);
+
+      await database;
+      final valid = await _hasRequiredTables(currentDbPath);
+
+      if (!valid) {
+        await closeDatabase();
+
+        if (await File(safetyPath).exists()) {
+          await File(safetyPath).copy(currentDbPath);
+        }
+
+        await database;
+        throw Exception(
+          'Restore যাচাই করা যায়নি। আগের Database ফিরিয়ে দেওয়া হয়েছে।',
+        );
+      }
+
+      if (await File(safetyPath).exists()) {
+        await File(safetyPath).delete();
+      }
+    } finally {
+      if (temporaryPath != null) {
+        final temp = File(temporaryPath);
+        if (await temp.exists()) {
+          await temp.delete();
+        }
+      }
     }
-
-    final backup = Map<String, dynamic>.from(decoded);
-    final customers = _restoreList(backup['customers']);
-    final packages = _restoreList(backup['packages']);
-    final staff = _restoreList(backup['staff']);
-    final bills = _restoreList(backup['bills']);
-    final payments = _restoreList(backup['payments']);
-
-    final db = await database;
-
-    await db.transaction((txn) async {
-      // Restore মানে backup-কে বর্তমান database-এর পূর্ণ snapshot হিসেবে
-      // ফিরিয়ে আনা। Foreign-key ঠিক রাখতে child table আগে পরিষ্কার।
-      await txn.delete('payments');
-      await txn.delete('bills');
-      await txn.delete('staff');
-      await txn.delete('packages');
-      await txn.delete('customers');
-
-      // Parent tables আগে।
-      for (final row in packages) {
-        await txn.insert(
-          'packages',
-          _packageRow(row),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-
-      for (final row in staff) {
-        await txn.insert(
-          'staff',
-          _staffRow(row),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-      
-      for (final row in customers) {
-        await txn.insert(
-          'customers',
-          _customerRow(row),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-
-      // Child tables পরে।
-      for (final row in bills) {
-        final customerId = _intValue(row['customer_id'] ?? row['customerId']);
-        if (customerId == null) continue;
-
-        final exists = await txn.query(
-          'customers',
-          where: 'id = ?',
-          whereArgs: [customerId],
-          limit: 1,
-        );
-        if (exists.isEmpty) continue;
-
-        await txn.insert(
-          'bills',
-          _billRow(row, customerId),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-
-      for (final row in payments) {
-        final customerId = _intValue(row['customer_id'] ?? row['customerId']);
-        if (customerId == null) continue;
-
-        final customerExists = await txn.query(
-          'customers',
-          where: 'id = ?',
-          whereArgs: [customerId],
-          limit: 1,
-        );
-        if (customerExists.isEmpty) continue;
-
-        final billId = _intValue(row['bill_id'] ?? row['billId']);
-        final staffId = _intValue(row['staff_id'] ?? row['staffId']);
-
-        if (billId != null) {
-          final billExists = await txn.query(
-            'bills',
-            where: 'id = ?',
-            whereArgs: [billId],
-            limit: 1,
-          );
-          if (billExists.isEmpty) continue;
-        }
-
-        if (staffId != null) {
-          final staffExists = await txn.query(
-            'staff',
-            where: 'id = ?',
-            whereArgs: [staffId],
-            limit: 1,
-          );
-          if (staffExists.isEmpty) {
-            // Staff reference না মিললে payment-টি staff ছাড়া restore হবে।
-          }
-        }
-
-        final paymentRow = _paymentRow(
-          row,
-          customerId,
-          billId,
-          staffId,
-        );
-
-        if (staffId != null) {
-          final staffExists = await txn.query(
-            'staff',
-            where: 'id = ?',
-            whereArgs: [staffId],
-            limit: 1,
-          );
-          if (staffExists.isEmpty) {
-            paymentRow['staff_id'] = null;
-          }
-        }
-
-        await txn.insert(
-          'payments',
-          paymentRow,
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-
-      // Restore-এর পরে customer-এর legacy paid/due fields আবার হিসাব করা।
-      await txn.rawUpdate('''
-        UPDATE customers
-        SET paid_amount = COALESCE(
-          (
-            SELECT SUM(p.amount)
-            FROM payments p
-            WHERE p.customer_id = customers.id
-          ),
-          0
-        ),
-                due_amount = MAX(
-          COALESCE(amount, 0) -
-          COALESCE(
-            (
-              SELECT SUM(p.amount)
-              FROM payments p
-              WHERE p.customer_id = customers.id
-            ),
-            0
-          ),
-          0
-        ),
-        updated_at = ?
-      ''', [DateTime.now().toIso8601String()]);
-    });
   }
 
   List<Map<String, dynamic>> _restoreList(dynamic value) {
@@ -1829,7 +1807,7 @@ class DatabaseHelper {
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
   }
-
+  
   int? _intValue(dynamic value) {
     if (value == null) return null;
     if (value is int) return value;
@@ -1929,7 +1907,7 @@ class DatabaseHelper {
       'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
     };
   }
-
+  
   Map<String, dynamic> _billRow(
     Map<String, dynamic> row,
     int customerId,
