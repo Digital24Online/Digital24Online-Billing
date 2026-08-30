@@ -1702,101 +1702,173 @@ class DatabaseHelper {
   }
 
   Future<void> restoreDatabase() async {
-  final result = await FilePicker.platform.pickFiles(
-    type: FileType.custom,
-    allowedExtensions: ['db'],
-    allowMultiple: false,
-    withData: true,
-  );
+  final candidates = <String>[
+    '/storage/emulated/0/Download/digital24_backup.json',
+    '/storage/emulated/0/Download/digital24_backup.json (3)',
+    '/storage/emulated/0/Downloads/digital24_backup.json',
+    '/storage/emulated/0/Downloads/digital24_backup.json (3)',
+  ];
 
-  if (result == null || result.files.isEmpty) {
-    throw Exception('কোনো Backup Database নির্বাচন করা হয়নি।');
-  }
+  String? backupPath;
 
-  final picked = result.files.single;
-
-  final currentDbPath = join(
-    await getDatabasesPath(),
-    'digital24_billing.db',
-  );
-
-  String? sourcePath = picked.path;
-  String? temporaryPath;
-
-  if (sourcePath == null || !await File(sourcePath!).exists()) {
-    final bytes = picked.bytes;
-
-    if (bytes == null || bytes.isEmpty) {
-      throw Exception('Backup ফাইলটি পড়া যায়নি।');
+  for (final path in candidates) {
+    if (await File(path).exists()) {
+      backupPath = path;
+      break;
     }
-
-    temporaryPath = join(
-      await getDatabasesPath(),
-      '_restore_${DateTime.now().millisecondsSinceEpoch}.db',
-    );
-
-    await File(temporaryPath).writeAsBytes(
-      bytes,
-      flush: true,
-    );
-
-    sourcePath = temporaryPath;
   }
 
-  try {
-    if (!await _hasRequiredTables(sourcePath!)) {
-      throw Exception(
-        'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
+  if (backupPath == null) {
+    for (final directoryPath in [
+      '/storage/emulated/0/Download',
+      '/storage/emulated/0/Downloads',
+    ]) {
+      final directory = Directory(directoryPath);
+
+      if (!await directory.exists()) continue;
+
+      await for (final entity in directory.list()) {
+        if (entity is! File) continue;
+
+        final name = basename(entity.path).toLowerCase();
+
+        if (name.startsWith('digital24_backup') &&
+            name.endsWith('.json')) {
+          backupPath = entity.path;
+          break;
+        }
+      }
+
+      if (backupPath != null) break;
+    }
+  }
+
+  if (backupPath == null) {
+    throw Exception(
+      'Downloads folder-এ digital24_backup.json পাওয়া যায়নি।',
+    );
+  }
+
+  final file = File(backupPath);
+  final raw = await file.readAsString();
+
+  final decoded = jsonDecode(raw);
+
+  if (decoded is! Map) {
+    throw Exception('Backup JSON-এর format সঠিক নয়।');
+  }
+
+  final backup = Map<String, dynamic>.from(decoded);
+
+  final customers = _restoreList(backup['customers']);
+  final packages = _restoreList(backup['packages']);
+  final staff = _restoreList(backup['staff']);
+  final bills = _restoreList(backup['bills']);
+  final payments = _restoreList(backup['payments']);
+
+  final db = await database;
+
+  await db.transaction((txn) async {
+    await txn.delete('payments');
+    await txn.delete('bills');
+    await txn.delete('customers');
+    await txn.delete('staff');
+    await txn.delete('packages');
+
+    for (final row in packages) {
+      await txn.insert(
+        'packages',
+        _packageRow(row),
+        conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
 
-    final currentFile = File(currentDbPath);
-
-    final safetyPath = join(
-      await getDatabasesPath(),
-      '_before_restore_${DateTime.now().millisecondsSinceEpoch}.db',
-    );
-
-    if (await currentFile.exists()) {
-      await currentFile.copy(safetyPath);
-    }
-
-    await closeDatabase();
-
-    for (final suffix in ['-wal', '-shm', '-journal']) {
-      final sidecar = File('$currentDbPath$suffix');
-
-      if (await sidecar.exists()) {
-        await sidecar.delete();
-      }
-    }
-
-    await File(sourcePath!).copy(currentDbPath);
-
-    await database;
-
-    if (!await _hasRequiredTables(currentDbPath)) {
-      await closeDatabase();
-
-      if (await File(safetyPath).exists()) {
-        await File(safetyPath).copy(currentDbPath);
-      }
-
-      await database;
-
-      throw Exception(
-        'Restore ব্যর্থ হয়েছে। আগের Database ফিরিয়ে দেওয়া হয়েছে।',
+    for (final row in staff) {
+      await txn.insert(
+        'staff',
+        _staffRow(row),
+        conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-  } finally {
-    if (temporaryPath != null) {
-      final tempFile = File(temporaryPath!);
 
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
+    for (final row in customers) {
+      await txn.insert(
+        'customers',
+        _customerRow(row),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     }
-  }
+
+    for (final row in bills) {
+      final customerId = _intValue(
+        row['customer_id'] ?? row['customerId'],
+      );
+
+      if (customerId == null) continue;
+
+      final exists = await txn.query(
+        'customers',
+        where: 'id = ?',
+        whereArgs: [customerId],
+        limit: 1,
+      );
+
+      if (exists.isEmpty) continue;
+
+      await txn.insert(
+        'bills',
+        _billRow(row, customerId),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    for (final row in payments) {
+      final customerId = _intValue(
+        row['customer_id'] ?? row['customerId'],
+      );
+
+      if (customerId == null) continue;
+
+      final customerExists = await txn.query(
+        'customers',
+        where: 'id = ?',
+        whereArgs: [customerId],
+        limit: 1,
+      );
+
+      if (customerExists.isEmpty) continue;
+
+      final billId = _intValue(
+        row['bill_id'] ?? row['billId'],
+      );
+
+      final staffId = _intValue(
+        row['staff_id'] ?? row['staffId'],
+      );
+
+      if (billId != null) {
+        final billExists = await txn.query(
+          'bills',
+          where: 'id = ?',
+          whereArgs: [billId],
+          limit: 1,
+        );
+
+        if (billExists.isEmpty) continue;
+      }
+
+      await txn.insert(
+        'payments',
+        _paymentRow(
+          row,
+          customerId,
+          billId,
+          staffId,
+        ),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+  });
   }
 
   List<Map<String, dynamic>> _restoreList(dynamic value) {
