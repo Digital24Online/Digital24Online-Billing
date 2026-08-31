@@ -153,6 +153,26 @@ class DatabaseHelper {
       'CREATE INDEX idx_bills_customer '
       'ON bills(customer_id)',
     );
+
+    await _seedDefaultPackages(db);
+  }
+
+  Future<void> _seedDefaultPackages(Database db) async {
+    final defaults = [
+      {'name': '35 Mbps', 'speed': '35 Mbps', 'price': 500.0},
+      {'name': '45 Mbps', 'speed': '45 Mbps', 'price': 600.0},
+      {'name': '60 Mbps', 'speed': '60 Mbps', 'price': 800.0},
+      {'name': '75 Mbps', 'speed': '75 Mbps', 'price': 1000.0},
+      {'name': '85 Mbps', 'speed': '85 Mbps', 'price': 1200.0},
+      {'name': '100 Mbps', 'speed': '100 Mbps', 'price': 1500.0},
+    ];
+    for (final p in defaults) {
+      await db.insert(
+        'packages',
+        {...p, 'active': 1, 'created_at': DateTime.now().toIso8601String()},
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   // ============================================================
@@ -168,6 +188,7 @@ class DatabaseHelper {
       await _migrateCustomers(db);
       await _createNewTablesIfMissing(db);
       await _createIndexes(db);
+      await _seedDefaultPackages(db);
     }
   }
 
@@ -830,31 +851,6 @@ class DatabaseHelper {
     );
   }
 
-  Future<List<Map<String, dynamic>>> getAllStaff() async {
-    final db = await database;
-    return db.query(
-      'staff',
-      orderBy: 'active DESC, name COLLATE NOCASE',
-    );
-  }
-
-  Future<int> updateStaff(
-    int id,
-    String name,
-    String mobile,
-  ) async {
-    final db = await database;
-    return db.update(
-      'staff',
-      {
-        'name': name.trim(),
-        'mobile': mobile.trim(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
   Future<int> addStaff(
     String name,
     String mobile,
@@ -894,7 +890,7 @@ class DatabaseHelper {
   // ============================================================
 
   String _currentMonth() {
-    final now = DateTime.now();
+        final now = DateTime.now();
 
     return '${now.year.toString().padLeft(4, '0')}-'
         '${now.month.toString().padLeft(2, '0')}';
@@ -908,7 +904,7 @@ class DatabaseHelper {
   ) async {
     final db = await database;
 
-      final existing = await db.query(
+    final existing = await db.query(
       'bills',
       where:
           'customer_id = ? AND billing_month = ?',
@@ -996,7 +992,7 @@ class DatabaseHelper {
           ),
           0
         ) AS paid
-
+        
       FROM bills b
 
       JOIN customers c
@@ -1019,7 +1015,7 @@ class DatabaseHelper {
       [month],
     );
   }
-  
+
   Future<Map<String, dynamic>> summary(
     String month,
   ) async {
@@ -1622,7 +1618,7 @@ class DatabaseHelper {
 
     try {
       final db = await database;
-      await db.execute('PRAGMA wal_checkpoint(FULL)');
+      await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
       await closeDatabase();
 
       for (final suffix in ['-wal', '-shm', '-journal']) {
@@ -1653,44 +1649,27 @@ class DatabaseHelper {
         WHERE type = 'table'
           AND name IN ('customers', 'packages', 'bills', 'staff', 'payments')
       ''');
-      
+
       final names = rows
           .map((e) => e['name']?.toString())
           .whereType<String>()
           .toSet();
 
-      final required = {
+      return {
         'customers',
         'packages',
         'bills',
         'staff',
         'payments',
-      };
-      if (!required.every(names.contains)) return false;
-
-      final requiredColumns = <String, Set<String>>{
-        'customers': {'id', 'user_id', 'name', 'bill_date', 'amount', 'active'},
-        'packages': {'id', 'name', 'price', 'active'},
-        'bills': {'id', 'customer_id', 'billing_month', 'amount'},
-        'staff': {'id', 'name', 'active'},
-        'payments': {'id', 'customer_id', 'amount', 'payment_date', 'receipt_no'},
-      };
-
-      for (final entry in requiredColumns.entries) {
-        final info = await testDb.rawQuery('PRAGMA table_info(${entry.key})');
-        final columns = info.map((r) => r['name']?.toString()).whereType<String>().toSet();
-        if (!entry.value.every(columns.contains)) return false;
-      }
-
-      return true;
+      }.every(names.contains);
     } catch (_) {
       return false;
     } finally {
       await testDb?.close();
     }
   }
-
-  Future<bool> exportBackupToFile() async {
+  
+  Future<void> exportBackupToFile() async {
     final dbPath = join(
       await getDatabasesPath(),
       'digital24_billing.db',
@@ -1704,7 +1683,7 @@ class DatabaseHelper {
     List<int> bytes;
     try {
       final db = await database;
-      await db.execute('PRAGMA wal_checkpoint(FULL)');
+      await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
       await closeDatabase();
 
       for (final suffix in ['-wal', '-shm', '-journal']) {
@@ -1735,18 +1714,12 @@ class DatabaseHelper {
       bytes: Uint8List.fromList(bytes),
     );
 
-    if (saved == null || saved.isEmpty) {
-      return false;
-    }
-
-    if (!Platform.isAndroid) {
+    if (saved != null && !Platform.isAndroid) {
       final savedFile = File(saved);
       if (!await savedFile.exists() || await savedFile.length() == 0) {
         await savedFile.writeAsBytes(bytes, flush: true);
       }
     }
-
-    return true;
   }
 
   Future<void> restoreDatabase() async {
@@ -1756,7 +1729,7 @@ class DatabaseHelper {
       allowMultiple: false,
       withData: true,
     );
-    
+
     if (result == null || result.files.isEmpty) {
       throw Exception('কোনো Backup Database নির্বাচন করা হয়নি।');
     }
@@ -1804,9 +1777,6 @@ class DatabaseHelper {
       );
 
       if (await currentFile.exists()) {
-        final current = await database;
-        await current.execute('PRAGMA wal_checkpoint(FULL)');
-        await closeDatabase();
         await currentFile.copy(safetyPath);
       }
 
@@ -1830,7 +1800,7 @@ class DatabaseHelper {
         if (await File(safetyPath).exists()) {
           await File(safetyPath).copy(currentDbPath);
         }
-
+        
         await database;
         throw Exception(
           'Restore যাচাই করা যায়নি। আগের Database ফিরিয়ে দেওয়া হয়েছে।',
@@ -1865,7 +1835,7 @@ class DatabaseHelper {
     if (value is num) return value.toInt();
     return int.tryParse(value.toString());
   }
-  
+
   double _doubleValue(dynamic value) {
     if (value == null) return 0;
     if (value is num) return value.toDouble();
@@ -1929,7 +1899,7 @@ class DatabaseHelper {
       'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], now),
     };
   }
-  
+    
   Map<String, dynamic> _packageRow(
     Map<String, dynamic> row,
   ) {
@@ -1944,7 +1914,7 @@ class DatabaseHelper {
       'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
     };
   }
-  
+
   Map<String, dynamic> _staffRow(
     Map<String, dynamic> row,
   ) {
@@ -1977,7 +1947,7 @@ class DatabaseHelper {
       'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
     };
   }
-
+  
   Map<String, dynamic> _paymentRow(
     Map<String, dynamic> row,
     int customerId,
