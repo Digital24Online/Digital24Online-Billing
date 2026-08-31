@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -11,26 +12,14 @@ import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'database_helper.dart';
+import 'customer_model.dart';
+import 'master_report_center.dart';
 
 const _brandBlue = Color(0xFF0867C8);
 const _brandCyan = Color(0xFF11A8C7);
 const _brandPurple = Color(0xFF6D3FD3);
 const _brandPink = Color(0xFFE91E63);
 const _pageBg = Color(0xFFF4F7FB);
-
-Future<pw.Font?> _loadBanglaPdfFont() async {
-  try {
-    final data = await rootBundle.load('assets/fonts/Lohit-Bengali.ttf');
-    return pw.Font.ttf(data);
-  } catch (_) {
-    return null;
-  }
-}
-
-pw.ThemeData? _pdfTheme(pw.Font? font) {
-  if (font == null) return null;
-  return pw.ThemeData.withFont(base: font, bold: font, italic: font, boldItalic: font);
-}
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -212,52 +201,6 @@ class _LockScreenState extends State<LockScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class Customer {
-  final int? id;
-  final String userId;
-  final String name;
-  final String mobile;
-  final String address;
-  final String packageName;
-  final int billDate;
-  final double bill;
-  final double paid;
-  final String paymentDate;
-  bool active;
-
-  Customer({
-    this.id,
-    required this.userId,
-    required this.name,
-    required this.mobile,
-    required this.address,
-    required this.packageName,
-    required this.billDate,
-    required this.bill,
-    required this.paid,
-    required this.paymentDate,
-    required this.active,
-  });
-
-  double get due => (bill - paid).clamp(0, double.infinity).toDouble();
-
-  factory Customer.fromMap(Map<String, dynamic> m) {
-    return Customer(
-      id: (m['id'] as num?)?.toInt(),
-      userId: '${m['user_id'] ?? ''}',
-      name: '${m['name'] ?? ''}',
-      mobile: '${m['mobile'] ?? ''}',
-      address: '${m['address'] ?? ''}',
-      packageName: '${m['package_name'] ?? ''}',
-      billDate: (m['bill_date'] as num?)?.toInt() ?? 7,
-      bill: ((m['total_bill'] ?? 0) as num).toDouble(),
-      paid: ((m['total_paid'] ?? 0) as num).toDouble(),
-      paymentDate: '${m['payment_date'] ?? ''}',
-      active: (m['status'] ?? 1) == 1,
     );
   }
 }
@@ -547,7 +490,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(t('ইউজার মুছে ফেলবেন?', 'Delete customer?')),
-                content: Text('${c.userId} - ${c.name}\n\n${t('এই কাজটি ফিরিয়ে আনা যাবে না।', 'This action cannot be undone.')}'),
+        content: Text('${c.userId} - ${c.name}\n\n${t('এই কাজটি ফিরিয়ে আনা যাবে না।', 'This action cannot be undone.')}'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('মুছে ফেলুন', 'Delete'))),
@@ -575,7 +518,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           detail('সর্বশেষ পেমেন্ট', c.paymentDate.isEmpty ? '-' : c.paymentDate), detail('স্ট্যাটাস', c.active ? 'Active' : 'Closed'),
         ])),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))),
+                    TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))),
           FilledButton.icon(onPressed: () { Navigator.pop(ctx); showPaymentHistory(c); }, icon: const Icon(Icons.history), label: Text(t('পেমেন্ট হিস্ট্রি', 'Payment History'))),
         ],
       ),
@@ -616,7 +559,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
             Text('${t('বকেয়া', 'Due')}: ${money(due)} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             field(amount, t('পরিমাণ *', 'Amount *'), Icons.payments, type: const TextInputType.numberWithOptions(decimal: true)),
-                       if (staff.isNotEmpty) ...[
+            if (staff.isNotEmpty) ...[
               const SizedBox(height: 10),
               DropdownButtonFormField<int?>(
                 initialValue: staffId,
@@ -625,7 +568,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   DropdownMenuItem<int?>(value: null, child: Text(t('নিজে/নির্ধারিত নয়', 'Self / Not assigned'))),
                   ...staff.map((s) => DropdownMenuItem<int?>(value: (s['id'] as num).toInt(), child: Text('${s['name']}'))),
                 ],
-                onChanged: (v) => setD(() => staffId = v),
+                                onChanged: (v) => setD(() => staffId = v),
               ),
             ],
             const SizedBox(height: 10), field(note, t('নোট', 'Note'), Icons.note),
@@ -703,11 +646,11 @@ class _BillingHomePageState extends State<BillingHomePage> {
       final packagePrices = <String, double>{};
       for (final p in packages) {
         if ((p['active'] ?? 1) == 1) {
-                    packagePrices['${p['name'] ?? ''}'.trim().toLowerCase()] =
+          packagePrices['${p['name'] ?? ''}'.trim().toLowerCase()] =
               ((p['price'] ?? 0) as num).toDouble();
         }
       }
-      int prepared = 0;
+            int prepared = 0;
       int skipped = 0;
       for (final r in rows) {
         if ((r['status'] ?? 1) != 1) continue;
@@ -782,135 +725,64 @@ class _BillingHomePageState extends State<BillingHomePage> {
   Widget reportLine(String a, String b) => Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [Expanded(child: Text(a)), Text(b, style: const TextStyle(fontWeight: FontWeight.bold))]));
 
   Future<void> printReceipt(Customer c, Map<String, dynamic> p) async {
-    final font = await _loadBanglaPdfFont();
-    final theme = _pdfTheme(font);
     final doc = pw.Document();
     final amount = ((p['amount'] ?? 0) as num).toDouble();
     final receipt = '${p['receipt_no'] ?? ''}';
     final date = '${p['payment_date'] ?? ''}';
     final month = '${p['billing_month'] ?? monthKey()}';
-    
-    doc.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a5,
-        margin: const pw.EdgeInsets.all(28),
-        theme: theme,
-        build: (_) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Center(
-              child: pw.Text(
-                'DIGITAL 24 ONLINE',
-                style: pw.TextStyle(fontSize: 21, fontWeight: pw.FontWeight.bold),
-              ),
-            ),
-            pw.Center(child: pw.Text('Internet Service Provider')),
-            pw.Divider(),
-            pw.Center(
-              child: pw.Text(
-                'PAYMENT RECEIPT',
-                style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold),
-              ),
-            ),
-            pw.SizedBox(height: 14),
-            pw.Text('Receipt No: $receipt'),
-            pw.Text('Date: $date'),
-            pw.Text('Bill Month: $month'),
-            pw.SizedBox(height: 10),
-            pw.Text('Customer ID: ${c.userId}'),
-            pw.Text('Name: ${c.name}'),
-            pw.Text('Phone: ${c.mobile}'),
-            pw.Text('Package: ${c.packageName}'),
-            pw.Text('Bill Date: ${c.billDate}'),
-            pw.SizedBox(height: 14),
-            pw.Table(
-              border: pw.TableBorder.all(),
-              columnWidths: const {
-                0: pw.FlexColumnWidth(2),
-                1: pw.FlexColumnWidth(1),
-              },
-              children: [
-                pw.TableRow(children: [
-                  pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Description')),
-                  pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Amount')),
-                ]),
-                pw.TableRow(children: [
-                  pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Paid Amount')),
-                  pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('BDT ${money(amount)}')),
-                ]),
-                pw.TableRow(children: [
-                  pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Payment Note')),
-                  pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('${p['note'] ?? ''}')),
-                ]),
-              ],
-            ),
-            pw.SizedBox(height: 24),
-            pw.Text('Thank you for your payment.'),
-            pw.SizedBox(height: 30),
-            pw.Text('Digital 24 Online Billing'),
-            pw.Text('Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100'),
-          ],
-        ),
-      ),
-    );
-
-    final bytes = Uint8List.fromList(await doc.save());
-    await _deliverPdf(bytes, 'Receipt-${receipt.isEmpty ? 'D24' : receipt}.pdf');
+    doc.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a5,
+      margin: const pw.EdgeInsets.all(28),
+      build: (_) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Center(child: pw.Text('DIGITAL 24 ONLINE', style: pw.TextStyle(fontSize: 21, fontWeight: pw.FontWeight.bold))),
+        pw.Center(child: pw.Text('Internet Service Provider')),
+        pw.Divider(),
+        pw.Center(child: pw.Text('PAYMENT RECEIPT', style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold))),
+        pw.SizedBox(height: 14),
+        pw.Text('Receipt No: $receipt'), pw.Text('Date: $date'), pw.Text('Bill Month: $month'),
+        pw.SizedBox(height: 10),
+        pw.Text('Customer ID: ${c.userId}'), pw.Text('Name: ${c.name}'), pw.Text('Phone: ${c.mobile}'), pw.Text('Package: ${c.packageName}'), pw.Text('Bill Date: ${c.billDate}'),
+                pw.SizedBox(height: 14),
+        pw.Table(border: pw.TableBorder.all(), columnWidths: {0: const pw.FlexColumnWidth(2), 1: const pw.FlexColumnWidth(1)}, children: [
+          pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Description')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Amount'))]),
+          pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Paid Amount')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('BDT ${money(amount)}'))]),
+          pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Payment Note')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('${p['note'] ?? ''}'))]),
+        ]),
+        pw.SizedBox(height: 24),
+        pw.Text('Thank you for your payment.'),
+        pw.SizedBox(height: 30),
+        pw.Text('Digital 24 Online Billing'),
+        pw.Text('Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100'),
+      ],
+    )));
+    await Printing.layoutPdf(onLayout: (_) async => doc.save(), name: 'Receipt-$receipt.pdf');
   }
-
+  
   Future<void> printMonthlyReport(String month) async {
     final rows = await db.getBills(month);
-    double total = 0;
-    double paid = 0;
-
-    for (final r in rows) {
-      total += ((r['amount'] ?? 0) as num).toDouble();
-      paid += ((r['paid'] ?? 0) as num).toDouble();
-    }
-
-    final font = await _loadBanglaPdfFont();
-    final theme = _pdfTheme(font);
+    double total = 0, paid = 0;
+    for (final r in rows) { total += ((r['amount'] ?? 0) as num).toDouble(); paid += ((r['paid'] ?? 0) as num).toDouble(); }
     final doc = pw.Document();
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        theme: theme,
-        build: (_) => [
-          pw.Center(
-            child: pw.Text(
-              'DIGITAL 24 ONLINE',
-              style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
-            ),
-          ),
-          pw.Center(child: pw.Text('Monthly Billing Report - $month')),
-          pw.SizedBox(height: 14),
-          pw.Table.fromTextArray(
-            headers: ['User ID', 'Name', 'Package', 'Bill', 'Paid', 'Due'],
-            data: rows.map((r) {
-              final b = ((r['amount'] ?? 0) as num).toDouble();
-              final p = ((r['paid'] ?? 0) as num).toDouble();
-              return [
-                '${r['user_id'] ?? ''}',
-                '${r['name'] ?? ''}',
-                '${r['package_name'] ?? ''}',
-                money(b),
-                money(p),
-                money((b - p).clamp(0, double.infinity)),
-              ];
-            }).toList(),
-          ),
-          pw.SizedBox(height: 12),
-          pw.Text('Total Bill: BDT ${money(total)}'),
-          pw.Text('Total Paid: BDT ${money(paid)}'),
-          pw.Text('Total Due: BDT ${money((total - paid).clamp(0, double.infinity))}'),
-          pw.SizedBox(height: 20),
-          pw.Text('Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}'),
-        ],
-      ),
-    );
-
-    final bytes = Uint8List.fromList(await doc.save());
-    await _deliverPdf(bytes, 'Monthly-Report-$month.pdf');
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (_) => [
+        pw.Center(child: pw.Text('DIGITAL 24 ONLINE', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
+        pw.Center(child: pw.Text('Monthly Billing Report - $month')),
+        pw.SizedBox(height: 14),
+        pw.Table.fromTextArray(
+          headers: ['User ID', 'Name', 'Package', 'Bill', 'Paid', 'Due'],
+          data: rows.map((r) {
+            final b = ((r['amount'] ?? 0) as num).toDouble();
+            final p = ((r['paid'] ?? 0) as num).toDouble();
+            return ['${r['user_id']}', '${r['name']}', '${r['package_name'] ?? ''}', money(b), money(p), money((b - p).clamp(0, double.infinity))];
+          }).toList(),
+        ),
+        pw.SizedBox(height: 12),
+        pw.Text('Total Bill: BDT ${money(total)}'), pw.Text('Total Paid: BDT ${money(paid)}'), pw.Text('Total Due: BDT ${money((total - paid).clamp(0, double.infinity))}'),
+        pw.SizedBox(height: 20), pw.Text('Printed: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}'),
+      ],
+    ));
+    await Printing.layoutPdf(onLayout: (_) async => doc.save(), name: 'Monthly-Report-$month.pdf');
   }
 
   Future<void> todayCollection() async {
@@ -935,21 +807,21 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       final r = rows[i];
                       return ListTile(
                         title: Text('${r['user_id'] ?? ''} - ${r['name'] ?? ''}'),
-                                                subtitle: Text('${r['payment_date'] ?? ''} • ${r['staff_name'] ?? ''}\n${r['receipt_no'] ?? ''}'),
+                        subtitle: Text('${r['payment_date'] ?? ''} • ${r['staff_name'] ?? ''}\n${r['receipt_no'] ?? ''}'),
                         trailing: Text('${money(((r['amount'] ?? 0) as num).toDouble())} ৳'),
                       );
                     },
                   )),
             ]),
           ),
-          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))) ],
+                    actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))) ],
         ),
       );
          } catch (e) { msg('${t('আজকের Collection দেখাতে সমস্যা: ', 'Today collection error: ')}$e'); }
   }
 
   Future<void> reports() async {
-    await showDialog<void>(context: context, builder: (ctx) => ReportManager(db: db, english: widget.english, onPrintReceipt: printReceipt));
+    await showDialog<void>(context: context, builder: (ctx) => MasterReportCenter(db: db, english: widget.english));
   }
 
   Future<void> packageManagement() async {
@@ -963,110 +835,32 @@ class _BillingHomePageState extends State<BillingHomePage> {
   Future<void> appLockSettings() async {
     final p = await SharedPreferences.getInstance();
     final enabled = p.getBool('app_lock_enabled') ?? false;
-
     if (enabled) {
-      final controller = TextEditingController();
-      final ok = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: Text(t('App Lock বন্ধ করুন', 'Disable App Lock')),
-          content: TextField(
-            controller: controller,
-            obscureText: true,
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: t('বর্তমান পাসওয়ার্ড', 'Current password'),
-              prefixIcon: const Icon(Icons.password),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(t('বাতিল', 'Cancel')),
-            ),
-            FilledButton(
-              onPressed: () {
-                final saved = p.getString('app_lock_hash');
-                final valid = saved != null &&
-                    sha256.convert(controller.text.codeUnits).toString() == saved;
-                Navigator.pop(ctx, valid);
-              },
-              child: Text(t('বন্ধ করুন', 'Disable')),
-            ),
-          ],
-        ),
-      );
-      controller.dispose();
-
-      if (ok == true) {
-        await p.setBool('app_lock_enabled', false);
-        msg(t('App Lock বন্ধ হয়েছে', 'App Lock disabled'));
-      } else if (ok == false) {
-        msg(t('বর্তমান পাসওয়ার্ড সঠিক নয়', 'Current password is incorrect'));
-      }
+      final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+        title: Text(t('App Lock বন্ধ করবেন?', 'Disable App Lock?')),
+        content: Text(t('পাসওয়ার্ড সুরক্ষা বন্ধ হবে।', 'Password protection will be disabled.')),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('না', 'No'))), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('হ্যাঁ', 'Yes')))],
+      ));
+      if (ok == true) { await p.setBool('app_lock_enabled', false); msg(t('App Lock বন্ধ হয়েছে', 'App Lock disabled')); }
       return;
     }
-
-    final a = TextEditingController();
-    final b = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: Text(t('App Lock চালু করুন', 'Enable App Lock')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: a,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: t('নতুন পাসওয়ার্ড', 'New password'),
-                prefixIcon: const Icon(Icons.password),
-              ),
-            ),
-                        const SizedBox(height: 10),
-            TextField(
-              controller: b,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: t('আবার লিখুন', 'Confirm password'),
-                prefixIcon: const Icon(Icons.password_outlined),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(t('বাতিল', 'Cancel')),
-          ),
-          FilledButton(
-            onPressed: () {
-              final valid = a.text.trim().length >= 4 && a.text == b.text;
-              Navigator.pop(ctx, valid);
-            },
-            child: Text(t('চালু করুন', 'Enable')),
-          ),
-        ],
-      ),
-    );
-
-    if (ok == true) {
-      await p.setString(
-        'app_lock_hash',
-        sha256.convert(a.text.codeUnits).toString(),
-      );
+    final a = TextEditingController(), b = TextEditingController();
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(t('App Lock চালু করুন', 'Enable App Lock')),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: a, obscureText: true, decoration: InputDecoration(labelText: t('নতুন পাসওয়ার্ড', 'New password'))),
+        const SizedBox(height: 10), TextField(controller: b, obscureText: true, decoration: InputDecoration(labelText: t('আবার লিখুন', 'Confirm password'))),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))), FilledButton(onPressed: () => Navigator.pop(ctx, a.text.isNotEmpty && a.text == b.text), child: Text(t('চালু করুন', 'Enable')))],
+    ));
+        if (ok == true) {
+      await p.setString('app_lock_hash', sha256.convert(a.text.codeUnits).toString());
       await p.setBool('app_lock_enabled', true);
       msg(t('App Lock চালু হয়েছে', 'App Lock enabled'));
-    } else if (a.text.isNotEmpty || b.text.isNotEmpty) {
-      msg(t('কমপক্ষে ৪ অক্ষরের একই পাসওয়ার্ড দিন', 'Use the same password with at least 4 characters'));
     }
-    a.dispose();
-    b.dispose();
+    a.dispose(); b.dispose();
   }
-
+  
   Future<void> searchDialog() async {
     final c = TextEditingController(text: searchText);
     await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
@@ -1089,15 +883,11 @@ class _BillingHomePageState extends State<BillingHomePage> {
 
   Future<void> backupDatabase() async {
     try {
-      final saved = await db.exportBackupToFile();
-      if (saved) {
-        msg(t(
-          'Database Backup সফলভাবে সংরক্ষণ করা হয়েছে।',
-          'Database backup saved successfully.',
-        ));
-      } else {
-        msg(t('Backup বাতিল করা হয়েছে।', 'Backup cancelled.'));
-      }
+      await db.exportBackupToFile();
+      msg(t(
+        'Database Backup সফলভাবে সংরক্ষণ করা হয়েছে।',
+        'Database backup saved successfully.',
+      ));
     } catch (e) {
       msg('${t('Backup-এ সমস্যা: ', 'Backup error: ')}$e');
     }
@@ -1126,7 +916,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
         ],
       ),
     );
-    
+
     if (confirmed != true) return;
 
     try {
@@ -1140,69 +930,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       msg('${t('Restore-এ সমস্যা: ', 'Restore error: ')}$e');
     }
   }
-
-  Future<void> _deliverPdf(Uint8List bytes, String fileName) async {
-    if (bytes.isEmpty) {
-      throw Exception(t('PDF ফাইল খালি হয়েছে।', 'Generated PDF is empty.'));
-    }
-
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.visibility),
-              title: Text(t('PDF দেখুন / Print', 'Preview / Print PDF')),
-              onTap: () => Navigator.pop(ctx, 'print'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.share),
-              title: Text(t('PDF Share করুন', 'Share PDF')),
-              onTap: () => Navigator.pop(ctx, 'share'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.save_alt),
-              title: Text(t('PDF Save করুন', 'Save PDF')),
-              onTap: () => Navigator.pop(ctx, 'save'),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-
-    if (!mounted || action == null) return;
-
-    if (action == 'print') {
-      await Printing.layoutPdf(
-        onLayout: (_) async => bytes,
-        name: fileName,
-      );
-      return;
-    }
-
-    if (action == 'share') {
-      await Printing.sharePdf(bytes: bytes, filename: fileName);
-      return;
-    }
-
-    final savedPath = await FilePicker.platform.saveFile(
-      dialogTitle: t('PDF সংরক্ষণ করুন', 'Save PDF'),
-      fileName: fileName,
-      type: FileType.custom,
-      allowedExtensions: const ['pdf'],
-      bytes: bytes,
-    );
-
-    if (!mounted) return;
-    msg(savedPath == null
-        ? t('PDF Save বাতিল করা হয়েছে।', 'PDF save cancelled.')
-        : t('PDF সফলভাবে সংরক্ষণ হয়েছে।', 'PDF saved successfully.'));
-  }
-
+  
   Future<void> exportUserListPdf() async {
     try {
       final rows = List<Customer>.from(filtered);
@@ -1216,8 +944,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
         logoData.buffer.asUint8List(),
       );
 
-      final font = await _loadBanglaPdfFont();
-      final theme = _pdfTheme(font);
       final doc = pw.Document();
 
       double totalBillValue = 0;
@@ -1229,12 +955,11 @@ class _BillingHomePageState extends State<BillingHomePage> {
         totalPaidValue += c.paid;
         totalDueValue += c.due;
       }
-      
+
       doc.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4.landscape,
           margin: const pw.EdgeInsets.all(24),
-          theme: theme,
           header: (_) => pw.Column(
             children: [
               pw.Row(
@@ -1348,10 +1073,29 @@ class _BillingHomePageState extends State<BillingHomePage> {
         ),
       );
 
-      final bytes = Uint8List.fromList(await doc.save());
+      final bytes = await doc.save();
       final fileName =
           'Digital24Online_Customer_Report_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-      await _deliverPdf(bytes, fileName);
+
+      final saved = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Customer PDF',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        bytes: Uint8List.fromList(bytes),
+      );
+
+      if (saved != null && !Platform.isAndroid) {
+        final file = File(saved);
+        if (!await file.exists() || await file.length() == 0) {
+          await file.writeAsBytes(bytes, flush: true);
+        }
+      }
+
+      msg(t(
+        'Customer PDF তৈরি হয়েছে।',
+        'Customer PDF created successfully.',
+      ));
     } catch (e) {
       msg('${t('PDF তৈরিতে সমস্যা: ', 'PDF error: ')}$e');
     }
@@ -1379,7 +1123,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   child: Image.asset(
                     'assets/logo.png',
                     fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const Icon(Icons.wifi, color: Colors.white),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1437,7 +1180,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   if (v == 'restore') await restoreBackup();
                   if (v == 'pdf') await exportUserListPdf();
                 },
-                                itemBuilder: (_) => [
+                itemBuilder: (_) => [
                   PopupMenuItem(
                     value: 'today',
                     child: ListTile(
@@ -1446,7 +1189,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       title: Text(t('আজকের Collection', 'Today Collection')),
                     ),
                   ),
-                  PopupMenuItem(
+                                    PopupMenuItem(
                     value: 'monthly',
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -1588,7 +1331,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       },
     );
   }
-
+  
   Widget _heroHeader(bool desktop) {
     return Container(
       padding: EdgeInsets.all(desktop ? 22 : 16),
@@ -1617,7 +1360,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
               color: Colors.black,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Image.asset('assets/logo.png', fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.wifi, color: Colors.white)),
+            child: Image.asset('assets/logo.png', fit: BoxFit.contain),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -1632,7 +1375,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                                const SizedBox(height: 3),
+                const SizedBox(height: 3),
                 const Text(
                   'Internet Service Provider',
                   style: TextStyle(
@@ -1667,7 +1410,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ('পরিশোধ', '${money(totalPaid)} ৳', Icons.payments_rounded, _brandCyan),
       ('বকেয়া', '${money(totalDue)} ৳', Icons.money_off_rounded, _brandPink),
     ];
-
+    
     return SizedBox(
       height: 92,
       child: ListView.separated(
@@ -1730,7 +1473,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-  
+
   Widget _filterBar() {
     return Container(
       padding: const EdgeInsets.all(10),
@@ -1823,8 +1566,14 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 style: _tableHeaderStyle,
               ),
             ),
+            DataColumn(
+              label: Text(
+                t('Actions', 'Actions'),
+                style: _tableHeaderStyle,
+              ),
+            ),
           ],
-          rows: filtered.asMap().entries.map((entry) {
+                    rows: filtered.asMap().entries.map((entry) {
             final index = entry.key;
             final c = entry.value;
             return DataRow(
@@ -1846,7 +1595,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     ],
                   ),
                 ),
-                                DataCell(
+                DataCell(
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 190),
                     child: Text(
@@ -1885,6 +1634,38 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         fontSize: 11,
                       ),
                     ),
+                  ),
+                ),
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: t('পেমেন্ট', 'Payment'),
+                        onPressed: () => takePayment(c),
+                        icon: const Icon(Icons.payments_rounded),
+                      ),
+                      IconButton(
+                        tooltip: t('হিস্ট্রি', 'History'),
+                        onPressed: () => showPaymentHistory(c),
+                        icon: const Icon(Icons.history_rounded),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: t('অন্যান্য', 'More'),
+                        onSelected: (v) async {
+                          if (v == 'details') await showDetails(c);
+                          if (v == 'edit') await editCustomer(c);
+                          if (v == 'status') await toggleCustomer(c);
+                          if (v == 'delete') await deleteCustomer(c);
+                        },
+                        itemBuilder: (_) => [
+                                                    PopupMenuItem(value: 'details', child: Text(t('বিস্তারিত', 'Details'))),
+                          PopupMenuItem(value: 'edit', child: Text(t('তথ্য পরিবর্তন', 'Edit'))),
+                          PopupMenuItem(value: 'status', child: Text(c.active ? t('Closed করুন', 'Close') : t('Active করুন', 'Activate'))),
+                          PopupMenuItem(value: 'delete', child: Text(t('মুছে ফেলুন', 'Delete'))),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -1962,7 +1743,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         if (v == 'status') await toggleCustomer(c);
                         if (v == 'delete') await deleteCustomer(c);
                       },
-                      itemBuilder: (_) => [
+                                            itemBuilder: (_) => [
                         PopupMenuItem(value: 'details', child: Text(t('বিস্তারিত', 'Details'))),
                         PopupMenuItem(value: 'edit', child: Text(t('তথ্য পরিবর্তন', 'Edit'))),
                         PopupMenuItem(value: 'history', child: Text(t('পেমেন্ট হিস্ট্রি', 'Payment History'))),
@@ -2007,7 +1788,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         ),
                       ),
                     ),
-                                        if (c.due > 0)
+                    if (c.due > 0)
                       FilledButton.icon(
                         onPressed: () => takePayment(c),
                         icon: const Icon(Icons.payments, size: 18),
@@ -2026,7 +1807,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           ),
         ),
       );
-  
+    
   Widget _tag(IconData i, String text) => Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), decoration: BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(i, size: 15), const SizedBox(width: 4), Text(text)]));
   Widget amountBox(String title, double value, {bool due = false}) => Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), color: Theme.of(context).colorScheme.surfaceContainerHighest), child: Column(children: [Text(title, style: const TextStyle(fontSize: 11)), Text('${money(value)} ৳', style: TextStyle(fontWeight: FontWeight.bold, color: due ? Colors.red : null))]));
 }
@@ -2052,7 +1833,7 @@ class _PackageManagerState extends State<PackageManager> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
   }
-  
+
   Future<void> edit([Map<String, dynamic>? old]) async {
     final n = TextEditingController(text: '${old?['name'] ?? ''}');
     final speed = TextEditingController(text: '${old?['speed'] ?? ''}');
@@ -2069,7 +1850,7 @@ class _PackageManagerState extends State<PackageManager> {
           TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: t('মূল্য', 'Price'))),
         ])),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('সংরক্ষণ', 'Save'))),
         ],
       ),
@@ -2121,7 +1902,7 @@ class _PackageManagerState extends State<PackageManager> {
               ),
       ),
       actions: [
-        TextButton(onPressed: () => edit(), child: Text(t('নতুন প্যাকেজ', 'Add Package'))),
+                TextButton(onPressed: () => edit(), child: Text(t('নতুন প্যাকেজ', 'Add Package'))),
         FilledButton(onPressed: () => Navigator.pop(context), child: Text(t('বন্ধ', 'Close'))),
       ],
     );
@@ -2132,107 +1913,72 @@ class StaffManager extends StatefulWidget {
   final DatabaseHelper db;
   final bool english;
   const StaffManager({super.key, required this.db, required this.english});
-
-  @override
-  State<StaffManager> createState() => _StaffManagerState();
+  @override State<StaffManager> createState() => _StaffManagerState();
 }
 
 class _StaffManagerState extends State<StaffManager> {
   List<Map<String, dynamic>> rows = [];
   String t(String b, String e) => widget.english ? e : b;
 
-  @override
-  void initState() {
-    super.initState();
-    load();
-  }
+  @override void initState() { super.initState(); load(); }
 
   Future<void> load() async {
     try {
-      final r = await widget.db.getAllStaff();
+      final r = await widget.db.getStaff();
       if (mounted) setState(() => rows = r);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
   }
   
-  Future<void> edit([Map<String, dynamic>? old]) async {
-    final n = TextEditingController(text: '${old?['name'] ?? ''}');
-    final m = TextEditingController(text: '${old?['mobile'] ?? ''}');
+  Future<void> add() async {
+    final n = TextEditingController();
+    final m = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(old == null ? t('স্টাফ যোগ', 'Add Staff') : t('স্টাফ সম্পাদনা', 'Edit Staff')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: n, decoration: InputDecoration(labelText: t('নাম', 'Name'))),
-            const SizedBox(height: 10),
-            TextField(controller: m, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: t('মোবাইল', 'Mobile'))),
-          ],
-        ),
+        title: Text(t('স্টাফ যোগ', 'Add Staff')),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: n, decoration: InputDecoration(labelText: t('নাম', 'Name'))),
+          const SizedBox(height: 10),
+          TextField(controller: m, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: t('মোবাইল', 'Mobile'))),
+        ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(ctx, n.text.trim().isNotEmpty), child: Text(t('সংরক্ষণ', 'Save'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('সংরক্ষণ', 'Save'))),
         ],
       ),
     );
-
-    if (ok == true) {
+    if (ok == true && n.text.trim().isNotEmpty) {
       try {
-        if (old == null) {
-          await widget.db.addStaff(n.text.trim(), m.text.trim());
-        } else {
-          await widget.db.updateStaff((old['id'] as num).toInt(), n.text.trim(), m.text.trim());
-        }
+        await widget.db.addStaff(n.text.trim(), m.text.trim());
         await load();
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
       }
     }
-    n.dispose();
-    m.dispose();
+        n.dispose(); m.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
+  @override Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(t('Staff Collection / Management', 'Staff Collection / Management')),
+      title: Text(t('Staff Collection', 'Staff Collection')),
       content: SizedBox(
         width: double.maxFinite,
-        height: 460,
+        height: 420,
         child: rows.isEmpty
-            ? Center(child: Text(t('কোনো স্টাফ নেই', 'No staff found')))
+            ? Center(child: Text(t('কোনো active staff নেই', 'No active staff')))
             : ListView.builder(
                 itemCount: rows.length,
-                itemBuilder: (_, i) {
-                  final r = rows[i];
-                  final active = (r['active'] ?? 1) == 1;
-                  return ListTile(
-                    leading: CircleAvatar(child: Icon(active ? Icons.person : Icons.person_off)),
-                    title: Text('${r['name'] ?? ''}'),
-                    subtitle: Text('${r['mobile'] ?? ''}\n${active ? t('Active', 'Active') : t('Inactive', 'Inactive')}'),
-                    isThreeLine: true,
-                    trailing: Wrap(
-                      children: [
-                        IconButton(onPressed: () => edit(r), icon: const Icon(Icons.edit)),
-                        Switch(
-                          value: active,
-                          onChanged: (v) async {
-                            await widget.db.setStaffActive((r['id'] as num).toInt(), v);
-                            await load();
-                          },
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                itemBuilder: (_, i) => ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.person)),
+                  title: Text('${rows[i]['name'] ?? ''}'),
+                  subtitle: Text('${rows[i]['mobile'] ?? ''}'),
+                ),
               ),
       ),
       actions: [
-        TextButton(onPressed: edit, child: Text(t('স্টাফ যোগ', 'Add Staff'))),
+        TextButton(onPressed: add, child: Text(t('স্টাফ যোগ', 'Add Staff'))),
         FilledButton(onPressed: () => Navigator.pop(context), child: Text(t('বন্ধ', 'Close'))),
       ],
     );
@@ -2244,56 +1990,23 @@ class ReportManager extends StatefulWidget {
   final bool english;
   final Future<void> Function(Customer, Map<String, dynamic>) onPrintReceipt;
   const ReportManager({super.key, required this.db, required this.english, required this.onPrintReceipt});
-
-  @override
-  State<ReportManager> createState() => _ReportManagerState();
+  @override State<ReportManager> createState() => _ReportManagerState();
 }
 
 class _ReportManagerState extends State<ReportManager> {
   DateTime from = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime to = DateTime.now();
   String month = DateFormat('yyyy-MM').format(DateTime.now());
-  List<Map<String, dynamic>> rows = [];
-  String reportType = 'collection';
-  int? staffId;
-  List<Map<String, dynamic>> staff = [];
+  List<Map<String, dynamic>> payments = [];
+  List<Map<String, dynamic>> dues = [];
   bool busy = false;
   String t(String b, String e) => widget.english ? e : b;
 
-  String money(double value) {
-    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
-    return value.toStringAsFixed(2);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    loadStaff();
-  }
-  
-  Future<void> loadStaff() async {
-    staff = await widget.db.getStaff();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> load() async {
-    if (mounted) setState(() => busy = true);
+  Future<void> loadPayments() async {
+    setState(() => busy = true);
     try {
-      if (reportType == 'collection') {
-        rows = await widget.db.getPaymentsReport(
-          DateFormat('yyyy-MM-dd').format(from),
-          DateFormat('yyyy-MM-dd').format(to),
-          staffId: staffId,
-        );
-      } else if (reportType == 'due') {
-        rows = await widget.db.getDueReport(month);
-      } else if (reportType == 'billing') {
-        rows = await widget.db.getBills(month);
-      } else {
-        rows = await widget.db.getCustomers();
-        if (reportType == 'active') rows = rows.where((r) => (r['active'] ?? r['status'] ?? 1) == 1).toList();
-        if (reportType == 'closed') rows = rows.where((r) => (r['active'] ?? r['status'] ?? 1) == 0).toList();
-      }
+      payments = await widget.db.getPaymentsReport(DateFormat('yyyy-MM-dd').format(from), DateFormat('yyyy-MM-dd').format(to));
+      dues = [];
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
@@ -2301,188 +2014,77 @@ class _ReportManagerState extends State<ReportManager> {
     }
   }
 
-  Future<void> pickDate(bool isFrom) async {
-    final d = await showDatePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-      initialDate: isFrom ? from : to,
-    );
-    if (d != null) {
-      setState(() {
-        if (isFrom) from = d; else to = d;
-      });
+  Future<void> loadDue() async {
+    setState(() => busy = true);
+    try {
+      dues = await widget.db.getDueReport(month);
+      payments = [];
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
-  double amountOf(Map<String, dynamic> r, String key) => ((r[key] ?? 0) as num).toDouble();
-
-  double get total {
-    if (reportType == 'collection') return rows.fold(0, (s, r) => s + amountOf(r, 'amount'));
-    if (reportType == 'billing' || reportType == 'due') return rows.fold(0, (s, r) => s + amountOf(r, 'amount'));
-    return rows.fold(0, (s, r) => s + amountOf(r, 'total_bill'));
+  Future<void> pick(bool isFrom) async {
+    final d = await showDatePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2100), initialDate: isFrom ? from : to);
+    if (d != null) setState(() { if (isFrom) from = d; else to = d; });
   }
+  
+  double sum(List<Map<String, dynamic>> r) => r.fold(0, (s, x) => s + ((x['amount'] ?? 0) as num).toDouble());
 
-  Future<void> exportPdf() async {
-    if (rows.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t('আগে একটি রিপোর্ট লোড করুন।', 'Load a report first.'))));
-      return;
-    }
-    final title = switch (reportType) {
-      'collection' => 'Collection Report',
-      'due' => 'Due Report',
-      'billing' => 'Monthly Billing Report',
-      'active' => 'Active Customer Report',
-      'closed' => 'Closed Customer Report',
-      _ => 'Customer Report',
-    };
-
-    final font = await _loadBanglaPdfFont();
-    final theme = _pdfTheme(font);
-    final doc = pw.Document();
-    final data = <List<String>>[];
-    for (final r in rows) {
-      if (reportType == 'collection') {
-        data.add([
-          '${r['user_id'] ?? ''}', '${r['name'] ?? ''}', '${r['payment_date'] ?? ''}',
-          '${r['staff_name'] ?? ''}', '${r['receipt_no'] ?? ''}', money(amountOf(r, 'amount')),
-        ]);
-              } else if (reportType == 'billing' || reportType == 'due') {
-        final b = amountOf(r, 'amount');
-        final p = amountOf(r, 'paid');
-        data.add(['${r['user_id'] ?? ''}', '${r['name'] ?? ''}', '${r['package_name'] ?? ''}', money(b), money(p), money((b - p).clamp(0, double.infinity))]);
-      } else {
-        data.add(['${r['user_id'] ?? ''}', '${r['name'] ?? ''}', '${r['mobile'] ?? ''}', '${r['package_name'] ?? ''}', '${r['bill_date'] ?? ''}', '${r['active'] ?? r['status'] ?? 1}']);
-      }
-    }
-
-    final headers = reportType == 'collection'
-        ? ['User ID', 'Name', 'Date', 'Staff', 'Receipt', 'Amount']
-        : (reportType == 'billing' || reportType == 'due')
-            ? ['User ID', 'Name', 'Package', 'Bill', 'Paid', 'Due']
-            : ['User ID', 'Name', 'Mobile', 'Package', 'Bill Date', 'Status'];
-
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
-        theme: theme,
-        build: (_) => [
-          pw.Center(child: pw.Text('DIGITAL 24 ONLINE', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
-          pw.Center(child: pw.Text(title)),
-          pw.SizedBox(height: 12),
-          pw.Table.fromTextArray(headers: headers, data: data),
-          pw.SizedBox(height: 10),
-          pw.Text('Rows: ${rows.length}    Total: BDT ${money(total)}'),
-          pw.Text('Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}'),
-        ],
-      ),
-    );
-
-    final bytes = Uint8List.fromList(await doc.save());
-    final safe = title.replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_');
-    final fileName = 'Digital24Online_${safe}_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-
-    // Use the same reliable PDF delivery flow as the main screen.
-    await Printing.sharePdf(bytes: bytes, filename: fileName);
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  @override Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(t('Reports', 'Reports')),
       content: SizedBox(
         width: double.maxFinite,
-        height: 600,
-        child: Column(
-          children: [
-            DropdownButtonFormField<String>(
-              initialValue: reportType,
-              decoration: InputDecoration(labelText: t('রিপোর্ট', 'Report')),
-              items: const [
-                DropdownMenuItem(value: 'collection', child: Text('Collection Report')),
-                DropdownMenuItem(value: 'due', child: Text('Due Report')),
-                DropdownMenuItem(value: 'billing', child: Text('Monthly Billing')),
-                DropdownMenuItem(value: 'customer', child: Text('Customer Report')),
-                DropdownMenuItem(value: 'active', child: Text('Active Customer')),
-                DropdownMenuItem(value: 'closed', child: Text('Closed Customer')),
-              ],
-              onChanged: (v) {
-                if (v != null) setState(() { reportType = v; rows = []; });
-              },
-            ),
-            const SizedBox(height: 8),
-            if (reportType == 'collection') ...[
-              Row(children: [
-                Expanded(child: OutlinedButton(onPressed: () => pickDate(true), child: Text(DateFormat('yyyy-MM-dd').format(from)))),
-                const SizedBox(width: 6),
-                Expanded(child: OutlinedButton(onPressed: () => pickDate(false), child: Text(DateFormat('yyyy-MM-dd').format(to)))),
-              ]),
-                            const SizedBox(height: 8),
-              DropdownButtonFormField<int?>(
-                initialValue: staffId,
-                decoration: InputDecoration(labelText: t('স্টাফ (ঐচ্ছিক)', 'Staff (optional)')),
-                items: [
-                  DropdownMenuItem<int?>(value: null, child: Text(t('সব স্টাফ', 'All staff'))),
-                  ...staff.map((s) => DropdownMenuItem<int?>(value: (s['id'] as num).toInt(), child: Text('${s['name']}'))),
-                ],
-                onChanged: (v) => setState(() => staffId = v),
-              ),
-            ] else if (reportType == 'due' || reportType == 'billing') ...[
-              TextFormField(
-                initialValue: month,
-                decoration: InputDecoration(labelText: t('মাস (YYYY-MM)', 'Month (YYYY-MM)')),
-                onChanged: (v) => month = v.trim(),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Row(children: [
-              Expanded(child: FilledButton.icon(onPressed: busy ? null : load, icon: const Icon(Icons.assessment), label: Text(t('রিপোর্ট দেখুন', 'Load Report')))),
-              const SizedBox(width: 8),
-              IconButton(onPressed: rows.isEmpty ? null : exportPdf, tooltip: t('PDF Share', 'Share PDF'), icon: const Icon(Icons.picture_as_pdf)),
-            ]),
-            if (busy) const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator()),
-            const SizedBox(height: 8),
-            Expanded(
-              child: rows.isEmpty
-                  ? Center(child: Text(t('রিপোর্ট নির্বাচন করে Load করুন', 'Select a report and load it')))
-                  : ListView.separated(
-                      itemCount: rows.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (_, i) {
-                        final r = rows[i];
-                        if (reportType == 'collection') {
-                          return ListTile(
-                            title: Text('${r['user_id'] ?? ''} - ${r['name'] ?? ''}'),
-                            subtitle: Text('${r['payment_date'] ?? ''} • ${r['staff_name'] ?? ''}\n${r['receipt_no'] ?? ''}'),
-                            trailing: Text('${money(amountOf(r, 'amount'))} ৳'),
-                          );
-                        }
-                        if (reportType == 'billing' || reportType == 'due') {
-                          final b = amountOf(r, 'amount');
-                          final p = amountOf(r, 'paid');
+        height: 540,
+        child: Column(children: [
+          Row(children: [
+            Expanded(child: OutlinedButton(onPressed: () => pick(true), child: Text(DateFormat('yyyy-MM-dd').format(from)))),
+            const SizedBox(width: 6),
+            Expanded(child: OutlinedButton(onPressed: () => pick(false), child: Text(DateFormat('yyyy-MM-dd').format(to)))),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: FilledButton(onPressed: busy ? null : loadPayments, child: Text(t('Collection Report', 'Collection Report')))),
+            const SizedBox(width: 6),
+            Expanded(child: OutlinedButton(onPressed: busy ? null : loadDue, child: Text(t('Due Report', 'Due Report')))),
+          ]),
+                    const SizedBox(height: 8),
+          if (busy) const LinearProgressIndicator(),
+          Expanded(
+            child: payments.isNotEmpty
+                ? ListView.separated(
+                    itemCount: payments.length,
+                    separatorBuilder: (_, __) => const Divider(),
+                    itemBuilder: (_, i) {
+                      final r = payments[i];
+                      return ListTile(
+                        title: Text('${r['user_id'] ?? ''} - ${r['name'] ?? ''}'),
+                        subtitle: Text('${r['payment_date'] ?? ''} • ${r['staff_name'] ?? ''}\n${r['receipt_no'] ?? ''}'),
+                        trailing: Text('${r['amount'] ?? 0} ৳'),
+                      );
+                    },
+                  )
+                : dues.isNotEmpty
+                    ? ListView.separated(
+                        itemCount: dues.length,
+                        separatorBuilder: (_, __) => const Divider(),
+                        itemBuilder: (_, i) {
+                          final r = dues[i];
+                          final due = ((r['amount'] ?? 0) as num).toDouble() - ((r['paid'] ?? 0) as num).toDouble();
                           return ListTile(
                             title: Text('${r['user_id'] ?? ''} - ${r['name'] ?? ''}'),
                             subtitle: Text('${r['package_name'] ?? ''}'),
-                            trailing: Text('${money((b - p).clamp(0, double.infinity))} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            trailing: Text('${due.clamp(0, double.infinity).toStringAsFixed(0)} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
                           );
-                        }
-                        return ListTile(
-                          title: Text('${r['user_id'] ?? ''} - ${r['name'] ?? ''}'),
-                          subtitle: Text('${r['mobile'] ?? ''} • ${r['package_name'] ?? ''}'),
-                          trailing: Text('${r['bill_date'] ?? ''}'),
-                        );
-                      },
-                    ),
-            ),
-            if (rows.isNotEmpty) Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('${t('মোট', 'Total')}: ${money(total)} ৳ • ${t('রেকর্ড', 'Records')}: ${rows.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            ),
-          ],
-        ),
+                        },
+                      )
+                    : Center(child: Text(t('রিপোর্ট নির্বাচন করুন', 'Select a report'))),
+          ),
+          if (payments.isNotEmpty) Text('${t('মোট Collection', 'Total Collection')}: ${sum(payments).toStringAsFixed(0)} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
+        ]),
       ),
       actions: [FilledButton(onPressed: () => Navigator.pop(context), child: Text(t('বন্ধ', 'Close')))],
     );
