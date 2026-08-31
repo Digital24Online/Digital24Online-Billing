@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:typed_data';
-import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart';
@@ -831,6 +830,31 @@ class DatabaseHelper {
     );
   }
 
+  Future<List<Map<String, dynamic>>> getAllStaff() async {
+    final db = await database;
+    return db.query(
+      'staff',
+      orderBy: 'active DESC, name COLLATE NOCASE',
+    );
+  }
+
+  Future<int> updateStaff(
+    int id,
+    String name,
+    String mobile,
+  ) async {
+    final db = await database;
+    return db.update(
+      'staff',
+      {
+        'name': name.trim(),
+        'mobile': mobile.trim(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<int> addStaff(
     String name,
     String mobile,
@@ -884,7 +908,7 @@ class DatabaseHelper {
   ) async {
     final db = await database;
 
-    final existing = await db.query(
+      final existing = await db.query(
       'bills',
       where:
           'customer_id = ? AND billing_month = ?',
@@ -907,7 +931,7 @@ class DatabaseHelper {
         'billing_month': month,
         'bill_date': billDate,
         'amount': amount,
-                'created_at':
+        'created_at':
                         DateTime.now().toIso8601String(),
       },
     );
@@ -995,7 +1019,7 @@ class DatabaseHelper {
       [month],
     );
   }
-
+  
   Future<Map<String, dynamic>> summary(
     String month,
   ) async {
@@ -1008,7 +1032,7 @@ class DatabaseHelper {
           SUM(amount),
           0
         ) AS bill,
-        
+
         (
           SELECT COALESCE(
             SUM(p.amount),
@@ -1085,7 +1109,7 @@ class DatabaseHelper {
         'Customer ID পাওয়া যায়নি',
       );
     }
-
+    
     final amount =
         (data['amount'] as num?)
                 ?.toDouble() ??
@@ -1109,7 +1133,7 @@ class DatabaseHelper {
     final staffId =
         (data['staff_id'] as num?)
             ?.toInt();
-    
+
     final userId =
         data['user_id']
                 ?.toString() ??
@@ -1195,7 +1219,7 @@ class DatabaseHelper {
             );
           }
         }
-
+        
         if (actualBillId != null) {
           final bill =
               await txn.query(
@@ -1206,7 +1230,7 @@ class DatabaseHelper {
             ],
             limit: 1,
           );
-                    
+          
           if (bill.isNotEmpty) {
             final paidResult =
                 await txn.rawQuery(
@@ -1300,7 +1324,7 @@ class DatabaseHelper {
           whereArgs: [customerId],
           limit: 1,
         );
-        
+                
         if (customerRows.isNotEmpty) {
           final customer =
               customerRows.first;
@@ -1310,7 +1334,7 @@ class DatabaseHelper {
                           as num?)
                       ?.toDouble() ??
                   0;
-          
+
           final due =
               totalAmount -
                   totalPaid;
@@ -1512,7 +1536,7 @@ class DatabaseHelper {
 
       LEFT JOIN staff s
         ON s.id = p.staff_id
-        
+
       LEFT JOIN bills b
         ON b.id = p.bill_id
 
@@ -1528,7 +1552,7 @@ class DatabaseHelper {
       args,
     );
   }
-
+  
   // ============================================================
   // RECEIPT LOOKUP
   // ============================================================
@@ -1581,48 +1605,40 @@ class DatabaseHelper {
   // ============================================================
 
   Future<String?> backupDatabase() async {
-  final dbPath = join(
-    await getDatabasesPath(),
-    'digital24_billing.db',
-  );
+    final dbPath = join(
+      await getDatabasesPath(),
+      'digital24_billing.db',
+    );
 
-  final source = File(dbPath);
-
-  if (!await source.exists()) {
-    return null;
-  }
-
-  final backupPath = join(
-    await getDatabasesPath(),
-    'digital24_backup_'
-        '${DateTime.now().millisecondsSinceEpoch}'
-        '.db',
-  );
-
-  final db = await database;
-
-  // SQLite-এর WAL data মূল database file-এ লিখে দেবে
-  await db.execute('PRAGMA wal_checkpoint(FULL)');
-
-  // Database বন্ধ করে সম্পূর্ণ .db file কপি
-  await closeDatabase();
-
-  try {
-    for (final suffix in ['-wal', '-shm', '-journal']) {
-      final sidecar = File('$dbPath$suffix');
-
-      if (await sidecar.exists()) {
-        await sidecar.delete();
-      }
+    final source = File(dbPath);
+    if (!await source.exists()) {
+      return null;
     }
 
-    await source.copy(backupPath);
-  } finally {
-    await database;
+    final backupPath = join(
+      await getDatabasesPath(),
+      'digital24_backup_${DateTime.now().millisecondsSinceEpoch}.db',
+    );
+
+    try {
+      final db = await database;
+      await db.execute('PRAGMA wal_checkpoint(FULL)');
+      await closeDatabase();
+
+      for (final suffix in ['-wal', '-shm', '-journal']) {
+        final sidecar = File('$dbPath$suffix');
+        if (await sidecar.exists()) {
+          await sidecar.delete();
+        }
+      }
+
+      await source.copy(backupPath);
+      return backupPath;
+    } finally {
+      await database;
+    }
   }
 
-  return backupPath;
-  }
   Future<bool> _hasRequiredTables(String path) async {
     Database? testDb;
     try {
@@ -1637,19 +1653,36 @@ class DatabaseHelper {
         WHERE type = 'table'
           AND name IN ('customers', 'packages', 'bills', 'staff', 'payments')
       ''');
-
+      
       final names = rows
           .map((e) => e['name']?.toString())
           .whereType<String>()
           .toSet();
 
-      return {
+      final required = {
         'customers',
         'packages',
         'bills',
         'staff',
         'payments',
-      }.every(names.contains);
+      };
+      if (!required.every(names.contains)) return false;
+
+      final requiredColumns = <String, Set<String>>{
+        'customers': {'id', 'user_id', 'name', 'bill_date', 'amount', 'active'},
+        'packages': {'id', 'name', 'price', 'active'},
+        'bills': {'id', 'customer_id', 'billing_month', 'amount'},
+        'staff': {'id', 'name', 'active'},
+        'payments': {'id', 'customer_id', 'amount', 'payment_date', 'receipt_no'},
+      };
+
+      for (final entry in requiredColumns.entries) {
+        final info = await testDb.rawQuery('PRAGMA table_info(${entry.key})');
+        final columns = info.map((r) => r['name']?.toString()).whereType<String>().toSet();
+        if (!entry.value.every(columns.contains)) return false;
+      }
+
+      return true;
     } catch (_) {
       return false;
     } finally {
@@ -1657,7 +1690,7 @@ class DatabaseHelper {
     }
   }
 
-  Future<void> exportBackupToFile() async {
+  Future<bool> exportBackupToFile() async {
     final dbPath = join(
       await getDatabasesPath(),
       'digital24_billing.db',
@@ -1671,7 +1704,7 @@ class DatabaseHelper {
     List<int> bytes;
     try {
       final db = await database;
-      await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
+      await db.execute('PRAGMA wal_checkpoint(FULL)');
       await closeDatabase();
 
       for (final suffix in ['-wal', '-shm', '-journal']) {
@@ -1702,99 +1735,119 @@ class DatabaseHelper {
       bytes: Uint8List.fromList(bytes),
     );
 
-    if (saved != null && !Platform.isAndroid) {
+    if (saved == null || saved.isEmpty) {
+      return false;
+    }
+
+    if (!Platform.isAndroid) {
       final savedFile = File(saved);
       if (!await savedFile.exists() || await savedFile.length() == 0) {
         await savedFile.writeAsBytes(bytes, flush: true);
       }
     }
+
+    return true;
   }
 
   Future<void> restoreDatabase() async {
-  final result = await FilePicker.platform.pickFiles(
-    type: FileType.any,
-    allowMultiple: false,
-    withData: false,
-  );
-
-  if (result == null || result.files.isEmpty) {
-    return;
-  }
-
-  final selectedPath = result.files.single.path;
-
-  if (selectedPath == null || selectedPath.isEmpty) {
-    throw Exception('Backup Database ফাইলের Path পাওয়া যায়নি।');
-  }
-
-  final selectedFile = File(selectedPath);
-
-  if (!await selectedFile.exists()) {
-    throw Exception('নির্বাচিত Backup Database ফাইলটি পাওয়া যায়নি।');
-  }
-
-  final dbPath = join(
-    await getDatabasesPath(),
-    'digital24_billing.db',
-  );
-
-  final backupSafetyPath = join(
-    await getDatabasesPath(),
-    'digital24_before_restore.db',
-  );
-
-  final currentDb = File(dbPath);
-
-  // বর্তমান Database-এর নিরাপদ কপি
-  if (await currentDb.exists()) {
-    await currentDb.copy(backupSafetyPath);
-  }
-
-  // Database বন্ধ
-  await closeDatabase();
-
-  // SQLite-এর temporary files মুছে ফেলি
-  for (final suffix in ['-wal', '-shm', '-journal']) {
-    final sidecar = File('$dbPath$suffix');
-
-    if (await sidecar.exists()) {
-      await sidecar.delete();
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['db'],
+      allowMultiple: false,
+      withData: true,
+    );
+    
+    if (result == null || result.files.isEmpty) {
+      throw Exception('কোনো Backup Database নির্বাচন করা হয়নি।');
     }
-  }
 
-  try {
-    // নির্বাচিত Backup Database মূল Database হিসেবে কপি
-    await selectedFile.copy(dbPath);
-
-    // Database আবার খুলে যাচাই
-    await database;
-
-    final tables = await database.then(
-      (db) => db.rawQuery(
-        "SELECT name FROM sqlite_master "
-        "WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-      ),
+    final picked = result.files.single;
+    final currentDbPath = join(
+      await getDatabasesPath(),
+      'digital24_billing.db',
     );
 
-    if (tables.isEmpty) {
+    String? sourcePath = picked.path;
+    String? temporaryPath;
+
+    if (sourcePath == null || !await File(sourcePath).exists()) {
+      final bytes = picked.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Backup ফাইলটি পড়া যায়নি।');
+      }
+
+      temporaryPath = join(
+        await getDatabasesPath(),
+        '_restore_${DateTime.now().millisecondsSinceEpoch}.db',
+      );
+      await File(temporaryPath).writeAsBytes(bytes, flush: true);
+      sourcePath = temporaryPath;
+    }
+
+    if (sourcePath == currentDbPath) {
       throw Exception(
-        'নির্বাচিত ফাইলটি বৈধ Digital 24 Online Billing Database নয়।',
+        'বর্তমান Database-কে Restore source হিসেবে নির্বাচন করা যাবে না।',
       );
     }
-  } catch (e) {
-    // Restore ব্যর্থ হলে আগের Database ফিরিয়ে আনা
-    await closeDatabase();
 
-    if (await File(backupSafetyPath).exists()) {
-      await File(backupSafetyPath).copy(dbPath);
+    try {
+      if (!await _hasRequiredTables(sourcePath)) {
+        throw Exception(
+          'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
+        );
+      }
+
+      final currentFile = File(currentDbPath);
+      final safetyPath = join(
+        await getDatabasesPath(),
+        '_before_restore_${DateTime.now().millisecondsSinceEpoch}.db',
+      );
+
+      if (await currentFile.exists()) {
+        final current = await database;
+        await current.execute('PRAGMA wal_checkpoint(FULL)');
+        await closeDatabase();
+        await currentFile.copy(safetyPath);
+      }
+
+      await closeDatabase();
+
+      for (final suffix in ['-wal', '-shm', '-journal']) {
+        final sidecar = File('$currentDbPath$suffix');
+        if (await sidecar.exists()) {
+          await sidecar.delete();
+        }
+      }
+
+      await File(sourcePath).copy(currentDbPath);
+
+      await database;
+      final valid = await _hasRequiredTables(currentDbPath);
+
+      if (!valid) {
+        await closeDatabase();
+
+        if (await File(safetyPath).exists()) {
+          await File(safetyPath).copy(currentDbPath);
+        }
+
+        await database;
+        throw Exception(
+          'Restore যাচাই করা যায়নি। আগের Database ফিরিয়ে দেওয়া হয়েছে।',
+        );
+      }
+
+      if (await File(safetyPath).exists()) {
+        await File(safetyPath).delete();
+      }
+    } finally {
+      if (temporaryPath != null) {
+        final temp = File(temporaryPath);
+        if (await temp.exists()) {
+          await temp.delete();
+        }
+      }
     }
-
-    await database;
-
-    throw Exception(
-      'Restore ব্যর্থ হয়েছে। আগের Database নিরাপদে ফিরিয়ে দেওয়া হয়েছে।\n$e',
-    );
-  }
   }
 
   List<Map<String, dynamic>> _restoreList(dynamic value) {
@@ -1805,14 +1858,14 @@ class DatabaseHelper {
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
   }
-  
+
   int? _intValue(dynamic value) {
     if (value == null) return null;
     if (value is int) return value;
     if (value is num) return value.toInt();
     return int.tryParse(value.toString());
   }
-
+  
   double _doubleValue(dynamic value) {
     if (value == null) return 0;
     if (value is num) return value.toDouble();
@@ -1891,7 +1944,7 @@ class DatabaseHelper {
       'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
     };
   }
-
+  
   Map<String, dynamic> _staffRow(
     Map<String, dynamic> row,
   ) {
@@ -1905,7 +1958,7 @@ class DatabaseHelper {
       'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
     };
   }
-  
+
   Map<String, dynamic> _billRow(
     Map<String, dynamic> row,
     int customerId,
