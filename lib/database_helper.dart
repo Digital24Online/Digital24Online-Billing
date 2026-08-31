@@ -1581,40 +1581,48 @@ class DatabaseHelper {
   // ============================================================
 
   Future<String?> backupDatabase() async {
-    final dbPath = join(
-      await getDatabasesPath(),
-      'digital24_billing.db',
-    );
+  final dbPath = join(
+    await getDatabasesPath(),
+    'digital24_billing.db',
+  );
 
-    final source = File(dbPath);
-    if (!await source.exists()) {
-      return null;
-    }
+  final source = File(dbPath);
 
-    final backupPath = join(
-      await getDatabasesPath(),
-      'digital24_backup_${DateTime.now().millisecondsSinceEpoch}.db',
-    );
-
-    try {
-      final db = await database;
-      await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
-      await closeDatabase();
-
-      for (final suffix in ['-wal', '-shm', '-journal']) {
-        final sidecar = File('$dbPath$suffix');
-        if (await sidecar.exists()) {
-          await sidecar.delete();
-        }
-      }
-      
-      await source.copy(backupPath);
-      return backupPath;
-    } finally {
-      await database;
-    }
+  if (!await source.exists()) {
+    return null;
   }
 
+  final backupPath = join(
+    await getDatabasesPath(),
+    'digital24_backup_'
+        '${DateTime.now().millisecondsSinceEpoch}'
+        '.db',
+  );
+
+  final db = await database;
+
+  // SQLite-এর WAL data মূল database file-এ লিখে দেবে
+  await db.execute('PRAGMA wal_checkpoint(FULL)');
+
+  // Database বন্ধ করে সম্পূর্ণ .db file কপি
+  await closeDatabase();
+
+  try {
+    for (final suffix in ['-wal', '-shm', '-journal']) {
+      final sidecar = File('$dbPath$suffix');
+
+      if (await sidecar.exists()) {
+        await sidecar.delete();
+      }
+    }
+
+    await source.copy(backupPath);
+  } finally {
+    await database;
+  }
+
+  return backupPath;
+  }
   Future<bool> _hasRequiredTables(String path) async {
     Database? testDb;
     try {
