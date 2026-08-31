@@ -30,6 +30,7 @@ jobs:
           rm -rf build_app/lib
           cp -R lib build_app/lib
           cp pubspec.yaml build_app/pubspec.yaml
+          cp -R assets build_app/assets
 
       - name: Set app name
         working-directory: build_app
