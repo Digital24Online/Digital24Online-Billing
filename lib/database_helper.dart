@@ -1704,8 +1704,7 @@ class DatabaseHelper {
 
   Future<void> restoreDatabase() async {
   final result = await FilePicker.platform.pickFiles(
-    type: FileType.custom,
-    allowedExtensions: ['db'],
+    type: FileType.any,
     allowMultiple: false,
     withData: false,
   );
