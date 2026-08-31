@@ -1703,173 +1703,91 @@ class DatabaseHelper {
   }
 
   Future<void> restoreDatabase() async {
-  final candidates = <String>[
-    '/storage/emulated/0/Download/digital24_backup.json',
-    '/storage/emulated/0/Download/digital24_backup.json (3)',
-    '/storage/emulated/0/Downloads/digital24_backup.json',
-    '/storage/emulated/0/Downloads/digital24_backup.json (3)',
-  ];
+  final result = await FilePicker.platform.pickFiles(
+    type: FileType.custom,
+    allowedExtensions: ['db'],
+    allowMultiple: false,
+    withData: false,
+  );
 
-  String? backupPath;
+  if (result == null || result.files.isEmpty) {
+    return;
+  }
 
-  for (final path in candidates) {
-    if (await File(path).exists()) {
-      backupPath = path;
-      break;
+  final selectedPath = result.files.single.path;
+
+  if (selectedPath == null || selectedPath.isEmpty) {
+    throw Exception('Backup Database ফাইলের Path পাওয়া যায়নি।');
+  }
+
+  final selectedFile = File(selectedPath);
+
+  if (!await selectedFile.exists()) {
+    throw Exception('নির্বাচিত Backup Database ফাইলটি পাওয়া যায়নি।');
+  }
+
+  final dbPath = join(
+    await getDatabasesPath(),
+    'digital24_billing.db',
+  );
+
+  final backupSafetyPath = join(
+    await getDatabasesPath(),
+    'digital24_before_restore.db',
+  );
+
+  final currentDb = File(dbPath);
+
+  // বর্তমান Database-এর নিরাপদ কপি
+  if (await currentDb.exists()) {
+    await currentDb.copy(backupSafetyPath);
+  }
+
+  // Database বন্ধ
+  await closeDatabase();
+
+  // SQLite-এর temporary files মুছে ফেলি
+  for (final suffix in ['-wal', '-shm', '-journal']) {
+    final sidecar = File('$dbPath$suffix');
+
+    if (await sidecar.exists()) {
+      await sidecar.delete();
     }
   }
 
-  if (backupPath == null) {
-    for (final directoryPath in [
-      '/storage/emulated/0/Download',
-      '/storage/emulated/0/Downloads',
-    ]) {
-      final directory = Directory(directoryPath);
+  try {
+    // নির্বাচিত Backup Database মূল Database হিসেবে কপি
+    await selectedFile.copy(dbPath);
 
-      if (!await directory.exists()) continue;
+    // Database আবার খুলে যাচাই
+    await database;
 
-      await for (final entity in directory.list()) {
-        if (entity is! File) continue;
+    final tables = await database.then(
+      (db) => db.rawQuery(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+      ),
+    );
 
-        final name = basename(entity.path).toLowerCase();
-
-        if (name.startsWith('digital24_backup') &&
-            name.endsWith('.json')) {
-          backupPath = entity.path;
-          break;
-        }
-      }
-
-      if (backupPath != null) break;
+    if (tables.isEmpty) {
+      throw Exception(
+        'নির্বাচিত ফাইলটি বৈধ Digital 24 Online Billing Database নয়।',
+      );
     }
-  }
+  } catch (e) {
+    // Restore ব্যর্থ হলে আগের Database ফিরিয়ে আনা
+    await closeDatabase();
 
-  if (backupPath == null) {
+    if (await File(backupSafetyPath).exists()) {
+      await File(backupSafetyPath).copy(dbPath);
+    }
+
+    await database;
+
     throw Exception(
-      'Downloads folder-এ digital24_backup.json পাওয়া যায়নি।',
+      'Restore ব্যর্থ হয়েছে। আগের Database নিরাপদে ফিরিয়ে দেওয়া হয়েছে।\n$e',
     );
   }
-
-  final file = File(backupPath);
-  final raw = await file.readAsString();
-
-  final decoded = jsonDecode(raw);
-
-  if (decoded is! Map) {
-    throw Exception('Backup JSON-এর format সঠিক নয়।');
-  }
-
-  final backup = Map<String, dynamic>.from(decoded);
-
-  final customers = _restoreList(backup['customers']);
-  final packages = _restoreList(backup['packages']);
-  final staff = _restoreList(backup['staff']);
-  final bills = _restoreList(backup['bills']);
-  final payments = _restoreList(backup['payments']);
-
-  final db = await database;
-
-  await db.transaction((txn) async {
-    await txn.delete('payments');
-    await txn.delete('bills');
-    await txn.delete('customers');
-    await txn.delete('staff');
-    await txn.delete('packages');
-
-    for (final row in packages) {
-      await txn.insert(
-        'packages',
-        _packageRow(row),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-
-    for (final row in staff) {
-      await txn.insert(
-        'staff',
-        _staffRow(row),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-
-    for (final row in customers) {
-      await txn.insert(
-        'customers',
-        _customerRow(row),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-
-    for (final row in bills) {
-      final customerId = _intValue(
-        row['customer_id'] ?? row['customerId'],
-      );
-
-      if (customerId == null) continue;
-
-      final exists = await txn.query(
-        'customers',
-        where: 'id = ?',
-        whereArgs: [customerId],
-        limit: 1,
-      );
-
-      if (exists.isEmpty) continue;
-
-      await txn.insert(
-        'bills',
-        _billRow(row, customerId),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-
-    for (final row in payments) {
-      final customerId = _intValue(
-        row['customer_id'] ?? row['customerId'],
-      );
-
-      if (customerId == null) continue;
-
-      final customerExists = await txn.query(
-        'customers',
-        where: 'id = ?',
-        whereArgs: [customerId],
-        limit: 1,
-      );
-
-      if (customerExists.isEmpty) continue;
-
-      final billId = _intValue(
-        row['bill_id'] ?? row['billId'],
-      );
-
-      final staffId = _intValue(
-        row['staff_id'] ?? row['staffId'],
-      );
-
-      if (billId != null) {
-        final billExists = await txn.query(
-          'bills',
-          where: 'id = ?',
-          whereArgs: [billId],
-          limit: 1,
-        );
-
-        if (billExists.isEmpty) continue;
-      }
-
-      await txn.insert(
-        'payments',
-        _paymentRow(
-          row,
-          customerId,
-          billId,
-          staffId,
-        ),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-  });
   }
 
   List<Map<String, dynamic>> _restoreList(dynamic value) {
