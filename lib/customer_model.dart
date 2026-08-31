@@ -1,16 +1,14 @@
 class Customer {
-  int? id;
-
-  String userId;
-  String name;
-  String mobile;
-  String packageName;
-
-  int billDate;
-  double billAmount;
-  double paidAmount;
-
-  String paymentDate;
+  final int? id;
+  final String userId;
+  final String name;
+  final String mobile;
+  final String address;
+  final String packageName;
+  final int billDate;
+  final double bill;
+  final double paid;
+  final String paymentDate;
   bool active;
 
   Customer({
@@ -18,40 +16,30 @@ class Customer {
     required this.userId,
     required this.name,
     required this.mobile,
+    required this.address,
     required this.packageName,
     required this.billDate,
-    required this.billAmount,
-    required this.paidAmount,
+    required this.bill,
+    required this.paid,
     required this.paymentDate,
-    this.active = true,
+    required this.active,
   });
 
-  double get dueAmount => billAmount - paidAmount;
+  double get due => (bill - paid).clamp(0, double.infinity).toDouble();
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'user_id': userId,
-      'name': name,
-      'mobile': mobile,
-      'package_name': packageName,
-      'bill_date': billDate,
-      'bill_amount': billAmount,
-      'paid_amount': paidAmount,
-      'payment_date': paymentDate,
-      'active': active ? 1 : 0,
-    };
-  }
-
-  factory Customer.fromMap(Map<String, dynamic> map) {
+  factory Customer.fromMap(Map<String, dynamic> m) {
     return Customer(
-      id: map['id'],
-      userId: map['user_id'] ?? '',
-      name: map['name'] ?? '',
-      mobile: map['mobile'] ?? '',
-      packageName: map['package_name'] ?? '',
-      billDate: map['bill_date'] ?? 7,
-      billAmount: (map['bill_amount'] ?? 0).toDouble(),
-      paidAmount: (map['paid_amount'] ?? 0).toDouble(),
-      paymentDate: map['payment_date'] ?? '',
-      active: (map['active'] ?? 1) == 1,
+      id: (m['id'] as num?)?.toInt(),
+      userId: '${m['user_id'] ?? ''}',
+      name: '${m['name'] ?? ''}',
+      mobile: '${m['mobile'] ?? ''}',
+      address: '${m['address'] ?? ''}',
+      packageName: '${m['package_name'] ?? ''}',
+      billDate: (m['bill_date'] as num?)?.toInt() ?? 7,
+      bill: ((m['total_bill'] ?? 0) as num).toDouble(),
+      paid: ((m['total_paid'] ?? 0) as num).toDouble(),
+      paymentDate: '${m['payment_date'] ?? ''}',
+      active: (m['status'] ?? 1) == 1,
+    );
+  }
+}
