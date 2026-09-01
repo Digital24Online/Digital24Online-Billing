@@ -955,15 +955,18 @@ class _BillingHomePageState extends State<BillingHomePage> {
       );
     }
 
-    if (fileName.endsWith('.json')) {
-      await db.restoreJsonDatabase(bytes);
-    } else if (fileName.endsWith('.db')) {
-      await db.restoreDatabase(bytes);
-    } else {
-      throw Exception(
-        'শুধু .json অথবা .db Backup ফাইল নির্বাচন করুন।',
-      );
-    }
+    final lowerName = fileName.trim().toLowerCase();
+
+if (lowerName.contains('json')) {
+  await db.restoreJsonDatabase(bytes);
+} else if (lowerName.contains('.db') ||
+    lowerName.endsWith('db')) {
+  await db.restoreDatabase(bytes);
+} else {
+  throw Exception(
+    'নির্বাচিত Backup ফাইলটি শনাক্ত করা যায়নি।',
+  );
+}
 
     await loadCustomers();
 
