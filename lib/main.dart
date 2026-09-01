@@ -1760,109 +1760,211 @@ if (lowerName.contains('json')) {
 
   Widget summary(String title, String value, IconData icon) => Container(width: 142, height: 82, margin: const EdgeInsets.symmetric(horizontal: 4), padding: const EdgeInsets.all(9), decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(children: [CircleAvatar(radius: 19, child: Icon(icon, size: 19)), const SizedBox(width: 7), Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 11)), Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))]))]));
   
-  customerCard(Customer c, int serialNo) => Card(
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        child: InkWell(
-          onTap: () => showDetails(c),
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      child: Text(c.userId.isEmpty ? '?' : c.userId[0]),
+  Widget customerCard(Customer c, int serialNo) => Card(
+      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: InkWell(
+        onTap: () => showDetails(c),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer,
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                          Text(c.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                          Text(
-                            'ID: ${c.userId}',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                    child: Text(
+                      '$serialNo',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onPrimaryContainer,
                       ),
                     ),
-                    PopupMenuButton<String>(
-                      onSelected: (v) async {
-                        if (v == 'details') await showDetails(c);
-                        if (v == 'edit') await editCustomer(c);
-                        if (v == 'history') await showPaymentHistory(c);
-                        if (v == 'status') await toggleCustomer(c);
-                        if (v == 'delete') await deleteCustomer(c);
-                      },
-                                            itemBuilder: (_) => [
-                        PopupMenuItem(value: 'details', child: Text(t('বিস্তারিত', 'Details'))),
-                        PopupMenuItem(value: 'edit', child: Text(t('তথ্য পরিবর্তন', 'Edit'))),
-                        PopupMenuItem(value: 'history', child: Text(t('পেমেন্ট হিস্ট্রি', 'Payment History'))),
-                        PopupMenuItem(
-                          value: 'status',
-                          child: Text(c.active ? t('Closed করুন', 'Close') : t('Active করুন', 'Activate')),
+                  ),
+                  const SizedBox(width: 8),
+                  CircleAvatar(
+                    child: Text(
+                      c.userId.isEmpty ? '?' : c.userId[0],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.name,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                        PopupMenuItem(value: 'delete', child: Text(t('মুছে ফেলুন', 'Delete'))),
+                        Text(
+                          'ID: ${c.userId}',
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ],
                     ),
-                  ],
-                ),
-                const Divider(),
-                Wrap(
-                  spacing: 7,
-                  runSpacing: 7,
-                  children: [
-                    _tag(Icons.phone, c.mobile.isEmpty ? t('মোবাইল নেই', 'No mobile') : c.mobile),
-                    _tag(Icons.speed, c.packageName.isEmpty ? t('প্যাকেজ নেই', 'No package') : c.packageName),
-                    _tag(Icons.calendar_month, '${t('বিল ডেট: ', 'Billing date ')}${c.billDate}'),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(child: amountBox(t('বিল', 'Bill'), c.bill)),
-                    const SizedBox(width: 6),
-                    Expanded(child: amountBox(t('পরিশোধ', 'Paid'), c.paid)),
-                    const SizedBox(width: 6),
-                    Expanded(child: amountBox(t('বকেয়া', 'Due'), c.due, due: c.due > 0)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        c.active ? '● Active' : '● Closed',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: c.active ? Colors.green : Colors.red,
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: (v) async {
+                      if (v == 'details') await showDetails(c);
+                      if (v == 'edit') await editCustomer(c);
+                      if (v == 'history') {
+                        await showPaymentHistory(c);
+                      }
+                      if (v == 'status') {
+                        await toggleCustomer(c);
+                      }
+                      if (v == 'delete') {
+                        await deleteCustomer(c);
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'details',
+                        child: Text(
+                          t('বিস্তারিত', 'Details'),
                         ),
                       ),
-                    ),
-                    if (c.due > 0)
-                      FilledButton.icon(
-                        onPressed: () => takePayment(c),
-                        icon: const Icon(Icons.payments, size: 18),
-                        label: Text(t('পেমেন্ট', 'Payment')),
-                      )
-                    else
-                      OutlinedButton.icon(
-                        onPressed: () => showPaymentHistory(c),
-                        icon: const Icon(Icons.history, size: 18),
-                        label: Text(t('হিস্ট্রি', 'History')),
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: Text(
+                          t('তথ্য পরিবর্তন', 'Edit'),
+                        ),
                       ),
-                  ],
-                ),
-              ],
-            ),
+                      PopupMenuItem(
+                        value: 'history',
+                        child: Text(
+                          t('পেমেন্ট হিস্ট্রি', 'Payment History'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'status',
+                        child: Text(
+                          c.active
+                              ? t('Closed করুন', 'Close')
+                              : t('Active করুন', 'Activate'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Text(
+                          t('মুছে ফেলুন', 'Delete'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const Divider(),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: [
+                  _tag(
+                    Icons.phone,
+                    c.mobile.isEmpty
+                        ? t('মোবাইল নেই', 'No mobile')
+                        : c.mobile,
+                  ),
+                  _tag(
+                    Icons.speed,
+                    c.packageName.isEmpty
+                        ? t('প্যাকেজ নেই', 'No package')
+                        : c.packageName,
+                  ),
+                  _tag(
+                    Icons.calendar_month,
+                    '${t('বিল ডেট: ', 'Billing date ')}${c.billDate}',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: amountBox(
+                      t('বিল', 'Bill'),
+                      c.bill,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: amountBox(
+                      t('পরিশোধ', 'Paid'),
+                      c.paid,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: amountBox(
+                      t('বকেয়া', 'Due'),
+                      c.due,
+                      due: c.due > 0,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      c.active ? '● Active' : '● Closed',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: c.active
+                            ? Colors.green
+                            : Colors.red,
+                      ),
+                    ),
+                  ),
+                  if (c.due > 0)
+                    FilledButton.icon(
+                      onPressed: () => takePayment(c),
+                      icon: const Icon(
+                        Icons.payments,
+                        size: 18,
+                      ),
+                      label: Text(
+                        t('পেমেন্ট', 'Payment'),
+                      ),
+                    )
+                  else
+                    OutlinedButton.icon(
+                      onPressed: () => showPaymentHistory(c),
+                      icon: const Icon(
+                        Icons.history,
+                        size: 18,
+                      ),
+                      label: Text(
+                        t('হিস্ট্রি', 'History'),
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ),
         ),
-      );
+      ),
+    );
     
   Widget _tag(IconData i, String text) => Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), decoration: BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(i, size: 15), const SizedBox(width: 4), Text(text)]));
   Widget amountBox(String title, double value, {bool due = false}) => Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), color: Theme.of(context).colorScheme.surfaceContainerHighest), child: Column(children: [Text(title, style: const TextStyle(fontSize: 11)), Text('${money(value)} ৳', style: TextStyle(fontWeight: FontWeight.bold, color: due ? Colors.red : null))]));
