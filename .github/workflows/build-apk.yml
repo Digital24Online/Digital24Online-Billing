@@ -51,6 +51,10 @@ jobs:
         working-directory: build_app
         run: flutter pub get
 
+      - name: Generate App Icon
+        working-directory: build_app
+        run: dart run flutter_launcher_icons
+
       - name: Restore signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -102,3 +106,4 @@ jobs:
         with:
           name: Digital24Online-APK
           path: build_app/build/app/outputs/flutter-apk/app-release.apk
+          
