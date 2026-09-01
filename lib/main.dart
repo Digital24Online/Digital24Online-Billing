@@ -1837,7 +1837,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Row(
+                                Row(
                   children: [
                     Expanded(
                       child: Text(
@@ -1848,18 +1848,11 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         ),
                       ),
                     ),
-                    if (c.due > 0)
-                      FilledButton.icon(
-                        onPressed: () => takePayment(c),
-                        icon: const Icon(Icons.payments, size: 18),
-                        label: Text(t('পেমেন্ট', 'Payment')),
-                      )
-                    else
-                      OutlinedButton.icon(
-                        onPressed: () => showPaymentHistory(c),
-                        icon: const Icon(Icons.history, size: 18),
-                        label: Text(t('হিস্ট্রি', 'History')),
-                      ),
+                    FilledButton.icon(
+                      onPressed: () => takePayment(c),
+                      icon: const Icon(Icons.payments, size: 18),
+                      label: Text(t('পেমেন্ট', 'Payment')),
+                    ),
                   ],
                 ),
               ],
