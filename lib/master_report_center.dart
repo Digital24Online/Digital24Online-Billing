@@ -108,6 +108,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         case 'monthly_collection':
         case 'staff_collection':
           final staffWhere = staffId == null ? '' : ' AND p.staff_id=?';
+          final billDateWhere = billDate == null ? '' : ' AND c.bill_date=?';
           final args = <dynamic>[];
           String dateWhere;
           if (type == 'monthly_collection' || type == 'staff_collection') {
@@ -120,9 +121,10 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
             args.addAll([a, b]);
           }
           if (staffId != null) args.add(staffId);
-          r = await db.rawQuery('''SELECT p.payment_date,c.user_id,c.name,p.amount,p.receipt_no,COALESCE(s.name,'') staff_name
+          if (billDate != null) args.add(billDate);
+          r = await db.rawQuery('''SELECT p.payment_date,c.user_id,c.name,c.bill_date,p.amount,p.receipt_no,COALESCE(s.name,'') staff_name
             FROM payments p JOIN customers c ON c.id=p.customer_id LEFT JOIN staff s ON s.id=p.staff_id
-            WHERE $dateWhere $staffWhere ORDER BY p.payment_date DESC,p.id DESC''', args);
+            WHERE $dateWhere $staffWhere $billDateWhere ORDER BY p.payment_date DESC,p.id DESC''', args);
           break;
         case 'total_due':
         case 'due':
@@ -178,9 +180,9 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         pw.Text('Period: $month'),
         pw.SizedBox(height: 10),
         pw.Table.fromTextArray(
-          headers: ['User ID','Name','Package','Bill','Paid/Amount','Due/Staff'],
+          headers: ['User ID','Name','Bill Date','Package','Bill','Paid/Amount','Due/Staff'],
           data: rows.map((r) => [
-            '${r['user_id'] ?? ''}', '${r['name'] ?? ''}', '${r['package_name'] ?? ''}',
+            '${r['user_id'] ?? ''}', '${r['name'] ?? ''}', '${r['bill_date'] ?? ''}', '${r['package_name'] ?? ''}',
             money((r['amount'] ?? 0) as num),
             money((r['paid'] ?? r['amount'] ?? 0) as num),
             '${r['due'] ?? r['staff_name'] ?? ''}',
@@ -232,6 +234,8 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           Expanded(child: OutlinedButton(onPressed: pickMonth, child: Text(month))),
           const SizedBox(width: 6),
           Expanded(child: DropdownButtonFormField<int?>(value: staffId, decoration: InputDecoration(labelText: t('স্টাফ','Staff')), items: [DropdownMenuItem<int?>(value: null, child: Text(t('সব স্টাফ','All Staff'))), ...staff.map((s) => DropdownMenuItem<int?>(value: (s['id'] as num).toInt(), child: Text('${s['name']}')))], onChanged: (v) => setState(() => staffId = v))),
+          const SizedBox(width: 6),
+          Expanded(child: DropdownButtonFormField<int?>(value: billDate, decoration: InputDecoration(labelText: t('বিল ডেট','Bill Date')), items: [DropdownMenuItem<int?>(value: null, child: Text(t('সব ডেট','All Dates'))), const DropdownMenuItem<int?>(value: 7, child: Text('7')), const DropdownMenuItem<int?>(value: 14, child: Text('14')), const DropdownMenuItem<int?>(value: 21, child: Text('21'))], onChanged: (v) => setState(() => billDate = v))),
         ]),
         const SizedBox(height: 8),
         Row(children: [Expanded(child: FilledButton.icon(onPressed: busy ? null : run, icon: const Icon(Icons.refresh), label: Text(t('Report তৈরি','Generate')))), const SizedBox(width: 6), Expanded(child: OutlinedButton.icon(onPressed: rows.isEmpty ? null : () => pdf(false), icon: const Icon(Icons.picture_as_pdf), label: const Text('PDF'))), const SizedBox(width: 6), Expanded(child: OutlinedButton.icon(onPressed: rows.isEmpty ? null : () => pdf(true), icon: const Icon(Icons.print), label: Text(t('Print','Print'))))]),
