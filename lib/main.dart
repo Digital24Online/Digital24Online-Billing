@@ -12,6 +12,7 @@ import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'database_helper.dart';
+import 'master_report_center.dart';
 
 const _brandBlue = Color(0xFF0867C8);
 const _brandCyan = Color(0xFF11A8C7);
