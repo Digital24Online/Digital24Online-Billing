@@ -1742,12 +1742,20 @@ class DatabaseHelper {
     '_before_restore_${DateTime.now().millisecondsSinceEpoch}.db',
   );
 
+  bool restoreCompleted = false;
+
   try {
+    // ----------------------------------------------------------
+    // 1. Backup file temporary database হিসেবে তৈরি
+    // ----------------------------------------------------------
     await File(temporaryPath).writeAsBytes(
       bytes,
       flush: true,
     );
 
+    // ----------------------------------------------------------
+    // 2. Backup database বৈধ কিনা আগে যাচাই
+    // ----------------------------------------------------------
     if (!await _hasRequiredTables(temporaryPath)) {
       throw Exception(
         'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
@@ -1756,12 +1764,39 @@ class DatabaseHelper {
 
     final currentFile = File(currentDbPath);
 
+    // ----------------------------------------------------------
+    // 3. বর্তমান Database-এর নিরাপদ কপি রাখা
+    // ----------------------------------------------------------
     if (await currentFile.exists()) {
       await currentFile.copy(safetyPath);
     }
 
-    await closeDatabase();
+    // ----------------------------------------------------------
+    // 4. বর্তমান Database connection সম্পূর্ণ বন্ধ
+    // ----------------------------------------------------------
+    final oldDb = _db;
 
+    if (oldDb != null) {
+      try {
+        await oldDb.rawQuery(
+          'PRAGMA wal_checkpoint(TRUNCATE)',
+        );
+      } catch (_) {
+        // Checkpoint ব্যর্থ হলেও database close করার চেষ্টা হবে
+      }
+
+      try {
+        await oldDb.close();
+      } catch (_) {
+        // ইতিমধ্যে closed থাকলেও সমস্যা হবে না
+      }
+
+      _db = null;
+    }
+
+    // ----------------------------------------------------------
+    // 5. পুরোনো Database-এর sidecar files সরানো
+    // ----------------------------------------------------------
     for (final suffix in [
       '-wal',
       '-shm',
@@ -1770,48 +1805,110 @@ class DatabaseHelper {
       final sidecar = File('$currentDbPath$suffix');
 
       if (await sidecar.exists()) {
-        await sidecar.delete();
+        try {
+          await sidecar.delete();
+        } catch (_) {
+          // Sidecar delete না হলেও পরের ধাপ চলবে
+        }
       }
     }
 
-    await File(temporaryPath).copy(currentDbPath);
+    // ----------------------------------------------------------
+    // 6. নতুন Backup Database মূল Database হিসেবে বসানো
+    // ----------------------------------------------------------
+    await File(temporaryPath).copy(
+      currentDbPath,
+    );
 
-    await database;
+    // ----------------------------------------------------------
+    // 7. পুরোনো/বন্ধ Database object ব্যবহার না করে
+    //    সম্পূর্ণ নতুন Database connection খোলা
+    // ----------------------------------------------------------
+    final restoredDb = await _open();
 
+    _db = restoredDb;
+
+    // ----------------------------------------------------------
+    // 8. নতুন Database connection সত্যিই কাজ করছে কিনা যাচাই
+    // ----------------------------------------------------------
+    try {
+      await restoredDb.rawQuery(
+        'SELECT name FROM sqlite_master '
+        'WHERE type = "table" LIMIT 1',
+      );
+    } catch (e) {
+      try {
+        await restoredDb.close();
+      } catch (_) {}
+
+      _db = null;
+
+      throw Exception(
+        'Restore-এর পরে Database চালু করা যায়নি: $e',
+      );
+    }
+
+    // ----------------------------------------------------------
+    // 9. Required tables আবার যাচাই
+    // ----------------------------------------------------------
     final valid = await _hasRequiredTables(
       currentDbPath,
     );
 
     if (!valid) {
-      await closeDatabase();
+      // নতুন Database বন্ধ
+      try {
+        await _db?.close();
+      } catch (_) {}
 
+      _db = null;
+
+      // আগের নিরাপদ Database ফিরিয়ে দেওয়া
       final safetyFile = File(safetyPath);
 
       if (await safetyFile.exists()) {
-        await safetyFile.copy(currentDbPath);
+        await safetyFile.copy(
+          currentDbPath,
+        );
+
+        // Safety database দিয়ে আবার নতুন connection
+        final recoveredDb = await _open();
+
+        _db = recoveredDb;
       }
 
-      await database;
-
       throw Exception(
-        'Restore যাচাই করা যায়নি। আগের Database ফিরিয়ে দেওয়া হয়েছে।',
+        'Restore যাচাই করা যায়নি। আগের Database নিরাপদভাবে ফিরিয়ে দেওয়া হয়েছে।',
       );
     }
 
-    final safetyFile = File(safetyPath);
-
-    if (await safetyFile.exists()) {
-      await safetyFile.delete();
-    }
+    // ----------------------------------------------------------
+    // 10. Restore সফল
+    // ----------------------------------------------------------
+    restoreCompleted = true;
   } finally {
+    // Temporary restore file মুছে ফেলা
     final tempFile = File(temporaryPath);
 
     if (await tempFile.exists()) {
-      await tempFile.delete();
+      try {
+        await tempFile.delete();
+      } catch (_) {}
+    }
+
+    // Restore সফল হলে safety copy মুছে ফেলা
+    // Restore ব্যর্থ হলে safety copy রাখা হবে
+    if (restoreCompleted) {
+      final safetyFile = File(safetyPath);
+
+      if (await safetyFile.exists()) {
+        try {
+          await safetyFile.delete();
+        } catch (_) {}
+      }
     }
   }
   }
-
   List<Map<String, dynamic>> _restoreList(dynamic value) {
     if (value is! List) return <Map<String, dynamic>>[];
 
