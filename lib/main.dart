@@ -468,56 +468,209 @@ class _BillingHomePageState extends State<BillingHomePage> {
   }
 
   Future<void> editCustomer(Customer c) async {
-    if (c.id == null) return;
-    final uid = TextEditingController(text: c.userId);
-    final name = TextEditingController(text: c.name);
-    final mobile = TextEditingController(text: c.mobile);
-    final address = TextEditingController(text: c.address);
-    final pkg = TextEditingController(text: c.packageName);
-    int date = c.billDate;
-    bool saving = false;
+  if (c.id == null) return;
 
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: Text(t('ইউজার তথ্য পরিবর্তন', 'Edit Customer')),
-          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            field(uid, t('ইউজার আইডি', 'User ID'), Icons.badge),
-            const SizedBox(height: 10), field(name, t('নাম', 'Name'), Icons.person),
-            const SizedBox(height: 10), field(mobile, t('মোবাইল', 'Mobile'), Icons.phone, type: TextInputType.phone),
-            const SizedBox(height: 10), field(address, t('ঠিকানা', 'Address'), Icons.home),
-            const SizedBox(height: 10), field(pkg, t('প্যাকেজ', 'Package'), Icons.speed),
-            const SizedBox(height: 10), dateDrop(date, (v) => setD(() => date = v)),
-          ])),
-          actions: [
-            TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: Text(t('বাতিল', 'Cancel'))),
-            FilledButton.icon(
-              onPressed: saving ? null : () async {
-                if (uid.text.trim().isEmpty || name.text.trim().isEmpty) return;
-                setD(() => saving = true);
-                try {
-                  if (await userIdExists(uid.text.trim(), exceptId: c.id)) throw Exception(t('এই ইউজার আইডি অন্য একজন ব্যবহার করছে', 'User ID is already used'));
-                  await db.updateCustomer(c.id!, {
-                    'user_id': uid.text.trim(), 'name': name.text.trim(), 'mobile': mobile.text.trim(),
-                    'address': address.text.trim(), 'package_name': pkg.text.trim(), 'bill_date': date,
-                  });
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  await loadCustomers();
-                  msg(t('তথ্য পরিবর্তন হয়েছে', 'Customer updated'));
-                } catch (e) {
-                  if (ctx.mounted) setD(() => saving = false);
-                  msg('$e');
-                }
-              },
-              icon: const Icon(Icons.save), label: Text(t('সংরক্ষণ', 'Save')),
-            ),
-          ],
+  final uid = TextEditingController(text: c.userId);
+  final name = TextEditingController(text: c.name);
+  final mobile = TextEditingController(text: c.mobile);
+  final address = TextEditingController(text: c.address);
+  final pkg = TextEditingController(text: c.packageName);
+  final bill = TextEditingController(text: c.bill.toStringAsFixed(0));
+
+  int date = c.billDate;
+  bool saving = false;
+
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setD) => AlertDialog(
+        title: Text(
+          t('ইউজার তথ্য পরিবর্তন', 'Edit Customer'),
         ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              field(
+                uid,
+                t('ইউজার আইডি', 'User ID'),
+                Icons.badge,
+              ),
+              const SizedBox(height: 10),
+
+              field(
+                name,
+                t('নাম', 'Name'),
+                Icons.person,
+              ),
+              const SizedBox(height: 10),
+
+              field(
+                mobile,
+                t('মোবাইল', 'Mobile'),
+                Icons.phone,
+                type: TextInputType.phone,
+              ),
+              const SizedBox(height: 10),
+
+              field(
+                address,
+                t('ঠিকানা', 'Address'),
+                Icons.home,
+              ),
+              const SizedBox(height: 10),
+
+              field(
+                pkg,
+                t('প্যাকেজ', 'Package'),
+                Icons.speed,
+              ),
+              const SizedBox(height: 10),
+
+              // =========================
+              // BILL FIELD
+              // =========================
+              field(
+                bill,
+                t('বিল', 'Bill'),
+                Icons.receipt_long,
+                type: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              dateDrop(
+                date,
+                (v) => setD(() => date = v),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: saving
+                ? null
+                : () => Navigator.pop(ctx),
+            child: Text(
+              t('বাতিল', 'Cancel'),
+            ),
+          ),
+
+          FilledButton.icon(
+            onPressed: saving
+                ? null
+                : () async {
+                    final userId = uid.text.trim();
+                    final customerName = name.text.trim();
+
+                    final billText = bill.text
+                        .trim()
+                        .replaceAll(',', '')
+                        .replaceAll(' ', '');
+
+                    final billAmount =
+                        double.tryParse(billText);
+
+                    if (userId.isEmpty ||
+                        customerName.isEmpty) {
+                      msg(
+                        t(
+                          'ইউজার আইডি ও নাম দিন',
+                          'Enter User ID and name',
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (billAmount == null ||
+                        billAmount < 0) {
+                      msg(
+                        t(
+                          'সঠিক বিলের পরিমাণ দিন',
+                          'Enter a valid bill amount',
+                        ),
+                      );
+                      return;
+                    }
+
+                    setD(() => saving = true);
+
+                    try {
+                      if (await userIdExists(
+                        userId,
+                        exceptId: c.id,
+                      )) {
+                        throw Exception(
+                          t(
+                            'এই ইউজার আইডি অন্য একজন ব্যবহার করছে',
+                            'User ID is already used',
+                          ),
+                        );
+                      }
+
+                      await db.updateCustomer(
+                        c.id!,
+                        {
+                          'user_id': userId,
+                          'name': customerName,
+                          'mobile': mobile.text.trim(),
+                          'address': address.text.trim(),
+                          'package_name': pkg.text.trim(),
+                          'amount': billAmount,
+                          'bill_date': date,
+                        },
+                      );
+
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                      }
+
+                      await loadCustomers();
+
+                      msg(
+                        t(
+                          'ইউজারের তথ্য ও বিল সফলভাবে পরিবর্তন হয়েছে',
+                          'Customer information and bill updated successfully',
+                        ),
+                      );
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        setD(() => saving = false);
+                      }
+
+                      msg('$e');
+                    }
+                  },
+            icon: saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Icon(Icons.save),
+            label: Text(
+              t('সংরক্ষণ', 'Save'),
+            ),
+          ),
+        ],
       ),
-    );
-    for (final c in [uid, name, mobile, address, pkg]) c.dispose();
+    ),
+  );
+
+  for (final controller in [
+    uid,
+    name,
+    mobile,
+    address,
+    pkg,
+    bill,
+  ]) {
+    controller.dispose();
+  }
   }
 
   Future<void> toggleCustomer(Customer c) async {
