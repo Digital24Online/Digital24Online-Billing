@@ -1783,6 +1783,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            Text('ক্রমিক নং: ${customers.indexOf(c) + 1}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                           Text(c.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                           Text(
                             'ID: ${c.userId}',
