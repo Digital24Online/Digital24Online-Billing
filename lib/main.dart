@@ -1374,7 +1374,12 @@ if (lowerName.contains('json')) {
                 else if (desktop)
                   _customerTable()
                 else
-                  ...filtered.map(customerCard),
+                  ...filtered.asMap().entries.map(
+  (entry) => customerCard(
+    entry.value,
+    entry.key + 1,
+  ),
+),
               ],
             ),
           ),
@@ -1755,7 +1760,7 @@ if (lowerName.contains('json')) {
 
   Widget summary(String title, String value, IconData icon) => Container(width: 142, height: 82, margin: const EdgeInsets.symmetric(horizontal: 4), padding: const EdgeInsets.all(9), decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(children: [CircleAvatar(radius: 19, child: Icon(icon, size: 19)), const SizedBox(width: 7), Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 11)), Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))]))]));
   
-  Widget customerCard(Customer c) => Card(
+  Widget customerCard(Customer c, int serialNo) =>
         margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         child: InkWell(
           onTap: () => showDetails(c),
