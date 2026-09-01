@@ -2062,6 +2062,10 @@ Future<void> restoreJsonDatabase(
             'active': _boolInt(row['active']),
             'created_at':
                 _stringValue(row['created_at']),
+            'updated_at': _stringValue(
+  row['updated_at'],
+  _stringValue(row['created_at']),
+),
           };
 
           values.removeWhere(
