@@ -2000,191 +2000,112 @@ class DatabaseHelper {
     return _currentMonth();
   }
   
-Future<void> restoreJsonDatabase() async {
-  final result = await FilePicker.platform.pickFiles(
-    type: FileType.any,
-    allowMultiple: false,
-    withData: true,
-  );
-
-  if (result == null || result.files.isEmpty) {
-    throw Exception('কোনো JSON Backup নির্বাচন করা হয়নি।');
+Future<void> restoreJsonDatabase(
+  Uint8List bytes,
+) async {
+  if (bytes.isEmpty) {
+    throw Exception('JSON Backup ফাইলটি খালি।');
   }
 
-  final pickedFile = result.files.single;
-  final fileName = pickedFile.name.toLowerCase();
+  dynamic decoded;
 
-  if (!fileName.endsWith('.json')) {
+  try {
+    decoded = jsonDecode(utf8.decode(bytes));
+  } catch (_) {
+    throw Exception('JSON Backup ফাইলটি সঠিক নয় বা নষ্ট হয়েছে।');
+  }
+
+  if (decoded is! Map) {
+    throw Exception('JSON Backup-এর format সঠিক নয়।');
+  }
+
+  final root = Map<String, dynamic>.from(decoded);
+
+  final tablesValue = root['tables'];
+
+  if (tablesValue is! Map) {
     throw Exception(
-      'অনুগ্রহ করে একটি .json Backup ফাইল নির্বাচন করুন।',
+      'এই JSON Backup-এ বৈধ tables data পাওয়া যায়নি।',
     );
+  }
+
+  final db = await database;
+
+  final tableNames = <String>[];
+
+  for (final entry in tablesValue.entries) {
+    final name = entry.key.toString().trim();
+
+    if (RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(name)) {
+      tableNames.add(name);
+    }
+  }
+
+  if (tableNames.isEmpty) {
+    throw Exception('JSON Backup-এ কোনো বৈধ table পাওয়া যায়নি।');
   }
 
   try {
-    Uint8List? bytes = pickedFile.bytes;
+    await db.transaction((txn) async {
+      for (final tableName in tableNames) {
+        final tableInfo = await txn.rawQuery(
+          'PRAGMA table_info("$tableName")',
+        );
 
-    if (bytes == null && pickedFile.path != null) {
-      final file = File(pickedFile.path!);
+        if (tableInfo.isEmpty) continue;
 
-      if (await file.exists()) {
-        bytes = await file.readAsBytes();
-      }
-    }
+        final validColumns = <String>{};
 
-    if (bytes == null || bytes.isEmpty) {
-      throw Exception('JSON Backup ফাইলটি খালি বা পড়া যাচ্ছে না।');
-    }
+        for (final column in tableInfo) {
+          final name = column['name']?.toString();
 
-    final decoded = jsonDecode(utf8.decode(bytes));
-
-    if (decoded is! Map) {
-      throw Exception('JSON Backup-এর format সঠিক নয়।');
-    }
-
-    final root = Map<String, dynamic>.from(decoded);
-
-    final tablesData = root['tables'];
-
-    if (tablesData is! Map) {
-      throw Exception(
-        'JSON Backup-এ বৈধ tables data পাওয়া যায়নি।',
-      );
-    }
-
-    final db = await database;
-
-    // Restore-এর আগে safety backup
-    final dbPath = join(
-      await getDatabasesPath(),
-      'digital24_billing.db',
-    );
-
-    final safetyPath = join(
-      await getDatabasesPath(),
-      '_before_json_restore_'
-          '${DateTime.now().millisecondsSinceEpoch}.db',
-    );
-
-    final currentFile = File(dbPath);
-
-    if (await currentFile.exists()) {
-      await currentFile.copy(safetyPath);
-    }
-
-    try {
-      await db.transaction((txn) async {
-        for (final entry in tablesData.entries) {
-          final tableName = entry.key.toString();
-
-          final rows = entry.value;
-
-          if (rows is! List) {
-            continue;
-          }
-
-          if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$')
-              .hasMatch(tableName)) {
-            continue;
-          }
-
-          final tableInfo = await txn.rawQuery(
-            'PRAGMA table_info("$tableName")',
-          );
-
-          if (tableInfo.isEmpty) {
-            continue;
-          }
-
-          final validColumns = <String>{};
-
-          for (final column in tableInfo) {
-            final columnName = column['name']?.toString();
-
-            if (columnName != null &&
-                columnName.isNotEmpty) {
-              validColumns.add(columnName);
-            }
-          }
-
-          if (validColumns.isEmpty) {
-            continue;
-          }
-
-          await txn.delete(tableName);
-
-          for (final item in rows) {
-            if (item is! Map) {
-              continue;
-            }
-
-            final source =
-                Map<String, dynamic>.from(item);
-
-            final values = <String, dynamic>{};
-
-            for (final field in source.entries) {
-              final columnName = field.key.toString();
-
-              if (validColumns.contains(columnName)) {
-                values[columnName] = field.value;
-              }
-            }
-
-            if (values.isEmpty) {
-              continue;
-            }
-
-            await txn.insert(
-              tableName,
-              values,
-              conflictAlgorithm:
-                  ConflictAlgorithm.replace,
-            );
+          if (name != null && name.isNotEmpty) {
+            validColumns.add(name);
           }
         }
-      });
 
-      // Restore সফল হয়েছে কিনা যাচাই
-      final checkTables = await db.rawQuery(
-        '''
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table'
-        ''',
-      );
+        if (validColumns.isEmpty) continue;
 
-      if (checkTables.isEmpty) {
-        throw Exception(
-          'JSON Restore-এর পরে Database যাচাই করা যায়নি।',
-        );
+        final rows = tablesValue[tableName];
+
+        if (rows is! List) continue;
+
+        await txn.delete(tableName);
+
+        for (final item in rows) {
+          if (item is! Map) continue;
+
+          final source =
+              Map<String, dynamic>.from(item);
+
+          final values = <String, dynamic>{};
+
+          for (final field in source.entries) {
+            final columnName = field.key.toString();
+
+            if (validColumns.contains(columnName)) {
+              values[columnName] = field.value;
+            }
+          }
+
+          if (values.isEmpty) continue;
+
+          await txn.insert(
+            tableName,
+            values,
+            conflictAlgorithm:
+                ConflictAlgorithm.replace,
+          );
+        }
       }
-
-      if (await File(safetyPath).exists()) {
-        await File(safetyPath).delete();
-      }
-    } catch (e) {
-      // Restore ব্যর্থ হলে আগের database ফিরিয়ে আনা
-      await closeDatabase();
-
-      final backupFile = File(safetyPath);
-
-      if (await backupFile.exists()) {
-        await backupFile.copy(dbPath);
-        await backupFile.delete();
-      }
-
-      await database;
-
-      throw Exception(
-        'JSON Restore ব্যর্থ হয়েছে। আগের Database ফিরিয়ে দেওয়া হয়েছে।',
-      );
-    }
+    });
   } catch (e) {
     throw Exception(
-      'JSON Restore-এ সমস্যা: $e',
+      'JSON Restore ব্যর্থ হয়েছে: $e',
     );
   }
 }
+
   Future<void> closeDatabase() async {
     final db = _db;
 
