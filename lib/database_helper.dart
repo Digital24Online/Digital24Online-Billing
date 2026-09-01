@@ -1709,8 +1709,7 @@ class DatabaseHelper {
     final saved = await FilePicker.platform.saveFile(
       dialogTitle: 'Backup Database',
       fileName: fileName,
-      type: FileType.custom,
-      allowedExtensions: ['db'],
+      type: FileType.any,
       bytes: Uint8List.fromList(bytes),
     );
 
@@ -1724,8 +1723,7 @@ class DatabaseHelper {
 
   Future<void> restoreDatabase() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['db'],
+      type: FileType.any,
       allowMultiple: false,
       withData: true,
     );
