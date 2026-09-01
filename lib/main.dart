@@ -582,8 +582,6 @@ class _BillingHomePageState extends State<BillingHomePage> {
     final billAmount = current.isEmpty ? c.bill : ((current.first['amount'] ?? 0) as num).toDouble();
     final paidAmount = current.isEmpty ? 0.0 : ((current.first['paid'] ?? 0) as num).toDouble();
     final due = (billAmount - paidAmount).clamp(0, double.infinity).toDouble();
-    if (due <= 0) { msg(t('এই মাসের কোনো বকেয়া নেই', 'No due for this month')); return; }
-
     final amount = TextEditingController(text: money(due));
     final note = TextEditingController();
     final staff = await db.getStaff();
