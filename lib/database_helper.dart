@@ -2005,86 +2005,109 @@ Future<void> restoreJsonDatabase(
   try {
     decoded = jsonDecode(utf8.decode(bytes));
   } catch (_) {
-    throw Exception('JSON Backup ফাইলটি সঠিক নয় বা নষ্ট হয়েছে।');
+    throw Exception(
+      'JSON Backup ফাইলটি সঠিক নয় বা নষ্ট হয়েছে।',
+    );
   }
 
   if (decoded is! Map) {
-    throw Exception('JSON Backup-এর format সঠিক নয়।');
+    throw Exception(
+      'JSON Backup-এর format সঠিক নয়।',
+    );
   }
 
-  final root = Map<String, dynamic>.from(decoded);
+  final data = Map<String, dynamic>.from(decoded);
 
-  final tablesValue = root['tables'];
+  final customers = _restoreList(data['customers']);
+  final payments = _restoreList(data['payments']);
+  final bills = _restoreList(data['bills']);
 
-  if (tablesValue is! Map) {
+  if (customers.isEmpty &&
+      payments.isEmpty &&
+      bills.isEmpty) {
     throw Exception(
-      'এই JSON Backup-এ বৈধ tables data পাওয়া যায়নি।',
+      'JSON Backup-এ কোনো Customer, Payment বা Bill data পাওয়া যায়নি।',
     );
   }
 
   final db = await database;
 
-  final tableNames = <String>[];
-
-  for (final entry in tablesValue.entries) {
-    final name = entry.key.toString().trim();
-
-    if (RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(name)) {
-      tableNames.add(name);
-    }
-  }
-
-  if (tableNames.isEmpty) {
-    throw Exception('JSON Backup-এ কোনো বৈধ table পাওয়া যায়নি।');
-  }
-
   try {
     await db.transaction((txn) async {
-      for (final tableName in tableNames) {
-        final tableInfo = await txn.rawQuery(
-          'PRAGMA table_info("$tableName")',
-        );
+      // =========================
+      // CUSTOMERS
+      // =========================
+      if (customers.isNotEmpty) {
+        await txn.delete('customers');
 
-        if (tableInfo.isEmpty) continue;
+        for (final row in customers) {
+          final values = <String, dynamic>{
+            'id': _intValue(row['id']),
+            'serial_no': row['serial_no'],
+            'user_id': _stringValue(row['user_id']),
+            'name': _stringValue(row['name']),
+            'mobile': _stringValue(row['mobile']),
+            'package_name':
+                _stringValue(row['package_name']),
+            'bill_date': _intValue(row['bill_date']),
+            'amount': _doubleValue(row['amount']),
+            'total_amount':
+                _doubleValue(row['total_amount']),
+            'paid_amount':
+                _doubleValue(row['paid_amount']),
+            'payment_date':
+                _stringValue(row['payment_date']),
+            'due_amount':
+                _doubleValue(row['due_amount']),
+            'active': _boolInt(row['active']),
+            'created_at':
+                _stringValue(row['created_at']),
+          };
 
-        final validColumns = <String>{};
-
-        for (final column in tableInfo) {
-          final name = column['name']?.toString();
-
-          if (name != null && name.isNotEmpty) {
-            validColumns.add(name);
-          }
-        }
-
-        if (validColumns.isEmpty) continue;
-
-        final rows = tablesValue[tableName];
-
-        if (rows is! List) continue;
-
-        await txn.delete(tableName);
-
-        for (final item in rows) {
-          if (item is! Map) continue;
-
-          final source =
-              Map<String, dynamic>.from(item);
-
-          final values = <String, dynamic>{};
-
-          for (final field in source.entries) {
-            final columnName = field.key.toString();
-
-            if (validColumns.contains(columnName)) {
-              values[columnName] = field.value;
-            }
-          }
-
-          if (values.isEmpty) continue;
+          values.removeWhere(
+            (key, value) => value == null,
+          );
 
           await txn.insert(
-            tableName,
+            'customers',
+            values,
+            conflictAlgorithm:
+                ConflictAlgorithm.replace,
+          );
+        }
+      }
+
+      // =========================
+      // PAYMENTS
+      // =========================
+      if (payments.isNotEmpty) {
+        await txn.delete('payments');
+
+        for (final row in payments) {
+          final values =
+              Map<String, dynamic>.from(row);
+
+          await txn.insert(
+            'payments',
+            values,
+            conflictAlgorithm:
+                ConflictAlgorithm.replace,
+          );
+        }
+      }
+
+      // =========================
+      // BILLS
+      // =========================
+      if (bills.isNotEmpty) {
+        await txn.delete('bills');
+
+        for (final row in bills) {
+          final values =
+              Map<String, dynamic>.from(row);
+
+          await txn.insert(
+            'bills',
             values,
             conflictAlgorithm:
                 ConflictAlgorithm.replace,
