@@ -894,43 +894,91 @@ class _BillingHomePageState extends State<BillingHomePage> {
   }
 
   Future<void> restoreBackup() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(t('Restore Backup', 'Restore Backup')),
-        content: Text(
-          t(
-            'Restore করলে বর্তমান Customer, Billing, Payment, Package ও Staff data নির্বাচিত Backup-এর data দিয়ে প্রতিস্থাপিত হবে। আগে একটি Backup রেখে নিন। আপনি কি চালিয়ে যেতে চান?',
-            'Restore will replace the current Customer, Billing, Payment, Package and Staff data with the selected backup. Please keep a backup first. Continue?',
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(
+        t('Restore Backup', 'Restore Backup'),
+      ),
+      content: Text(
+        t(
+          'Restore করলে বর্তমান Customer, Billing, Payment, Package ও Staff data নির্বাচিত Backup-এর data দিয়ে প্রতিস্থাপিত হবে। আগে একটি Backup রেখে নিন। আপনি কি চালিয়ে যেতে চান?',
+          'Restore will replace the current Customer, Billing, Payment, Package and Staff data with the selected backup. Please keep a backup first. Continue?',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: Text(
+            t('বাতিল', 'Cancel'),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(t('বাতিল', 'Cancel')),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(
+            t('Restore করুন', 'Restore'),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(t('Restore করুন', 'Restore')),
-          ),
-        ],
-      ),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  try {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: false,
+      withData: true,
     );
 
-    if (confirmed != true) return;
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
 
-    try {
-      await db.restoreDatabase();
-      await loadCustomers();
-      msg(t(
+    final picked = result.files.single;
+    final fileName = picked.name.toLowerCase();
+
+    Uint8List? bytes = picked.bytes;
+
+    if (bytes == null && picked.path != null) {
+      final file = File(picked.path!);
+
+      if (await file.exists()) {
+        bytes = await file.readAsBytes();
+      }
+    }
+
+    if (bytes == null || bytes.isEmpty) {
+      throw Exception(
+        'Backup ফাইলটি পড়া যায়নি।',
+      );
+    }
+
+    if (fileName.endsWith('.json')) {
+      await db.restoreJsonDatabase(bytes);
+    } else if (fileName.endsWith('.db')) {
+      await db.restoreDatabase(bytes);
+    } else {
+      throw Exception(
+        'শুধু .json অথবা .db Backup ফাইল নির্বাচন করুন।',
+      );
+    }
+
+    await loadCustomers();
+
+    msg(
+      t(
         'Backup সফলভাবে Restore হয়েছে।',
         'Backup restored successfully.',
-      ));
-    } catch (e) {
-      msg('${t('Restore-এ সমস্যা: ', 'Restore error: ')}$e');
-    }
+      ),
+    );
+  } catch (e) {
+    msg(
+      '${t('Restore-এ সমস্যা: ', 'Restore error: ')}$e',
+    );
   }
-  
+  }
   Future<void> exportUserListPdf() async {
     try {
       final rows = List<Customer>.from(filtered);
