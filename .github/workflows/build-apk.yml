@@ -38,27 +38,53 @@ jobs:
           cp android/app/google-services.json build_app/android/app/google-services.json
           test -s build_app/android/app/google-services.json
 
-      - name: Configure Firebase Gradle plugin
+      - name: Configure Android package and Kotlin
         working-directory: build_app
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
-          marker = 'plugins {'
-          addition = '    id("com.google.gms.google-services") version "4.5.0" apply false\n'
+          # Use a Kotlin version compatible with current Firebase Android libraries.
+          text = re.sub(
+              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"',
+              'id("org.jetbrains.kotlin.android") version "2.3.21"',
+              text
+          )
 
-          if 'com.google.gms.google-services' not in text:
-              text = text.replace(marker, marker + '\n' + addition, 1)
+          # Add Google Services plugin.
+          if 'id("com.google.gms.google-services") version "4.5.0" apply false' not in text:
+              text = text.replace(
+                  'plugins {',
+                  'plugins {\n    id("com.google.gms.google-services") version "4.5.0" apply false',
+                  1
+              )
 
           settings.write_text(text)
 
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          if 'com.google.gms.google-services' not in text:
+          # Correct Firebase Android package name.
+          text = re.sub(
+              r'namespace\s*=\s*"[^"]+"',
+              'namespace = "com.digital24online"',
+              text,
+              count=1
+          )
+
+          text = re.sub(
+              r'applicationId\s*=\s*"[^"]+"',
+              'applicationId = "com.digital24online"',
+              text,
+              count=1
+          )
+
+          # Apply Google Services plugin.
+          if 'id("com.google.gms.google-services")' not in text:
               text = text.replace(
                   'plugins {',
                   'plugins {\n    id("com.google.gms.google-services")',
@@ -76,10 +102,12 @@ jobs:
 
           p = Path("android/app/src/main/AndroidManifest.xml")
           text = p.read_text()
+
           text = text.replace(
               'android:label="digital24online"',
               'android:label="Digital 24 Online"'
           )
+
           p.write_text(text)
           PY
 
@@ -110,9 +138,7 @@ jobs:
           p = Path("android/app/build.gradle.kts")
           text = p.read_text()
 
-          text = text.replace(
-              'android {',
-              '''android {
+          signing_block = '''
               signingConfigs {
                   create("release") {
                       storeFile = file("../keystore/digital24.jks")
@@ -120,9 +146,15 @@ jobs:
                       keyAlias = "digital24"
                       keyPassword = System.getenv("KEYSTORE_PASSWORD")!!
                   }
-              }''',
-              1
-          )
+              }
+          '''
+
+          if 'create("release")' not in text:
+              text = text.replace(
+                  'android {',
+                  'android {' + signing_block,
+                  1
+              )
 
           text = text.replace(
               'signingConfig = signingConfigs.getByName("debug")',
