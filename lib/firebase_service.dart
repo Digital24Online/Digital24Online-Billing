@@ -102,7 +102,7 @@ class FirebaseService {
       await _ensureBusinessDocument();
       final hasLocal = await _hasLocalCustomerData();
       if (!hasLocal) {
-        await _restoreCloudData();
+        await restoreCloudData();
       } else {
         await syncNow();
       }
@@ -335,7 +335,7 @@ class FirebaseService {
       final customerUserId = userById[_int(row['customer_id'])] ?? '';
       final month = _string(row['billing_month']);
       if (customerUserId.isEmpty || month.isEmpty) continue;
-      final key = '$customerUserId__$month';
+      final key = '${customerUserId}__$month';
       final remote = cloud.cast<Map<String, dynamic>?>().firstWhere(
         (r) => r != null &&
             _string(r['customer_user_id']) == customerUserId &&
