@@ -26,7 +26,7 @@ class DatabaseHelper {
 
     return openDatabase(
       dbPath,
-      version: 4,
+      version: 3,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -41,10 +41,9 @@ class DatabaseHelper {
 
   Future<void> _create(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE staff (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  staff_uid TEXT NOT NULL DEFAULT '',
-  name TEXT NOT NULL UNIQUE,
+      CREATE TABLE customers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         mobile TEXT NOT NULL DEFAULT '',
         address TEXT NOT NULL DEFAULT '',
@@ -199,35 +198,34 @@ class DatabaseHelper {
       await _seedDefaultPackages(db);
     }
 
-    if (oldVersion < 4) {
-  await _addColumnIfMissing(
-    db,
-    'staff',
-    'staff_uid TEXT NOT NULL DEFAULT ""',
-  );
+    if (oldVersion < 3) {
+      await _addColumnIfMissing(
+        db, 'packages', 'updated_at TEXT NOT NULL DEFAULT ""',
+      );
+      await _addColumnIfMissing(
+        db, 'bills', 'updated_at TEXT NOT NULL DEFAULT ""',
+      );
+      await _addColumnIfMissing(
+        db, 'staff', 'updated_at TEXT NOT NULL DEFAULT ""',
+      );
+      await _addColumnIfMissing(
+        db, 'payments', 'updated_at TEXT NOT NULL DEFAULT ""',
+      );
 
-  final staffRows = await db.query(
-    'staff',
-    columns: ['id', 'created_at', 'staff_uid'],
-  );
-
-  for (final row in staffRows) {
-    final current = (row['staff_uid'] ?? '').toString().trim();
-    if (current.isNotEmpty) continue;
-
-    final id = row['id'];
-    final created = (row['created_at'] ?? '').toString();
-
-    await db.update(
-      'staff',
-      {
-        'staff_uid': 'staff_${id}_${created.hashCode.abs()}',
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
+      await db.execute(
+        'UPDATE packages SET updated_at = created_at WHERE updated_at = ""',
+      );
+      await db.execute(
+        'UPDATE bills SET updated_at = created_at WHERE updated_at = ""',
+      );
+      await db.execute(
+        'UPDATE staff SET updated_at = created_at WHERE updated_at = ""',
+      );
+      await db.execute(
+        'UPDATE payments SET updated_at = created_at WHERE updated_at = ""',
+      );
     }
+  }
 
   Future<bool> _tableExists(
     Database db,
@@ -892,7 +890,7 @@ class DatabaseHelper {
       whereArgs: [id],
     );
   }
-
+  
   // ============================================================
   // STAFF
   // ============================================================
@@ -910,37 +908,25 @@ class DatabaseHelper {
   }
 
   Future<int> addStaff(
-  String name,
-  String mobile,
-) async {
-  final db = await database;
+    String name,
+    String mobile,
+  ) async {
+    final db = await database;
 
-  final id = await db.insert(
-    'staff',
-    {
-      'name': name.trim(),
-      'mobile': mobile.trim(),
-      'active': 1,
-      'staff_uid': '',
-      'created_at': DateTime.now().toIso8601String(),
-      'updated_at': DateTime.now().toIso8601String(),
-    },
-    conflictAlgorithm: ConflictAlgorithm.abort,
-  );
-
-  final staffUid =
-      'staff_${id}_${DateTime.now().microsecondsSinceEpoch}';
-
-  await db.update(
-    'staff',
-    {
-      'staff_uid': staffUid,
-    },
-    where: 'id = ?',
-    whereArgs: [id],
-  );
-
-  return id;
+    return db.insert(
+      'staff',
+      {
+        'name': name.trim(),
+        'mobile': mobile.trim(),
+        'active': 1,
+        'created_at':
+            DateTime.now().toIso8601String(),
+        'updated_at':
+            DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm:
+          ConflictAlgorithm.abort,
+    );
   }
 
   Future<int> setStaffActive(
@@ -959,7 +945,7 @@ class DatabaseHelper {
       whereArgs: [id],
     );
   }
-  
+
   // ============================================================
   // MONTHLY BILLING
   // ============================================================
@@ -1003,7 +989,7 @@ class DatabaseHelper {
         'bill_date': billDate,
         'amount': amount,
         'created_at':
-                        DateTime.now().toIso8601String(),
+                                DateTime.now().toIso8601String(),
         'updated_at':
             DateTime.now().toIso8601String(),
       },
@@ -1092,7 +1078,7 @@ class DatabaseHelper {
       [month],
     );
   }
-  
+
   Future<Map<String, dynamic>> summary(
     String month,
   ) async {
@@ -1130,7 +1116,7 @@ class DatabaseHelper {
         month,
       ],
     );
-
+    
     final row = result.first;
 
     final bill =
@@ -1193,7 +1179,7 @@ class DatabaseHelper {
         'Payment amount সঠিক নয়',
       );
     }
-    
+
     final paymentDate =
         data['payment_date']
                 ?.toString() ??
@@ -1235,7 +1221,7 @@ class DatabaseHelper {
               'Customer পাওয়া যায়নি',
             );
           }
-
+          
           final customerRow =
               customer.first;
 
@@ -1295,7 +1281,7 @@ class DatabaseHelper {
             );
           }
         }
-                
+        
         if (actualBillId != null) {
           final bill =
               await txn.query(
@@ -1343,7 +1329,7 @@ class DatabaseHelper {
             }
           }
         }
-
+        
         final receiptNo =
             _receiptNumber();
 
@@ -1442,7 +1428,7 @@ class DatabaseHelper {
       },
     );
   }
-  
+
   // নতুন named-parameter API।
   Future<int> addPaymentNew({
     required int customerId,
@@ -1467,7 +1453,7 @@ class DatabaseHelper {
           note,
     });
   }
-
+  
   Future<List<Map<String, dynamic>>>
       getPaymentHistory(
     int customerId, {
@@ -1678,8 +1664,8 @@ class DatabaseHelper {
 
     return result.first;
   }
-
-    // ============================================================
+  
+  // ============================================================
   // BACKUP / RESTORE
   // ============================================================
 
@@ -1950,7 +1936,7 @@ class DatabaseHelper {
         : (amount - paid).clamp(0, double.infinity).toDouble();
 
     return {
-      if (_intValue(row['id']) != null) 'id': _intValue(row['id']),
+            if (_intValue(row['id']) != null) 'id': _intValue(row['id']),
       'user_id': _stringValue(row['user_id'] ?? row['userId']),
       'name': _stringValue(row['name']),
       'mobile': _stringValue(row['mobile'] ?? row['phone']),
@@ -1973,7 +1959,7 @@ class DatabaseHelper {
       'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], now),
     };
   }
-      
+    
   Map<String, dynamic> _packageRow(
     Map<String, dynamic> row,
   ) {
@@ -2003,7 +1989,7 @@ class DatabaseHelper {
       'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], _stringValue(row['created_at'] ?? row['createdAt'], now)),
     };
   }
-
+  
   Map<String, dynamic> _billRow(
     Map<String, dynamic> row,
     int customerId,
@@ -2152,7 +2138,7 @@ Future<void> restoreJsonDatabase(
   _stringValue(row['created_at']),
 ),
           };
-
+          
           values.removeWhere(
             (key, value) => value == null,
           );
@@ -2165,7 +2151,7 @@ Future<void> restoreJsonDatabase(
           );
         }
       }
-      
+
       // =========================
       // PAYMENTS
       // =========================
