@@ -102,7 +102,7 @@ class FirebaseService {
       await _ensureBusinessDocument();
       final hasLocal = await _hasLocalCustomerData();
       if (!hasLocal) {
-        await restoreCloudData();
+        await syncNow();
       } else {
         await syncNow();
       }
