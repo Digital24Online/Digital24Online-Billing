@@ -5,49 +5,48 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-sdk: ">=3.0.0 <4.0.0"
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
-flutter:
-sdk: flutter
+  flutter:
+    sdk: flutter
 
-cupertino_icons: ^1.0.8
-crypto: ^3.0.6
-sqflite: ^2.4.1
-path: ^1.9.0
-pdf: ^3.11.3
-printing: ^5.14.2
-intl: ^0.20.2
-shared_preferences: ^2.5.3
-file_picker: ^8.1.7
+  cupertino_icons: ^1.0.8
+  crypto: ^3.0.6
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  pdf: ^3.11.3
+  printing: ^5.14.2
+  intl: ^0.20.2
+  shared_preferences: ^2.5.3
+  file_picker: ^8.1.7
 
-# Firebase
-
-firebase_core: ^4.13.0
-firebase_auth: ^6.6.0
-cloud_firestore: ^6.9.0
+  # Firebase
+  firebase_core: ^4.13.0
+  firebase_auth: ^6.6.0
+  cloud_firestore: ^6.9.0
 
 dev_dependencies:
-flutter_test:
-sdk: flutter
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
 
-flutter_lints: ^5.0.0
-flutter_launcher_icons: ^0.14.4
+flutter:
+  uses-material-design: true
 
-uses-material-design: true
+  assets:
+    - assets/logo.png
+    - assets/fonts/Lohit-Bengali.ttf
 
-assets:
-- assets/logo.png
-- assets/fonts/Lohit-Bengali.ttf
-
-fonts:
-- family: LohitBengali
-fonts:
-- asset: assets/fonts/Lohit-Bengali.ttf
+  fonts:
+    - family: LohitBengali
+      fonts:
+        - asset: assets/fonts/Lohit-Bengali.ttf
 
 flutter_launcher_icons:
-android: true
-ios: false
-image_path: assets/logo.png
-adaptive_icon_background: "#FFFFFF"
-adaptive_icon_foreground: assets/logo.png
+  android: true
+  ios: false
+  image_path: assets/logo.png
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/logo.png
