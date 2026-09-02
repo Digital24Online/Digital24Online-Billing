@@ -1,13 +1,9 @@
 import 'package:firebase_core/firebase_core.dart';
 
 /// Firebase configuration for Digital 24 Online Billing.
-///
-/// This configuration is for the registered Android app:
-/// com.digital24online
+/// Registered Android application: com.digital24online
 class DefaultFirebaseOptions {
-  static FirebaseOptions get currentPlatform {
-    return android;
-  }
+  static FirebaseOptions get currentPlatform => android;
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyAd_gZsvRaeOSfVWBpA8CSXEDySo93B-_g',
