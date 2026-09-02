@@ -334,47 +334,113 @@ class FirebaseService {
   // ---------------------------------------------------------------------------
 
   Future<void> _mergeStaff(Database db) async {
-    final local = await db.query('staff');
-    final cloud = await _readCollection('staff');
-    final byName = <String, Map<String, dynamic>>{
-      for (final r in cloud) _string(r['name']).trim(): r,
-    };
-    for (final row in local) {
-      final key = _string(row['name']).trim();
-      if (key.isEmpty) continue;
-      final remote = byName[key];
-      if (remote == null || _localIsNewer(row, remote)) {
-        await _setCloud('staff', _key(key), _staffToCloud(row));
-      }
+  final local = await db.query('staff');
+  final cloud = await _readCollection('staff');
+
+  final byUid = <String, Map<String, dynamic>>{};
+  final byName = <String, Map<String, dynamic>>{};
+
+  for (final r in cloud) {
+    final uid = _string(r['staff_uid']).trim();
+    final name = _string(r['name']).trim();
+
+    if (uid.isNotEmpty) {
+      byUid[uid] = r;
     }
-    for (final row in await _readCollection('staff')) {
-      final name = _string(row['name']).trim();
-      if (name.isEmpty) continue;
-      final values = {
-        'name': name,
-        'mobile': _string(row['mobile']),
-        'active': _int(row['active'], fallback: 1),
-        'created_at': _string(row['created_at']),
-        'updated_at': _string(row['updated_at']),
-      };
-      final found = await db.query('staff', where: 'name = ?', whereArgs: [name], limit: 1);
-      if (found.isEmpty) {
-        await db.insert('staff', values, conflictAlgorithm: ConflictAlgorithm.ignore);
-      } else {
-        await db.update('staff', values, where: 'id = ?', whereArgs: [found.first['id']]);
-      }
+
+    if (name.isNotEmpty) {
+      byName[name] = r;
     }
   }
 
-  Map<String, dynamic> _staffToCloud(Map<String, dynamic> r) => {
-        'name': _string(r['name']),
-        'mobile': _string(r['mobile']),
-        'active': _int(r['active'], fallback: 1),
-        'created_at': _string(r['created_at']),
-        'updated_at': _string(r['updated_at']),
-        'id_local': _int(r['id']),
-        'cloud_updated_at': FieldValue.serverTimestamp(),
-      };
+  for (final row in local) {
+    final uid = _string(row['staff_uid']).trim();
+    final name = _string(row['name']).trim();
+
+    if (uid.isEmpty || name.isEmpty) continue;
+
+    final remote = byUid[uid] ?? byName[name];
+
+    final documentId = remote == null
+        ? uid
+        : _string(remote['_doc_id']).trim().isNotEmpty
+            ? _string(remote['_doc_id']).trim()
+            : uid;
+
+    if (remote == null || _localIsNewer(row, remote)) {
+      await _setCloud(
+        'staff',
+        documentId,
+        _staffToCloud(row),
+      );
+    } else if (_string(remote['staff_uid']).trim().isEmpty) {
+      await _setCloud(
+        'staff',
+        documentId,
+        _staffToCloud(row),
+      );
+    }
+  }
+
+  for (final row in await _readCollection('staff')) {
+    final name = _string(row['name']).trim();
+
+    if (name.isEmpty) continue;
+
+    final uid = _string(row['staff_uid']).trim();
+
+    final values = {
+      'staff_uid': uid,
+      'name': name,
+      'mobile': _string(row['mobile']),
+      'active': _int(row['active'], fallback: 1),
+      'created_at': _string(row['created_at']),
+      'updated_at': _string(row['updated_at']),
+    };
+
+    final found = uid.isNotEmpty
+        ? await db.query(
+            'staff',
+            where: 'staff_uid = ?',
+            whereArgs: [uid],
+            limit: 1,
+          )
+        : await db.query(
+            'staff',
+            where: 'name = ?',
+            whereArgs: [name],
+            limit: 1,
+          );
+
+    if (found.isEmpty) {
+      await db.insert(
+        'staff',
+        values,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    } else {
+      await db.update(
+        'staff',
+        values,
+        where: 'id = ?',
+        whereArgs: [found.first['id']],
+      );
+    }
+  }
+}
+
+Map<String, dynamic> _staffToCloud(
+  Map<String, dynamic> r,
+) => {
+      'staff_uid': _string(r['staff_uid']),
+      'name': _string(r['name']),
+      'mobile': _string(r['mobile']),
+      'active': _int(r['active'], fallback: 1),
+      'created_at': _string(r['created_at']),
+      'updated_at': _string(r['updated_at']),
+      'id_local': _int(r['id']),
+      'cloud_updated_at': FieldValue.serverTimestamp(),
+    };
 
   // ---------------------------------------------------------------------------
   // BILLS
