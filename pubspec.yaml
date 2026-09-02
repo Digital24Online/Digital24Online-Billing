@@ -20,25 +20,22 @@ dependencies:
   intl: ^0.20.2
   shared_preferences: ^2.5.3
   file_picker: ^8.1.7
-
-  # Firebase
-  firebase_core: ^4.13.0
-  firebase_auth: ^6.6.0
-  cloud_firestore: ^6.9.0
+  firebase_core: ^4.5.0
+  firebase_auth: ^6.0.2
+  cloud_firestore: ^6.0.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
-
   assets:
     - assets/logo.png
     - assets/fonts/Lohit-Bengali.ttf
-
   fonts:
     - family: LohitBengali
       fonts:
@@ -50,3 +47,4 @@ flutter_launcher_icons:
   image_path: assets/logo.png
   adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: assets/logo.png
+  
