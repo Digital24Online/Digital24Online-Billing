@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'master_report_center.dart';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -10,7 +11,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_core/firebase_core.dart' as firebase_core;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'firebase_options.dart';
@@ -29,10 +30,10 @@ Future<void> main() async {
 
   bool firebaseReady = false;
   try {
-    if (Firebase.apps.isEmpty) {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
+    if (firebase_core.Firebase.apps.isEmpty) {
+  await firebase_core.Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
     }
     firebaseReady = true;
   } catch (_) {
