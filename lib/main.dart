@@ -16,6 +16,7 @@ import 'master_report_center.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'firebase_auth_screen.dart';
+import 'firebase_service.dart';
 
 const _brandBlue = Color(0xFF0867C8);
 const _brandCyan = Color(0xFF11A8C7);
@@ -42,9 +43,9 @@ class Digital24OnlineBilling extends StatefulWidget {
 
 class _AppState extends State<Digital24OnlineBilling> {
   bool locked = false;
-  bool ready = false;
-  bool english = false;
-
+bool ready = false;
+bool english = false;
+bool authenticated = false;
   @override
   void initState() {
     super.initState();
@@ -52,13 +53,16 @@ class _AppState extends State<Digital24OnlineBilling> {
   }
 
   Future<void> _loadSettings() async {
-    final p = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() {
-      locked = p.getBool('app_lock_enabled') ?? false;
-      english = p.getBool('english_language') ?? false;
-      ready = true;
-    });
+  final p = await SharedPreferences.getInstance();
+
+  if (!mounted) return;
+
+  setState(() {
+    locked = p.getBool('app_lock_enabled') ?? false;
+    english = p.getBool('english_language') ?? false;
+    authenticated = FirebaseService.instance.isSignedIn;
+    ready = true;
+  });
   }
 
   void unlock() => setState(() => locked = false);
@@ -110,16 +114,20 @@ class _AppState extends State<Digital24OnlineBilling> {
           ),
         ),
       ),
-      home: locked
-          ? LockScreen(onUnlocked: unlock)
-          : BillingHomePage(
-              english: english,
-              onLanguageChanged: (v) => setState(() => english = v),
-            ),
-    );
-  }
-}
-
+      home: !authenticated
+    ? FirebaseAuthScreen(
+        onAuthenticated: () {
+          setState(() {
+            authenticated = true;
+          });
+        },
+      )
+    : locked
+        ? LockScreen(onUnlocked: unlock)
+        : BillingHomePage(
+            english: english,
+            onLanguageChanged: (v) => setState(() => english = v),
+          ),
 class LockScreen extends StatefulWidget {
   final VoidCallback onUnlocked;
   const LockScreen({super.key, required this.onUnlocked});
