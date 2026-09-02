@@ -789,13 +789,21 @@ class DatabaseHelper {
     );
   }
 
+  /// Safe customer removal for cloud-sync mode.
+  ///
+  /// Keep the row and mark it closed so cloud synchronization can propagate
+  /// the same state to every device without losing billing history.
   Future<int> deleteCustomer(
     int id,
   ) async {
     final db = await database;
-
-    return db.delete(
+    return db.update(
       'customers',
+      {
+        'active': 0,
+        'status': 0,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -845,7 +853,7 @@ class DatabaseHelper {
     );
   }
 
-  Future<int> updatePackage(
+    Future<int> updatePackage(
     int id,
     String name,
     String speed,
@@ -860,7 +868,7 @@ class DatabaseHelper {
         'speed': speed.trim(),
         'price': price,
         'updated_at': DateTime.now().toIso8601String(),
-         },
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -937,7 +945,7 @@ class DatabaseHelper {
       whereArgs: [id],
     );
   }
-
+  
   // ============================================================
   // MONTHLY BILLING
   // ============================================================
@@ -972,7 +980,7 @@ class DatabaseHelper {
       return (existing.first['id'] as num)
           .toInt();
     }
-    
+
     return db.insert(
       'bills',
       {
@@ -1391,7 +1399,7 @@ class DatabaseHelper {
                           as num?)
                       ?.toDouble() ??
                   0;
-          
+
           final due =
               totalAmount -
                   totalPaid;
@@ -1420,7 +1428,7 @@ class DatabaseHelper {
       },
     );
   }
-
+  
   // নতুন named-parameter API।
   Future<int> addPaymentNew({
     required int customerId,
@@ -1492,7 +1500,7 @@ class DatabaseHelper {
       args,
     );
   }
-    
+  
   Future<List<Map<String, dynamic>>>
       getPaymentsByDate(
     String date,
@@ -1551,7 +1559,7 @@ class DatabaseHelper {
       ''',
       [date],
     );
-
+    
     return result.first;
   }
 
@@ -1609,7 +1617,7 @@ class DatabaseHelper {
       args,
     );
   }
-    
+  
   // ============================================================
   // RECEIPT LOOKUP
   // ============================================================
@@ -1657,7 +1665,7 @@ class DatabaseHelper {
     return result.first;
   }
 
-  // ============================================================
+    // ============================================================
   // BACKUP / RESTORE
   // ============================================================
 
@@ -1710,7 +1718,7 @@ class DatabaseHelper {
         WHERE type = 'table'
           AND name IN ('customers', 'packages', 'bills', 'staff', 'payments')
       ''');
-      
+
       final names = rows
           .map((e) => e['name']?.toString())
           .whereType<String>()
@@ -1753,7 +1761,7 @@ class DatabaseHelper {
           await sidecar.delete();
         }
       }
-
+      
       bytes = await source.readAsBytes();
     } finally {
       await database;
@@ -1819,7 +1827,7 @@ class DatabaseHelper {
     if (await currentFile.exists()) {
       await currentFile.copy(safetyPath);
     }
-    
+
     await closeDatabase();
 
     for (final suffix in [
@@ -1857,7 +1865,7 @@ class DatabaseHelper {
         'Restore যাচাই করা যায়নি। আগের Database ফিরিয়ে দেওয়া হয়েছে।',
       );
     }
-
+    
     final safetyFile = File(safetyPath);
 
     if (await safetyFile.exists()) {
@@ -1922,7 +1930,7 @@ class DatabaseHelper {
     final amount = _doubleValue(
       row['amount'] ?? row['bill_amount'] ?? row['total_amount'],
     );
-        final paid = _doubleValue(row['paid_amount'] ?? row['paid']);
+    final paid = _doubleValue(row['paid_amount'] ?? row['paid']);
     final due = row['due_amount'] != null
         ? _doubleValue(row['due_amount'])
         : (amount - paid).clamp(0, double.infinity).toDouble();
@@ -1951,7 +1959,7 @@ class DatabaseHelper {
       'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], now),
     };
   }
-    
+      
   Map<String, dynamic> _packageRow(
     Map<String, dynamic> row,
   ) {
@@ -2001,7 +2009,7 @@ class DatabaseHelper {
       'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], _stringValue(row['created_at'] ?? row['createdAt'], now)),
     };
   }
-    
+  
   Map<String, dynamic> _paymentRow(
     Map<String, dynamic> row,
     int customerId,
@@ -2032,7 +2040,7 @@ class DatabaseHelper {
       'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], _stringValue(row['created_at'] ?? row['createdAt'], now)),
     };
   }
-
+  
   // ============================================================
   // UTILITIES
   // ============================================================
@@ -2105,7 +2113,7 @@ Future<void> restoreJsonDatabase(
 
         for (final row in customers) {
           final values = <String, dynamic>{
-                        'id': _intValue(row['id']),
+            'id': _intValue(row['id']),
             'serial_no': row['serial_no'],
             'user_id': _stringValue(row['user_id']),
             'name': _stringValue(row['name']),
@@ -2143,7 +2151,7 @@ Future<void> restoreJsonDatabase(
           );
         }
       }
-
+      
       // =========================
       // PAYMENTS
       // =========================
@@ -2190,7 +2198,7 @@ Future<void> restoreJsonDatabase(
     );
   }
 }
-  
+
   Future<void> closeDatabase() async {
     final db = _db;
 
