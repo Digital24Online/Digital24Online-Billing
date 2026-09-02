@@ -21,7 +21,7 @@ intl: ^0.20.2
 shared_preferences: ^2.5.3
 file_picker: ^8.1.7
 
-Firebase
+# Firebase
 
 firebase_core: ^4.13.0
 firebase_auth: ^6.6.0
