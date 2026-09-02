@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:sqflite/sqflite.dart';
@@ -9,11 +11,31 @@ import 'database_helper.dart';
 /// SQLite remains the working offline database. Firebase/Firestore is the
 /// cloud master used for multi-device sync and reinstall recovery.
 class FirebaseService {
-  FirebaseService._();
+  FirebaseService._() {
+    _authSubscription = _auth.authStateChanges().listen((user) {
+      if (user == null) {
+        _stopAutoSync();
+      } else {
+        _startAutoSync();
+        Future<void>.delayed(const Duration(seconds: 3), () async {
+          if (isSignedIn) {
+            try {
+              await syncNow();
+            } catch (_) {}
+          }
+        });
+      }
+    });
+  }
+
   static final FirebaseService instance = FirebaseService._();
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  Future<void>? _syncInProgress;
+  Timer? _autoSyncTimer;
+  StreamSubscription<User?>? _authSubscription;
 
   User? get currentUser => _auth.currentUser;
   bool get isSignedIn => _auth.currentUser != null;
@@ -64,7 +86,27 @@ class FirebaseService {
     return result;
   }
 
-  Future<void> signOut() => _auth.signOut();
+  Future<void> signOut() async {
+    _stopAutoSync();
+    await _auth.signOut();
+  }
+
+  void _startAutoSync() {
+    if (_autoSyncTimer != null) return;
+    _autoSyncTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
+      if (!isSignedIn) return;
+      try {
+        await syncNow();
+      } catch (_) {
+        // Offline/unavailable cloud: keep local SQLite working and retry later.
+      }
+    });
+  }
+
+  void _stopAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
+  }
 
   Future<void> sendPasswordResetEmail(String email) =>
       _auth.sendPasswordResetEmail(email: email.trim());
@@ -112,12 +154,27 @@ class FirebaseService {
   }
 
   Future<void> syncNow() async {
+    final running = _syncInProgress;
+    if (running != null) return running;
+    final future = _syncNowInternal();
+    _syncInProgress = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_syncInProgress, future)) {
+        _syncInProgress = null;
+      }
+    }
+  }
+
+  Future<void> _syncNowInternal() async {
     if (!isSignedIn) throw StateError('Please sign in first.');
     await _ensureBusinessDocument();
     final db = await DatabaseHelper.instance.database;
 
-    // Merge is intentionally done in both directions. A reinstall/new device
-    // can restore first; an existing device can keep its offline changes.
+    // Merge is intentionally done in both directions. Firestore reads use its
+    // normal cache/server behavior, while writes are queued by Firestore when
+    // the device is temporarily offline.
     await _mergeCustomers(db);
     await _mergePackages(db);
     await _mergeStaff(db);
@@ -438,6 +495,13 @@ class FirebaseService {
       final found = await db.query('payments', where: 'receipt_no = ?', whereArgs: [receipt], limit: 1);
       if (found.isEmpty) {
         await db.insert('payments', values, conflictAlgorithm: ConflictAlgorithm.ignore);
+      } else if (_remoteIsNewer(found.first, row)) {
+        await db.update(
+          'payments',
+          values,
+          where: 'id = ?',
+          whereArgs: [found.first['id']],
+        );
       }
     }
   }
@@ -496,7 +560,7 @@ class FirebaseService {
     if (customer.isEmpty) return null;
     return db.insert('bills', {
       'customer_id': customerId,
-      'billing_month': month,
+            'billing_month': month,
       'bill_date': _int(customer.first['bill_date'], fallback: 7),
       'amount': _double(customer.first['amount']),
       'created_at': DateTime.now().toIso8601String(),
@@ -537,14 +601,14 @@ class FirebaseService {
           await db.update(
             'customers',
             {'package_id': packageId},
-                        where: 'id = ?',
+            where: 'id = ?',
             whereArgs: [id],
           );
         }
       }
     }
   }
-
+  
   // ---------------------------------------------------------------------------
   // TOTALS / FIRESTORE HELPERS
   // ---------------------------------------------------------------------------
@@ -591,10 +655,10 @@ class FirebaseService {
   }
 
   Future<List<Map<String, dynamic>>> _readCollection(String name) async {
-    final snap = await _collection(name).get(const GetOptions(source: Source.server));
+    final snap = await _collection(name).get();
     return snap.docs.map((d) => {'_doc_id': d.id, ...d.data()}).toList();
   }
-
+  
   Future<void> _setCloud(
     String collection,
     String documentId,
@@ -603,14 +667,33 @@ class FirebaseService {
     await _collection(collection).doc(_key(documentId)).set(data, SetOptions(merge: true));
   }
 
+  bool _remoteIsNewer(Map<String, dynamic> local, Map<String, dynamic> remote) {
+    final localDate = _localTimestamp(local);
+    final remoteDate = _remoteTimestamp(remote);
+    return remoteDate.isAfter(localDate);
+  }
+
   bool _localIsNewer(Map<String, dynamic> local, Map<String, dynamic> remote) {
-    final localDate = DateTime.tryParse(_string(local['updated_at'])) ??
-        DateTime.tryParse(_string(local['created_at'])) ??
-        DateTime.fromMillisecondsSinceEpoch(0);
-    final remoteDate = DateTime.tryParse(_string(remote['updated_at'])) ??
-        DateTime.tryParse(_string(remote['created_at'])) ??
-        DateTime.fromMillisecondsSinceEpoch(0);
+    final localDate = _localTimestamp(local);
+    final remoteDate = _remoteTimestamp(remote);
     return localDate.isAfter(remoteDate);
+  }
+
+  DateTime _localTimestamp(Map<String, dynamic> row) {
+    return DateTime.tryParse(_string(row['updated_at'])) ??
+        DateTime.tryParse(_string(row['created_at'])) ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  DateTime _remoteTimestamp(Map<String, dynamic> row) {
+    final serverValue = row['cloud_updated_at'];
+    final serverDate = serverValue is Timestamp
+        ? serverValue.toDate()
+        : DateTime.tryParse(_string(serverValue));
+    return serverDate ??
+        DateTime.tryParse(_string(row['updated_at'])) ??
+        DateTime.tryParse(_string(row['created_at'])) ??
+        DateTime.fromMillisecondsSinceEpoch(0);
   }
 
   String _key(String value) {
