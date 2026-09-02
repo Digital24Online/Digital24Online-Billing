@@ -60,7 +60,7 @@ bool authenticated = false;
   setState(() {
     locked = p.getBool('app_lock_enabled') ?? false;
     english = p.getBool('english_language') ?? false;
-    authenticated = FirebaseService.instance.isSignedIn;
+    authenticated = cloud_service.FirebaseService.instance.isSignedIn;
     ready = true;
   });
   }
