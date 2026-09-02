@@ -26,7 +26,7 @@ class DatabaseHelper {
 
     return openDatabase(
       dbPath,
-      version: 3,
+      version: 4,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -41,9 +41,10 @@ class DatabaseHelper {
 
   Future<void> _create(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE customers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL UNIQUE,
+      CREATE TABLE staff (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  staff_uid TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         mobile TEXT NOT NULL DEFAULT '',
         address TEXT NOT NULL DEFAULT '',
@@ -198,34 +199,35 @@ class DatabaseHelper {
       await _seedDefaultPackages(db);
     }
 
-    if (oldVersion < 3) {
-      await _addColumnIfMissing(
-        db, 'packages', 'updated_at TEXT NOT NULL DEFAULT ""',
-      );
-      await _addColumnIfMissing(
-        db, 'bills', 'updated_at TEXT NOT NULL DEFAULT ""',
-      );
-      await _addColumnIfMissing(
-        db, 'staff', 'updated_at TEXT NOT NULL DEFAULT ""',
-      );
-      await _addColumnIfMissing(
-        db, 'payments', 'updated_at TEXT NOT NULL DEFAULT ""',
-      );
+    if (oldVersion < 4) {
+  await _addColumnIfMissing(
+    db,
+    'staff',
+    'staff_uid TEXT NOT NULL DEFAULT ""',
+  );
 
-      await db.execute(
-        'UPDATE packages SET updated_at = created_at WHERE updated_at = ""',
-      );
-      await db.execute(
-        'UPDATE bills SET updated_at = created_at WHERE updated_at = ""',
-      );
-      await db.execute(
-        'UPDATE staff SET updated_at = created_at WHERE updated_at = ""',
-      );
-      await db.execute(
-        'UPDATE payments SET updated_at = created_at WHERE updated_at = ""',
-      );
-    }
+  final staffRows = await db.query(
+    'staff',
+    columns: ['id', 'created_at', 'staff_uid'],
+  );
+
+  for (final row in staffRows) {
+    final current = (row['staff_uid'] ?? '').toString().trim();
+    if (current.isNotEmpty) continue;
+
+    final id = row['id'];
+    final created = (row['created_at'] ?? '').toString();
+
+    await db.update(
+      'staff',
+      {
+        'staff_uid': 'staff_${id}_${created.hashCode.abs()}',
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
+    }
 
   Future<bool> _tableExists(
     Database db,
@@ -908,25 +910,37 @@ class DatabaseHelper {
   }
 
   Future<int> addStaff(
-    String name,
-    String mobile,
-  ) async {
-    final db = await database;
+  String name,
+  String mobile,
+) async {
+  final db = await database;
 
-    return db.insert(
-      'staff',
-      {
-        'name': name.trim(),
-        'mobile': mobile.trim(),
-        'active': 1,
-        'created_at':
-            DateTime.now().toIso8601String(),
-        'updated_at':
-            DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm:
-          ConflictAlgorithm.abort,
-    );
+  final id = await db.insert(
+    'staff',
+    {
+      'name': name.trim(),
+      'mobile': mobile.trim(),
+      'active': 1,
+      'staff_uid': '',
+      'created_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    },
+    conflictAlgorithm: ConflictAlgorithm.abort,
+  );
+
+  final staffUid =
+      'staff_${id}_${DateTime.now().microsecondsSinceEpoch}';
+
+  await db.update(
+    'staff',
+    {
+      'staff_uid': staffUid,
+    },
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+
+  return id;
   }
 
   Future<int> setStaffActive(
