@@ -15,6 +15,7 @@ import 'database_helper.dart';
 import 'master_report_center.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'firebase_auth_screen.dart';
 
 const _brandBlue = Color(0xFF0867C8);
 const _brandCyan = Color(0xFF11A8C7);
