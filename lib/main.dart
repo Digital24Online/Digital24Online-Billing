@@ -114,23 +114,27 @@ bool authenticated = false;
           ),
         ),
       ),
-      home: !authenticated
-    ? FirebaseAuthScreen(
-        onAuthenticated: () async {
-  await FirebaseService.instance.restoreAfterLogin();
+            home: !authenticated
+          ? FirebaseAuthScreen(
+              onAuthenticated: () async {
+                await cloud_service.FirebaseService.instance.restoreAfterLogin();
 
-  if (!mounted) return;
+                if (!mounted) return;
 
-  setState(() {
-    authenticated = true;
-  });
-},
-    : locked
-        ? LockScreen(onUnlocked: unlock)
-        : BillingHomePage(
-            english: english,
-            onLanguageChanged: (v) => setState(() => english = v),
-          ),
+                setState(() {
+                  authenticated = true;
+                });
+              },
+            )
+          : locked
+              ? LockScreen(onUnlocked: unlock)
+              : BillingHomePage(
+                  english: english,
+                  onLanguageChanged: (v) => setState(() => english = v),
+                ),
+    );
+  }
+}
 class LockScreen extends StatefulWidget {
   final VoidCallback onUnlocked;
   const LockScreen({super.key, required this.onUnlocked});
