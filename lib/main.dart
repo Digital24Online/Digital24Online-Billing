@@ -1034,7 +1034,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
 
-    amount.dispose();
+        amount.dispose();
     note.dispose();
   } catch (e) {
     msg(
@@ -1043,6 +1043,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
         'Unable to open payment: ',
       )}$e',
     );
+  }
   }
   
   Future<void> showPaymentHistory(Customer c) async {
