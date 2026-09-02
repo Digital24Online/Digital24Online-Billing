@@ -26,7 +26,7 @@ class DatabaseHelper {
 
     return openDatabase(
       dbPath,
-      version: 2,
+      version: 3,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -72,7 +72,8 @@ class DatabaseHelper {
         speed TEXT NOT NULL DEFAULT '',
         price REAL NOT NULL DEFAULT 0,
         active INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )
     ''');
 
@@ -84,6 +85,7 @@ class DatabaseHelper {
         bill_date INTEGER NOT NULL DEFAULT 7,
         amount REAL NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
 
         UNIQUE(customer_id, billing_month),
 
@@ -99,7 +101,8 @@ class DatabaseHelper {
         name TEXT NOT NULL UNIQUE,
         mobile TEXT NOT NULL DEFAULT '',
         active INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )
     ''');
 
@@ -115,6 +118,7 @@ class DatabaseHelper {
         staff_id INTEGER,
         note TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
 
         FOREIGN KEY(customer_id)
           REFERENCES customers(id)
@@ -170,7 +174,9 @@ class DatabaseHelper {
     for (final p in defaults) {
       await db.insert(
         'packages',
-        {...p, 'active': 1, 'created_at': DateTime.now().toIso8601String()},
+        {...p, 'active': 1,
+          'created_at': DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toIso8601String()},
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
     }
@@ -190,6 +196,34 @@ class DatabaseHelper {
       await _createNewTablesIfMissing(db);
       await _createIndexes(db);
       await _seedDefaultPackages(db);
+    }
+
+    if (oldVersion < 3) {
+      await _addColumnIfMissing(
+        db, 'packages', 'updated_at TEXT NOT NULL DEFAULT ""',
+      );
+      await _addColumnIfMissing(
+        db, 'bills', 'updated_at TEXT NOT NULL DEFAULT ""',
+      );
+      await _addColumnIfMissing(
+        db, 'staff', 'updated_at TEXT NOT NULL DEFAULT ""',
+      );
+      await _addColumnIfMissing(
+        db, 'payments', 'updated_at TEXT NOT NULL DEFAULT ""',
+      );
+
+      await db.execute(
+        'UPDATE packages SET updated_at = created_at WHERE updated_at = ""',
+      );
+      await db.execute(
+        'UPDATE bills SET updated_at = created_at WHERE updated_at = ""',
+      );
+      await db.execute(
+        'UPDATE staff SET updated_at = created_at WHERE updated_at = ""',
+      );
+      await db.execute(
+        'UPDATE payments SET updated_at = created_at WHERE updated_at = ""',
+      );
     }
   }
 
@@ -391,7 +425,8 @@ class DatabaseHelper {
           speed TEXT NOT NULL DEFAULT '',
           price REAL NOT NULL DEFAULT 0,
           active INTEGER NOT NULL DEFAULT 1,
-          created_at TEXT NOT NULL
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
         )
       ''');
     }
@@ -405,6 +440,7 @@ class DatabaseHelper {
           bill_date INTEGER NOT NULL DEFAULT 7,
           amount REAL NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
           UNIQUE(customer_id, billing_month),
           FOREIGN KEY(customer_id)
             REFERENCES customers(id)
@@ -420,7 +456,8 @@ class DatabaseHelper {
           name TEXT NOT NULL UNIQUE,
           mobile TEXT NOT NULL DEFAULT '',
           active INTEGER NOT NULL DEFAULT 1,
-          created_at TEXT NOT NULL
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
         )
       ''');
     }
@@ -438,6 +475,7 @@ class DatabaseHelper {
           staff_id INTEGER,
           note TEXT NOT NULL DEFAULT '',
           created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
 
           FOREIGN KEY(customer_id)
             REFERENCES customers(id)
@@ -706,7 +744,10 @@ class DatabaseHelper {
 
       await db.update(
         'bills',
-        {'amount': amount},
+        {
+          'amount': amount,
+          'updated_at': DateTime.now().toIso8601String(),
+        },
         where:
             'customer_id = ? AND billing_month = ?',
         whereArgs: [
@@ -796,6 +837,8 @@ class DatabaseHelper {
         'active': 1,
         'created_at':
             DateTime.now().toIso8601String(),
+        'updated_at':
+            DateTime.now().toIso8601String(),
       },
       conflictAlgorithm:
           ConflictAlgorithm.abort,
@@ -816,7 +859,8 @@ class DatabaseHelper {
         'name': name.trim(),
         'speed': speed.trim(),
         'price': price,
-      },
+        'updated_at': DateTime.now().toIso8601String(),
+         },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -830,7 +874,10 @@ class DatabaseHelper {
 
     return db.update(
       'packages',
-      {'active': active ? 1 : 0},
+      {
+        'active': active ? 1 : 0,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -866,6 +913,8 @@ class DatabaseHelper {
         'active': 1,
         'created_at':
             DateTime.now().toIso8601String(),
+        'updated_at':
+            DateTime.now().toIso8601String(),
       },
       conflictAlgorithm:
           ConflictAlgorithm.abort,
@@ -880,7 +929,10 @@ class DatabaseHelper {
 
     return db.update(
       'staff',
-      {'active': active ? 1 : 0},
+      {
+        'active': active ? 1 : 0,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -920,7 +972,7 @@ class DatabaseHelper {
       return (existing.first['id'] as num)
           .toInt();
     }
-
+    
     return db.insert(
       'bills',
       {
@@ -930,6 +982,8 @@ class DatabaseHelper {
         'amount': amount,
         'created_at':
                         DateTime.now().toIso8601String(),
+        'updated_at':
+            DateTime.now().toIso8601String(),
       },
     );
   }
@@ -1016,7 +1070,7 @@ class DatabaseHelper {
       [month],
     );
   }
-
+  
   Future<Map<String, dynamic>> summary(
     String month,
   ) async {
@@ -1117,7 +1171,7 @@ class DatabaseHelper {
         'Payment amount সঠিক নয়',
       );
     }
-
+    
     final paymentDate =
         data['payment_date']
                 ?.toString() ??
@@ -1212,11 +1266,14 @@ class DatabaseHelper {
                 'created_at':
                     DateTime.now()
                         .toIso8601String(),
+                'updated_at':
+                    DateTime.now()
+                        .toIso8601String(),
               },
             );
           }
         }
-        
+                
         if (actualBillId != null) {
           final bill =
               await txn.query(
@@ -1291,6 +1348,9 @@ class DatabaseHelper {
             'created_at':
                 DateTime.now()
                     .toIso8601String(),
+            'updated_at':
+                DateTime.now()
+                    .toIso8601String(),
           },
         );
 
@@ -1331,7 +1391,7 @@ class DatabaseHelper {
                           as num?)
                       ?.toDouble() ??
                   0;
-
+          
           final due =
               totalAmount -
                   totalPaid;
@@ -1432,7 +1492,7 @@ class DatabaseHelper {
       args,
     );
   }
-  
+    
   Future<List<Map<String, dynamic>>>
       getPaymentsByDate(
     String date,
@@ -1549,7 +1609,7 @@ class DatabaseHelper {
       args,
     );
   }
-  
+    
   // ============================================================
   // RECEIPT LOOKUP
   // ============================================================
@@ -1650,7 +1710,7 @@ class DatabaseHelper {
         WHERE type = 'table'
           AND name IN ('customers', 'packages', 'bills', 'staff', 'payments')
       ''');
-
+      
       final names = rows
           .map((e) => e['name']?.toString())
           .whereType<String>()
@@ -1742,20 +1802,12 @@ class DatabaseHelper {
     '_before_restore_${DateTime.now().millisecondsSinceEpoch}.db',
   );
 
-  bool restoreCompleted = false;
-
   try {
-    // ----------------------------------------------------------
-    // 1. Backup file temporary database হিসেবে তৈরি
-    // ----------------------------------------------------------
     await File(temporaryPath).writeAsBytes(
       bytes,
       flush: true,
     );
 
-    // ----------------------------------------------------------
-    // 2. Backup database বৈধ কিনা আগে যাচাই
-    // ----------------------------------------------------------
     if (!await _hasRequiredTables(temporaryPath)) {
       throw Exception(
         'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
@@ -1764,39 +1816,12 @@ class DatabaseHelper {
 
     final currentFile = File(currentDbPath);
 
-    // ----------------------------------------------------------
-    // 3. বর্তমান Database-এর নিরাপদ কপি রাখা
-    // ----------------------------------------------------------
     if (await currentFile.exists()) {
       await currentFile.copy(safetyPath);
     }
+    
+    await closeDatabase();
 
-    // ----------------------------------------------------------
-    // 4. বর্তমান Database connection সম্পূর্ণ বন্ধ
-    // ----------------------------------------------------------
-    final oldDb = _db;
-
-    if (oldDb != null) {
-      try {
-        await oldDb.rawQuery(
-          'PRAGMA wal_checkpoint(TRUNCATE)',
-        );
-      } catch (_) {
-        // Checkpoint ব্যর্থ হলেও database close করার চেষ্টা হবে
-      }
-
-      try {
-        await oldDb.close();
-      } catch (_) {
-        // ইতিমধ্যে closed থাকলেও সমস্যা হবে না
-      }
-
-      _db = null;
-    }
-
-    // ----------------------------------------------------------
-    // 5. পুরোনো Database-এর sidecar files সরানো
-    // ----------------------------------------------------------
     for (final suffix in [
       '-wal',
       '-shm',
@@ -1805,110 +1830,48 @@ class DatabaseHelper {
       final sidecar = File('$currentDbPath$suffix');
 
       if (await sidecar.exists()) {
-        try {
-          await sidecar.delete();
-        } catch (_) {
-          // Sidecar delete না হলেও পরের ধাপ চলবে
-        }
+        await sidecar.delete();
       }
     }
 
-    // ----------------------------------------------------------
-    // 6. নতুন Backup Database মূল Database হিসেবে বসানো
-    // ----------------------------------------------------------
-    await File(temporaryPath).copy(
-      currentDbPath,
-    );
+    await File(temporaryPath).copy(currentDbPath);
 
-    // ----------------------------------------------------------
-    // 7. পুরোনো/বন্ধ Database object ব্যবহার না করে
-    //    সম্পূর্ণ নতুন Database connection খোলা
-    // ----------------------------------------------------------
-    final restoredDb = await _open();
+    await database;
 
-    _db = restoredDb;
-
-    // ----------------------------------------------------------
-    // 8. নতুন Database connection সত্যিই কাজ করছে কিনা যাচাই
-    // ----------------------------------------------------------
-    try {
-      await restoredDb.rawQuery(
-        'SELECT name FROM sqlite_master '
-        'WHERE type = "table" LIMIT 1',
-      );
-    } catch (e) {
-      try {
-        await restoredDb.close();
-      } catch (_) {}
-
-      _db = null;
-
-      throw Exception(
-        'Restore-এর পরে Database চালু করা যায়নি: $e',
-      );
-    }
-
-    // ----------------------------------------------------------
-    // 9. Required tables আবার যাচাই
-    // ----------------------------------------------------------
     final valid = await _hasRequiredTables(
       currentDbPath,
     );
 
     if (!valid) {
-      // নতুন Database বন্ধ
-      try {
-        await _db?.close();
-      } catch (_) {}
+      await closeDatabase();
 
-      _db = null;
-
-      // আগের নিরাপদ Database ফিরিয়ে দেওয়া
       final safetyFile = File(safetyPath);
 
       if (await safetyFile.exists()) {
-        await safetyFile.copy(
-          currentDbPath,
-        );
-
-        // Safety database দিয়ে আবার নতুন connection
-        final recoveredDb = await _open();
-
-        _db = recoveredDb;
+        await safetyFile.copy(currentDbPath);
       }
 
+      await database;
+
       throw Exception(
-        'Restore যাচাই করা যায়নি। আগের Database নিরাপদভাবে ফিরিয়ে দেওয়া হয়েছে।',
+        'Restore যাচাই করা যায়নি। আগের Database ফিরিয়ে দেওয়া হয়েছে।',
       );
     }
 
-    // ----------------------------------------------------------
-    // 10. Restore সফল
-    // ----------------------------------------------------------
-    restoreCompleted = true;
+    final safetyFile = File(safetyPath);
+
+    if (await safetyFile.exists()) {
+      await safetyFile.delete();
+    }
   } finally {
-    // Temporary restore file মুছে ফেলা
     final tempFile = File(temporaryPath);
 
     if (await tempFile.exists()) {
-      try {
-        await tempFile.delete();
-      } catch (_) {}
-    }
-
-    // Restore সফল হলে safety copy মুছে ফেলা
-    // Restore ব্যর্থ হলে safety copy রাখা হবে
-    if (restoreCompleted) {
-      final safetyFile = File(safetyPath);
-
-      if (await safetyFile.exists()) {
-        try {
-          await safetyFile.delete();
-        } catch (_) {}
-      }
+      await tempFile.delete();
     }
   }
   }
+
   List<Map<String, dynamic>> _restoreList(dynamic value) {
     if (value is! List) return <Map<String, dynamic>>[];
 
@@ -1959,7 +1922,7 @@ class DatabaseHelper {
     final amount = _doubleValue(
       row['amount'] ?? row['bill_amount'] ?? row['total_amount'],
     );
-    final paid = _doubleValue(row['paid_amount'] ?? row['paid']);
+        final paid = _doubleValue(row['paid_amount'] ?? row['paid']);
     final due = row['due_amount'] != null
         ? _doubleValue(row['due_amount'])
         : (amount - paid).clamp(0, double.infinity).toDouble();
@@ -2015,6 +1978,7 @@ class DatabaseHelper {
       'mobile': _stringValue(row['mobile'] ?? row['phone']),
       'active': _boolInt(row['active'], 1),
       'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
+      'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], _stringValue(row['created_at'] ?? row['createdAt'], now)),
     };
   }
 
@@ -2034,9 +1998,10 @@ class DatabaseHelper {
       'bill_date': _intValue(row['bill_date'] ?? row['billDate']) ?? 7,
       'amount': _doubleValue(row['amount']),
       'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
+      'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], _stringValue(row['created_at'] ?? row['createdAt'], now)),
     };
   }
-  
+    
   Map<String, dynamic> _paymentRow(
     Map<String, dynamic> row,
     int customerId,
@@ -2064,6 +2029,7 @@ class DatabaseHelper {
       'staff_id': staffId,
       'note': _stringValue(row['note']),
       'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
+      'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], _stringValue(row['created_at'] ?? row['createdAt'], now)),
     };
   }
 
@@ -2139,7 +2105,7 @@ Future<void> restoreJsonDatabase(
 
         for (final row in customers) {
           final values = <String, dynamic>{
-            'id': _intValue(row['id']),
+                        'id': _intValue(row['id']),
             'serial_no': row['serial_no'],
             'user_id': _stringValue(row['user_id']),
             'name': _stringValue(row['name']),
@@ -2187,6 +2153,7 @@ Future<void> restoreJsonDatabase(
         for (final row in payments) {
           final values =
               Map<String, dynamic>.from(row);
+          values['updated_at'] ??= values['created_at'] ?? DateTime.now().toIso8601String();
 
           await txn.insert(
             'payments',
@@ -2206,6 +2173,7 @@ Future<void> restoreJsonDatabase(
         for (final row in bills) {
           final values =
               Map<String, dynamic>.from(row);
+          values['updated_at'] ??= values['created_at'] ?? DateTime.now().toIso8601String();
 
           await txn.insert(
             'bills',
@@ -2222,7 +2190,7 @@ Future<void> restoreJsonDatabase(
     );
   }
 }
-
+  
   Future<void> closeDatabase() async {
     final db = _db;
 
