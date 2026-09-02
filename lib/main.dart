@@ -116,12 +116,15 @@ bool authenticated = false;
       ),
       home: !authenticated
     ? FirebaseAuthScreen(
-        onAuthenticated: () {
-          setState(() {
-            authenticated = true;
-          });
-        },
-      )
+        onAuthenticated: () async {
+  await FirebaseService.instance.restoreAfterLogin();
+
+  if (!mounted) return;
+
+  setState(() {
+    authenticated = true;
+  });
+},
     : locked
         ? LockScreen(onUnlocked: unlock)
         : BillingHomePage(
