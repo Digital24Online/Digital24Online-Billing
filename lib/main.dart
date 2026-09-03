@@ -526,6 +526,10 @@ class _BillingHomePageState extends State<BillingHomePage> {
   String searchText = '';
   bool loading = true;
 
+  List<Map<String, dynamic>> billings = [];
+int selectedBillingId = 1;
+bool billingLoading = false;
+
   String t(String bn, String en) => widget.english ? en : bn;
   String today() => DateFormat('yyyy-MM-dd').format(DateTime.now());
   String monthKey() => DateFormat('yyyy-MM').format(DateTime.now());
