@@ -48,14 +48,12 @@ jobs:
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
-          # Kotlin Gradle plugin
           text = re.sub(
               r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"',
               'id("org.jetbrains.kotlin.android") version "2.3.21"',
               text
           )
 
-          # Google Services Gradle plugin
           if 'id("com.google.gms.google-services") version "4.5.0" apply false' not in text:
               text = text.replace(
                   'plugins {',
@@ -68,7 +66,6 @@ jobs:
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          # Correct Firebase Android package name.
           text = re.sub(
               r'namespace\s*=\s*"[^"]+"',
               'namespace = "com.digital24online"',
@@ -83,14 +80,11 @@ jobs:
               count=1
           )
 
-          # Java 11 -> Java 17.
-          # Java and Kotlin must use the same JVM target.
           text = text.replace(
               'JavaVersion.VERSION_11',
               'JavaVersion.VERSION_17'
           )
 
-          # Remove old Kotlin jvmTarget syntax.
           text = re.sub(
               r'\s*kotlinOptions\s*\{.*?\}',
               '',
@@ -98,7 +92,6 @@ jobs:
               flags=re.DOTALL
           )
 
-          # Configure Kotlin JVM toolchain to Java 17.
           if 'jvmToolchain(17)' not in text:
               text = text.replace(
                   'android {',
@@ -106,7 +99,6 @@ jobs:
                   1
               )
 
-          # Apply Google Services plugin.
           if 'id("com.google.gms.google-services")' not in text:
               text = text.replace(
                   'plugins {',
@@ -179,7 +171,7 @@ jobs:
           p.write_text(text)
           PY
 
-            - name: Build APK
+      - name: Build APK
         working-directory: build_app
         run: flutter build apk --debug
 
@@ -187,4 +179,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Digital24Online-APK
-                    path: build_app/build/app/outputs/flutter-apk/app-debug.apk
+          path: build_app/build/app/outputs/flutter-apk/app-debug.apk
