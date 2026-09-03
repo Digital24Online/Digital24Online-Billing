@@ -134,16 +134,6 @@ jobs:
         working-directory: build_app
         run: dart run flutter_launcher_icons
 
-            - name: Build APK
-        working-directory: build_app
-        run: flutter build apk --debug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Digital24Online-APK
-          path: build_app/build/app/outputs/flutter-apk/app-debug.apk
-
       - name: Build APK
         working-directory: build_app
         run: flutter build apk --debug
