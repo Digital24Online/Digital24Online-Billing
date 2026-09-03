@@ -25,7 +25,7 @@ const _brandPurple = Color(0xFF6D3FD3);
 const _brandPink = Color(0xFFE91E63);
 const _pageBg = Color(0xFFF4F7FB);
 
-Future<void> main() {
+void main() {
   runApp(
     const MaterialApp(
       debugShowCheckedModeBanner: false,
