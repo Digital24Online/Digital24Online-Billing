@@ -68,13 +68,25 @@ class _AppState extends State<Digital24OnlineBilling> {
   }
 
   Future<void> _loadSettings() async {
+  try {
     final p = await SharedPreferences.getInstance();
+
     if (!mounted) return;
+
     setState(() {
       locked = p.getBool('app_lock_enabled') ?? false;
       english = p.getBool('english_language') ?? false;
       ready = true;
     });
+  } catch (_) {
+    if (!mounted) return;
+
+    setState(() {
+      locked = false;
+      english = false;
+      ready = true;
+    });
+  }
   }
 
   void unlock() => setState(() => locked = false);
