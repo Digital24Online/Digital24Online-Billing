@@ -1,0 +1,33 @@
+name: Test Flutter APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create empty Flutter app
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=testflutter \
+            --org=com.testflutter \
+            test_app
+
+      - name: Build Debug APK
+        working-directory: test_app
+        run: flutter build apk --debug
+
+      - name: Upload Test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Test-Flutter-APK
+          path: test_app/build/app/outputs/flutter-apk/app-debug.apk
