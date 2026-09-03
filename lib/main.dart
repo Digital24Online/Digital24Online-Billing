@@ -25,13 +25,18 @@ const _brandPurple = Color(0xFF6D3FD3);
 const _brandPink = Color(0xFFE91E63);
 const _pageBg = Color(0xFFF4F7FB);
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Diagnostic: Firebase ছাড়া প্রথমে অ্যাপ চালু করা হচ্ছে।
+Future<void> main() {
   runApp(
-    const Digital24OnlineBilling(
-      firebaseReady: false,
+    const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: Center(
+          child: Text(
+            'Digital 24 Online Billing',
+            style: TextStyle(fontSize: 22),
+          ),
+        ),
+      ),
     ),
   );
 }
