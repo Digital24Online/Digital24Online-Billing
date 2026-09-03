@@ -217,6 +217,7 @@ class FirebaseService {
     await _ensureBusinessDocument();
     final db = await DatabaseHelper.instance.database;
 
+    await _mergeBillings(db);
     await _mergeCustomers(db);
     await _mergePackages(db);
     await _mergeStaff(db);
@@ -316,11 +317,16 @@ class FirebaseService {
   // ---------------------------------------------------------------------------
 
   Future<void> _pullCloudToLocal(Database db) async {
+    final billings = await _readCollection('billings');
     final customers = await _readCollection('customers');
     final packages = await _readCollection('packages');
     final staff = await _readCollection('staff');
     final bills = await _readCollection('bills');
     final payments = await _readCollection('payments');
+
+    for (final row in billings) {
+      await _upsertBilling(db, row);
+    }
 
     for (final row in packages) {
       await _upsertPackage(db, row);
@@ -344,6 +350,59 @@ class FirebaseService {
   }
 
   // ---------------------------------------------------------------------------
+  // BILLING WORKSPACES
+  // ---------------------------------------------------------------------------
+
+  Future<void> _mergeBillings(Database db) async {
+    final local = await db.query('billings');
+    final cloud = await _readCollection('billings');
+    final byId = <int, Map<String, dynamic>>{};
+    for (final row in cloud) {
+      final id = _int(row['billing_id']);
+      if (id > 0) byId[id] = row;
+    }
+    for (final row in local) {
+      final id = _int(row['id']);
+      if (id <= 0) continue;
+      final remote = byId[id];
+      if (remote == null || _localIsNewer(row, remote)) {
+        await _setCloud('billings', '$id', _billingToCloud(row));
+      }
+    }
+    final merged = await _readCollection('billings');
+    for (final row in merged) {
+      await _upsertBilling(db, row);
+    }
+  }
+
+  Map<String, dynamic> _billingToCloud(Map<String, dynamic> r) => {
+    'billing_id': _int(r['id']),
+    'name': _string(r['name']),
+    'active': _int(r['active'], fallback: 1),
+    'created_at': _string(r['created_at']),
+    'updated_at': _string(r['updated_at']),
+    'cloud_updated_at': FieldValue.serverTimestamp(),
+  };
+
+  Future<void> _upsertBilling(Database db, Map<String, dynamic> r) async {
+    final id = _int(r['billing_id']);
+    final name = _string(r['name']).trim();
+    if (id <= 0 || name.isEmpty) return;
+    final values = {
+      'name': name,
+      'active': _int(r['active'], fallback: 1),
+      'created_at': _string(r['created_at']),
+      'updated_at': _string(r['updated_at']),
+    };
+    final found = await db.query('billings', where: 'id = ?', whereArgs: [id], limit: 1);
+    if (found.isEmpty) {
+      await db.insert('billings', {'id': id, ...values}, conflictAlgorithm: ConflictAlgorithm.ignore);
+    } else if (_remoteIsNewer(found.first, r)) {
+      await db.update('billings', values, where: 'id = ?', whereArgs: [id]);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // CUSTOMERS
   // ---------------------------------------------------------------------------
 
@@ -353,17 +412,18 @@ class FirebaseService {
 
     final cloudByKey = <String, Map<String, dynamic>>{};
     for (final row in cloud) {
-      final key = _string(row['user_id']).trim();
-      if (key.isNotEmpty) cloudByKey[key] = row;
+      final key = '${_int(row['billing_id'])}__${_string(row['user_id']).trim()}';
+      if (key != '0__' && key.endsWith('__') == false) cloudByKey[key] = row;
     }
 
     for (final row in local) {
-      final key = _string(row['user_id']).trim();
-      if (key.isEmpty) continue;
+      final userId = _string(row['user_id']).trim();
+      if (userId.isEmpty) continue;
+      final key = '${_int(row['billing_id'])}__$userId';
 
       final remote = cloudByKey[key];
       if (remote == null || _localIsNewer(row, remote)) {
-        await _setCloud('customers', key, _customerToCloud(row));
+        await _setCloud('customers', _key(key), _customerToCloud(row));
       }
     }
 
@@ -374,6 +434,7 @@ class FirebaseService {
   }
 
   Map<String, dynamic> _customerToCloud(Map<String, dynamic> r) => {
+        'billing_id': _int(r['billing_id'], fallback: 1),
         'user_id': _string(r['user_id']),
         'name': _string(r['name']),
         'mobile': _string(r['mobile']),
@@ -401,6 +462,7 @@ class FirebaseService {
     if (userId.isEmpty) return;
 
     final values = {
+      'billing_id': _int(r['billing_id'], fallback: 1),
       'user_id': userId,
       'name': _string(r['name']),
       'mobile': _string(r['mobile']),
@@ -420,8 +482,8 @@ class FirebaseService {
 
     final found = await db.query(
       'customers',
-      where: 'user_id = ?',
-      whereArgs: [userId],
+      where: 'billing_id = ? AND user_id = ?',
+      whereArgs: [_int(r['billing_id'], fallback: 1), userId],
       limit: 1,
     );
 
@@ -594,7 +656,7 @@ class FirebaseService {
     );
 
     if (found.isEmpty) {
-      await db.insert(
+       await db.insert(
         'staff',
         values,
         conflictAlgorithm: ConflictAlgorithm.ignore,
@@ -631,11 +693,13 @@ class FirebaseService {
 
       if (customerUserId.isEmpty || month.isEmpty) continue;
 
-      final key = '${customerUserId}__$month';
+      final billingId = _int(row['billing_id'], fallback: 1);
+      final key = '${billingId}__${customerUserId}__$month';
       Map<String, dynamic>? remote;
 
       for (final item in cloud) {
-        if (_string(item['customer_user_id']).trim() == customerUserId &&
+        if (_int(item['billing_id'], fallback: 1) == billingId &&
+            _string(item['customer_user_id']).trim() == customerUserId &&
             _string(item['billing_month']).trim() == month) {
           remote = item;
           break;
@@ -673,16 +737,16 @@ class FirebaseService {
 
       if (customerUserId.isEmpty || month.isEmpty) continue;
 
-      final billKey = _key('${customerUserId}__$month');
-            final balanceRef = _collection('bill_balances').doc(billKey);
+      final billKey = _key('${_int(bill['billing_id'], fallback: 1)}__${customerUserId}__$month');
+      final balanceRef = _collection('bill_balances').doc(billKey);
       final existing = await balanceRef.get();
-
+      
       if (existing.exists) continue;
 
       double paidTotal = 0;
       for (final payment in payments) {
-        if (_string(payment['customer_user_id']).trim() ==
-                customerUserId &&
+        if (_int(payment['billing_id'], fallback: 1) == _int(bill['billing_id'], fallback: 1) &&
+            _string(payment['customer_user_id']).trim() == customerUserId &&
             _string(payment['billing_month']).trim() == month) {
           paidTotal += _double(payment['amount']);
         }
@@ -714,6 +778,7 @@ class FirebaseService {
     String customerUserId,
   ) =>
       {
+        'billing_id': _int(r['billing_id'], fallback: 1),
         'customer_user_id': customerUserId,
         'billing_month': _string(r['billing_month']),
         'bill_date': _int(r['bill_date'], fallback: 7),
@@ -728,6 +793,7 @@ class FirebaseService {
     Database db,
     Map<String, dynamic> r,
   ) async {
+    final billingId = _int(r['billing_id'], fallback: 1);
     final userId = _string(r['customer_user_id']).trim();
     final month = _string(r['billing_month']).trim();
 
@@ -735,8 +801,8 @@ class FirebaseService {
 
     final customers = await db.query(
       'customers',
-      where: 'user_id = ?',
-      whereArgs: [userId],
+      where: 'billing_id = ? AND user_id = ?',
+      whereArgs: [billingId, userId],
       limit: 1,
     );
     if (customers.isEmpty) return;
@@ -744,6 +810,7 @@ class FirebaseService {
     final customerId = _int(customers.first['id']);
 
     final values = {
+      'billing_id': billingId,
       'customer_id': customerId,
       'billing_month': month,
       'bill_date': _int(r['bill_date'], fallback: 7),
@@ -751,11 +818,11 @@ class FirebaseService {
       'created_at': _string(r['created_at']),
       'updated_at': _string(r['updated_at']),
     };
-    
+
     final found = await db.query(
       'bills',
-      where: 'customer_id = ? AND billing_month = ?',
-      whereArgs: [customerId, month],
+      where: 'billing_id = ? AND customer_id = ? AND billing_month = ?',
+      whereArgs: [_int(payment['billing_id'], fallback: 1), customerId, month],
       limit: 1,
     );
 
@@ -774,7 +841,7 @@ class FirebaseService {
       );
     }
   }
-
+  
   // ---------------------------------------------------------------------------
   // PAYMENTS
   // ---------------------------------------------------------------------------
@@ -831,7 +898,7 @@ class FirebaseService {
       await _upsertPayment(db, row);
     }
   }
-  
+
   Future<bool> _tryUploadPaymentAtomically(
     Database db,
     Map<String, dynamic> row,
@@ -843,7 +910,7 @@ class FirebaseService {
     final month = await _paymentBillingMonth(db, row);
     if (month.isEmpty) return false;
 
-    final billKey = _key('${customerUserId}__$month');
+    final billKey = _key('${_int(row['billing_id'], fallback: 1)}__${customerUserId}__$month');
     final billRef = _collection('bills').doc(billKey);
     final balanceRef = _collection('bill_balances').doc(billKey);
     final paymentRef = _collection('payments').doc(_key(receipt));
@@ -852,7 +919,7 @@ class FirebaseService {
     if (amount <= 0) return false;
 
     try {
-      await _firestore.runTransaction<void>((transaction) async {
+            await _firestore.runTransaction<void>((transaction) async {
         final billSnapshot = await transaction.get(billRef);
         final balanceSnapshot = await transaction.get(balanceRef);
         final paymentSnapshot = await transaction.get(paymentRef);
@@ -916,7 +983,7 @@ class FirebaseService {
       return false;
     }
   }
-  
+
   Future<String> _paymentBillingMonth(
     Database db,
     Map<String, dynamic> payment,
@@ -971,6 +1038,7 @@ class FirebaseService {
 
     return {
       'receipt_no': _string(r['receipt_no']),
+      'billing_id': _int(r['billing_id'], fallback: 1),
       'customer_user_id': customerUserId,
       'billing_month': billingMonth,
       'amount': _double(r['amount']),
@@ -989,14 +1057,15 @@ class FirebaseService {
     Map<String, dynamic> r,
   ) async {
     final receipt = _string(r['receipt_no']).trim();
+    final billingId = _int(r['billing_id'], fallback: 1);
     final userId = _string(r['customer_user_id']).trim();
 
     if (receipt.isEmpty || userId.isEmpty) return;
 
     final customers = await db.query(
       'customers',
-      where: 'user_id = ?',
-      whereArgs: [userId],
+      where: 'billing_id = ? AND user_id = ?',
+      whereArgs: [billingId, userId],
       limit: 1,
     );
     if (customers.isEmpty) return;
@@ -1015,6 +1084,7 @@ class FirebaseService {
     );
     
     final values = {
+      'billing_id': billingId,
       'customer_id': customerId,
       'bill_id': billId,
       'user_id': userId,
@@ -1080,6 +1150,7 @@ class FirebaseService {
     return db.insert(
       'bills',
       {
+        'billing_id': _int(payment['billing_id'], fallback: 1),
         'customer_id': customerId,
         'billing_month': month,
         'bill_date': _int(customer.first['bill_date'], fallback: 7),
@@ -1104,7 +1175,7 @@ class FirebaseService {
 
     return rows.isEmpty ? null : _int(rows.first['id']);
   }
-
+  
   // ---------------------------------------------------------------------------
   // RELATIONS / TOTALS
   // ---------------------------------------------------------------------------
@@ -1114,7 +1185,7 @@ class FirebaseService {
       'customers',
       columns: ['id', 'package_id', 'package_name'],
     );
-    
+
     for (final row in customers) {
       final id = _int(row['id']);
       final packageName = _string(row['package_name']).trim();
@@ -1157,7 +1228,7 @@ class FirebaseService {
 
     for (final customer in customers) {
       final id = _int(customer['id']);
-      
+
       final bill = await db.rawQuery(
         'SELECT COALESCE(SUM(amount),0) AS total '
         'FROM bills WHERE customer_id = ?',
@@ -1196,7 +1267,7 @@ class FirebaseService {
       );
     }
   }
-
+  
   Future<void> _pushRecalculatedCustomers(Database db) async {
     final rows = await db.query('customers');
 
@@ -1206,7 +1277,7 @@ class FirebaseService {
 
       await _setCloud(
         'customers',
-        userId,
+        _key('${_int(row['billing_id'], fallback: 1)}__$userId'),
         _customerToCloud(row),
       );
     }
@@ -1246,7 +1317,7 @@ class FirebaseService {
         )
         .toList();
   }
-  
+
   Future<void> _setCloud(
     String collection,
     String documentId,
@@ -1288,7 +1359,7 @@ class FirebaseService {
         DateTime.tryParse(_string(row['created_at'])) ??
         DateTime.fromMillisecondsSinceEpoch(0);
   }
-
+  
   String _key(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return 'empty';
