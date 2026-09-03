@@ -822,7 +822,7 @@ class FirebaseService {
     final found = await db.query(
       'bills',
       where: 'billing_id = ? AND customer_id = ? AND billing_month = ?',
-      whereArgs: [_int(payment['billing_id'], fallback: 1), customerId, month],
+      whereArgs: [billingId, customerId, month],
       limit: 1,
     );
 
