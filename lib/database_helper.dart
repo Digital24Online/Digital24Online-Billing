@@ -26,7 +26,7 @@ class DatabaseHelper {
 
     return openDatabase(
       dbPath,
-      version: 3,
+      version: 4,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -41,8 +41,19 @@ class DatabaseHelper {
 
   Future<void> _create(Database db, int version) async {
     await db.execute('''
+      CREATE TABLE billings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
       CREATE TABLE customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        billing_id INTEGER NOT NULL DEFAULT 1,
         user_id TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         mobile TEXT NOT NULL DEFAULT '',
@@ -80,6 +91,7 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE bills (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        billing_id INTEGER NOT NULL DEFAULT 1,
         customer_id INTEGER NOT NULL,
         billing_month TEXT NOT NULL,
         bill_date INTEGER NOT NULL DEFAULT 7,
@@ -109,6 +121,7 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        billing_id INTEGER NOT NULL DEFAULT 1,
         customer_id INTEGER NOT NULL,
         bill_id INTEGER,
         user_id TEXT NOT NULL DEFAULT '',
@@ -159,6 +172,7 @@ class DatabaseHelper {
       'ON bills(customer_id)',
     );
 
+    await _seedDefaultBillings(db);
     await _seedDefaultPackages(db);
   }
 
@@ -224,6 +238,26 @@ class DatabaseHelper {
       await db.execute(
         'UPDATE payments SET updated_at = created_at WHERE updated_at = ""',
       );
+    }
+
+    if (oldVersion < 4) {
+      await db.execute('''CREATE TABLE IF NOT EXISTS billings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )''');
+      await _seedDefaultBillings(db);
+      await _addColumnIfMissing(db, 'customers', 'billing_id INTEGER NOT NULL DEFAULT 1');
+      await _addColumnIfMissing(db, 'bills', 'billing_id INTEGER NOT NULL DEFAULT 1');
+      await _addColumnIfMissing(db, 'payments', 'billing_id INTEGER NOT NULL DEFAULT 1');
+      await db.execute('UPDATE customers SET billing_id = 1 WHERE billing_id IS NULL OR billing_id = 0');
+      await db.execute('UPDATE bills SET billing_id = 1 WHERE billing_id IS NULL OR billing_id = 0');
+      await db.execute('UPDATE payments SET billing_id = 1 WHERE billing_id IS NULL OR billing_id = 0');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_customers_billing ON customers(billing_id)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_bills_billing ON bills(billing_id)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_payments_billing ON payments(billing_id)');
     }
   }
 
@@ -521,6 +555,56 @@ class DatabaseHelper {
   }
 
   // ============================================================
+  // BILLING WORKSPACES
+  // ============================================================
+
+  int _activeBillingId = 1;
+
+  Future<void> _seedDefaultBillings(Database db) async {
+    final now = DateTime.now().toIso8601String();
+    for (final name in ['Billing 1', 'Billing 2']) {
+      await db.insert('billings', {
+        'name': name, 'active': 1, 'created_at': now, 'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getBillings() async {
+    final db = await database;
+    final rows = await db.query('billings', where: 'active = 1', orderBy: 'id ASC');
+    if (rows.isEmpty) {
+      await _seedDefaultBillings(db);
+      return db.query('billings', where: 'active = 1', orderBy: 'id ASC');
+    }
+    return rows;
+  }
+
+  int get activeBillingId => _activeBillingId;
+
+  Future<void> setActiveBilling(int id) async {
+    final rows = await getBillings();
+    if (!rows.any((r) => (r['id'] as num).toInt() == id)) {
+      throw StateError('Billing not found');
+    }
+    _activeBillingId = id;
+  }
+
+  Future<int> addBilling(String name) async {
+    final n = name.trim();
+    if (n.isEmpty) throw ArgumentError('Billing name is required');
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    return db.insert('billings', {'name': n, 'active': 1, 'created_at': now, 'updated_at': now}, conflictAlgorithm: ConflictAlgorithm.abort);
+  }
+
+  Future<int> updateBilling(int id, String name) async {
+    final n = name.trim();
+    if (n.isEmpty) throw ArgumentError('Billing name is required');
+    final db = await database;
+    return db.update('billings', {'name': n, 'updated_at': DateTime.now().toIso8601String()}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ============================================================
   // CUSTOMERS
   // ============================================================
 
@@ -531,7 +615,8 @@ class DatabaseHelper {
     final db = await database;
 
     final where = <String>[];
-    final args = <dynamic>[];
+    final args = <dynamic>[_activeBillingId];
+    where.add('c.billing_id = ?');
 
     if (billDate != null) {
       where.add('c.bill_date = ?');
@@ -619,8 +704,8 @@ class DatabaseHelper {
 
     final result = await db.query(
       'customers',
-      where: 'user_id = ?',
-      whereArgs: [userId.trim()],
+      where: 'billing_id = ? AND user_id = ?',
+      whereArgs: [_activeBillingId, userId.trim()],
       limit: 1,
     );
 
@@ -652,6 +737,7 @@ class DatabaseHelper {
                 ?.toDouble() ??
             0;
 
+    values['billing_id'] = _activeBillingId;
     values['amount'] = bill;
     values['total_amount'] =
         (values['total_amount'] as num?)
@@ -677,7 +763,7 @@ class DatabaseHelper {
         values['active'] ?? 1;
 
     values['address'] =
-        values['address']?.toString() ?? '';
+                values['address']?.toString() ?? '';
 
     values['package_id'] =
         values['package_id'];
@@ -730,8 +816,8 @@ class DatabaseHelper {
     final result = await db.update(
       'customers',
       values,
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND billing_id = ?',
+      whereArgs: [id, _activeBillingId],
     );
 
     // Customer-এর bill amount পরিবর্তন হলে
@@ -749,14 +835,15 @@ class DatabaseHelper {
           'updated_at': DateTime.now().toIso8601String(),
         },
         where:
-            'customer_id = ? AND billing_month = ?',
+            'customer_id = ? AND billing_month = ? AND billing_id = ?',
         whereArgs: [
           id,
           _currentMonth(),
+          _activeBillingId,
         ],
       );
     }
-
+    
     return result;
   }
 
@@ -774,8 +861,8 @@ class DatabaseHelper {
         'updated_at':
             DateTime.now().toIso8601String(),
       },
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND billing_id = ?',
+      whereArgs: [id, _activeBillingId],
     );
   }
 
@@ -804,8 +891,8 @@ class DatabaseHelper {
         'status': 0,
         'updated_at': DateTime.now().toIso8601String(),
       },
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND billing_id = ?',
+      whereArgs: [id, _activeBillingId],
     );
   }
 
@@ -852,7 +939,7 @@ class DatabaseHelper {
           ConflictAlgorithm.abort,
     );
   }
-
+  
     Future<int> updatePackage(
     int id,
     String name,
@@ -945,7 +1032,7 @@ class DatabaseHelper {
       whereArgs: [id],
     );
   }
-
+  
   // ============================================================
   // MONTHLY BILLING
   // ============================================================
@@ -968,8 +1055,9 @@ class DatabaseHelper {
     final existing = await db.query(
       'bills',
       where:
-          'customer_id = ? AND billing_month = ?',
+          'billing_id = ? AND customer_id = ? AND billing_month = ?',
       whereArgs: [
+        _activeBillingId,
         customerId,
         month,
       ],
@@ -984,6 +1072,7 @@ class DatabaseHelper {
     return db.insert(
       'bills',
       {
+        'billing_id': _activeBillingId,
         'customer_id': customerId,
         'billing_month': month,
         'bill_date': billDate,
@@ -1024,14 +1113,14 @@ class DatabaseHelper {
       JOIN customers c
         ON c.id = b.customer_id
 
-      WHERE b.billing_month = ?
+      WHERE b.billing_id = ? AND b.billing_month = ?
 
       ORDER BY c.user_id COLLATE NOCASE
       ''',
-      [month],
+      [_activeBillingId, month],
     );
-  }
-
+    }
+  
   Future<List<Map<String, dynamic>>>
       getDueReport(
     String month,
@@ -1061,7 +1150,7 @@ class DatabaseHelper {
       JOIN customers c
         ON c.id = b.customer_id
 
-      WHERE b.billing_month = ?
+      WHERE b.billing_id = ? AND b.billing_month = ?
 
       AND b.amount >
         COALESCE(
@@ -1075,7 +1164,7 @@ class DatabaseHelper {
 
       ORDER BY c.user_id COLLATE NOCASE
       ''',
-      [month],
+      [_activeBillingId, month],
     );
   }
 
@@ -1102,17 +1191,19 @@ class DatabaseHelper {
           JOIN bills b
             ON b.id = p.bill_id
 
-          WHERE b.billing_month = ?
+          WHERE b.billing_id = ? AND b.billing_month = ?
         ) AS paid,
 
         COUNT(*) AS bills
 
       FROM bills
 
-      WHERE billing_month = ?
+      WHERE billing_id = ? AND billing_month = ?
       ''',
       [
+        _activeBillingId,
         month,
+        _activeBillingId,
         month,
       ],
     );
@@ -1135,7 +1226,7 @@ class DatabaseHelper {
           .clamp(0, double.infinity),
     };
   }
-
+  
   // ============================================================
   // PAYMENTS
   // ============================================================
@@ -1211,8 +1302,8 @@ class DatabaseHelper {
           final customer =
               await txn.query(
             'customers',
-            where: 'id = ?',
-            whereArgs: [customerId],
+            where: 'id = ? AND billing_id = ?',
+            whereArgs: [customerId, _activeBillingId],
             limit: 1,
           );
 
@@ -1246,14 +1337,15 @@ class DatabaseHelper {
               await txn.query(
             'bills',
             where:
-                'customer_id = ? AND billing_month = ?',
+                'billing_id = ? AND customer_id = ? AND billing_month = ?',
             whereArgs: [
+              _activeBillingId,
               customerId,
               month,
             ],
             limit: 1,
           );
-
+          
           if (existing.isNotEmpty) {
             actualBillId =
                 (existing.first['id'] as num)
@@ -1263,6 +1355,8 @@ class DatabaseHelper {
                 await txn.insert(
               'bills',
               {
+                'billing_id':
+                    _activeBillingId,
                 'customer_id':
                     customerId,
                 'billing_month':
@@ -1337,6 +1431,8 @@ class DatabaseHelper {
             await txn.insert(
           'payments',
           {
+            'billing_id':
+                _activeBillingId,
             'customer_id':
                 customerId,
             'bill_id':
@@ -1361,7 +1457,7 @@ class DatabaseHelper {
                     .toIso8601String(),
           },
         );
-
+        
         // Legacy customer fields update।
         final paidResult =
             await txn.rawQuery(
@@ -1462,9 +1558,10 @@ class DatabaseHelper {
     final db = await database;
 
     final args = <dynamic>[
+      _activeBillingId,
       customerId,
     ];
-
+    
     var billCondition = '';
 
     if (billId != null) {
@@ -1489,7 +1586,7 @@ class DatabaseHelper {
       LEFT JOIN bills b
         ON b.id = p.bill_id
         
-      WHERE p.customer_id = ?
+      WHERE p.billing_id = ? AND p.customer_id = ?
 
       $billCondition
 
@@ -1524,14 +1621,14 @@ class DatabaseHelper {
       LEFT JOIN staff s
         ON s.id = p.staff_id
 
-      WHERE date(p.payment_date)
-        = date(?)
+      WHERE p.billing_id = ?
+        AND date(p.payment_date) = date(?)
 
       ORDER BY
         p.payment_date DESC,
         p.id DESC
       ''',
-      [date],
+      [_activeBillingId, date],
     );
   }
 
@@ -1554,10 +1651,10 @@ class DatabaseHelper {
 
       FROM payments
 
-      WHERE date(payment_date)
-        = date(?)
+      WHERE billing_id = ?
+        AND date(payment_date) = date(?)
       ''',
-      [date],
+      [_activeBillingId, date],
     );
     
     return result.first;
@@ -1572,10 +1669,11 @@ class DatabaseHelper {
     final db = await database;
 
     final args = <dynamic>[
+      _activeBillingId,
       from,
       to,
     ];
-
+    
     var staffCondition = '';
 
     if (staffId != null) {
@@ -1605,8 +1703,8 @@ class DatabaseHelper {
       LEFT JOIN bills b
         ON b.id = p.bill_id
 
-      WHERE date(p.payment_date)
-        BETWEEN date(?) AND date(?)
+      WHERE p.billing_id = ?
+        AND date(p.payment_date) BETWEEN date(?) AND date(?)
 
       $staffCondition
 
@@ -1651,11 +1749,11 @@ class DatabaseHelper {
       LEFT JOIN bills b
         ON b.id = p.bill_id
 
-      WHERE p.receipt_no = ?
+      WHERE p.billing_id = ? AND p.receipt_no = ?
 
       LIMIT 1
       ''',
-      [receiptNo],
+      [_activeBillingId, receiptNo],
     );
 
     if (result.isEmpty) {
@@ -1664,7 +1762,7 @@ class DatabaseHelper {
 
     return result.first;
   }
-  
+    
   // ============================================================
   // BACKUP / RESTORE
   // ============================================================
@@ -1712,33 +1810,55 @@ class DatabaseHelper {
         readOnly: true,
       );
 
-      final rows = await testDb.rawQuery('''
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table'
-          AND name IN ('customers', 'packages', 'bills', 'staff', 'payments')
-      ''');
+      const required = <String, List<String>>{
+        'customers': [
+          'id', 'user_id', 'name', 'mobile', 'address', 'package_id',
+          'package_name', 'bill_date', 'amount', 'total_amount',
+          'paid_amount', 'due_amount', 'payment_date', 'status', 'active',
+          'created_at', 'updated_at',
+        ],
+        'packages': [
+          'id', 'name', 'speed', 'price', 'active', 'created_at', 'updated_at',
+        ],
+        'bills': [
+          'id', 'customer_id', 'billing_month', 'bill_date', 'amount',
+          'created_at', 'updated_at',
+        ],
+        'staff': [
+          'id', 'name', 'mobile', 'active', 'created_at', 'updated_at',
+        ],
+        'payments': [
+          'id', 'customer_id', 'bill_id', 'user_id', 'amount',
+          'payment_date', 'receipt_no', 'staff_id', 'note',
+          'created_at', 'updated_at',
+        ],
+      };
 
-      final names = rows
-          .map((e) => e['name']?.toString())
-          .whereType<String>()
-          .toSet();
+      for (final entry in required.entries) {
+        final rows = await testDb.rawQuery(
+          'PRAGMA table_info(${entry.key})',
+        );
 
-      return {
-        'customers',
-        'packages',
-        'bills',
-        'staff',
-        'payments',
-      }.every(names.contains);
+        final columns = rows
+            .map((row) => row['name']?.toString())
+            .whereType<String>()
+            .toSet();
+
+        if (!entry.value.every(columns.contains)) {
+          return false;
+        }
+      }
+      
+      return true;
     } catch (_) {
       return false;
     } finally {
       await testDb?.close();
     }
   }
-  
-  Future<void> exportBackupToFile() async {
+
+
+Future<void> exportBackupToFile() async {
     final dbPath = join(
       await getDatabasesPath(),
       'digital24_billing.db',
@@ -1791,93 +1911,99 @@ class DatabaseHelper {
   }
 
   Future<void> restoreDatabase(Uint8List bytes) async {
-  if (bytes.isEmpty) {
-    throw Exception('Backup Database ফাইলটি খালি।');
-  }
+    if (bytes.isEmpty) {
+      throw Exception('Backup Database ফাইলটি খালি।');
+    }
 
-  final currentDbPath = join(
-    await getDatabasesPath(),
-    'digital24_billing.db',
-  );
-
-  final temporaryPath = join(
-    await getDatabasesPath(),
-    '_restore_${DateTime.now().millisecondsSinceEpoch}.db',
-  );
-
-  final safetyPath = join(
-    await getDatabasesPath(),
-    '_before_restore_${DateTime.now().millisecondsSinceEpoch}.db',
-  );
-
-  try {
-    await File(temporaryPath).writeAsBytes(
-      bytes,
-      flush: true,
+    final currentDbPath = join(
+      await getDatabasesPath(),
+      'digital24_billing.db',
     );
 
-    if (!await _hasRequiredTables(temporaryPath)) {
-      throw Exception(
-        'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
-      );
-    }
+    final temporaryPath = join(
+      await getDatabasesPath(),
+      '_restore_${DateTime.now().millisecondsSinceEpoch}.db',
+    );
 
-    final currentFile = File(currentDbPath);
+    final safetyPath = join(
+      await getDatabasesPath(),
+      '_before_restore_${DateTime.now().millisecondsSinceEpoch}.db',
+    );
 
-    if (await currentFile.exists()) {
-      await currentFile.copy(safetyPath);
-    }
+    bool safetyCreated = false;
 
-    await closeDatabase();
+    try {
+      await File(temporaryPath).writeAsBytes(bytes, flush: true);
 
-    for (final suffix in [
-      '-wal',
-      '-shm',
-      '-journal',
-    ]) {
-      final sidecar = File('$currentDbPath$suffix');
-
-      if (await sidecar.exists()) {
-        await sidecar.delete();
+      if (!await _hasRequiredTables(temporaryPath)) {
+        throw Exception(
+          'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
+        );
       }
-    }
+      
+      final currentFile = File(currentDbPath);
+      if (await currentFile.exists()) {
+        await currentFile.copy(safetyPath);
+        safetyCreated = true;
+      }
 
-    await File(temporaryPath).copy(currentDbPath);
-
-    await database;
-
-    final valid = await _hasRequiredTables(
-      currentDbPath,
-    );
-
-    if (!valid) {
       await closeDatabase();
 
-      final safetyFile = File(safetyPath);
-
-      if (await safetyFile.exists()) {
-        await safetyFile.copy(currentDbPath);
+      for (final suffix in ['-wal', '-shm', '-journal']) {
+        final sidecar = File('$currentDbPath$suffix');
+        if (await sidecar.exists()) {
+          await sidecar.delete();
+        }
       }
 
+      await File(temporaryPath).copy(currentDbPath);
+
+      // Opening the restored file also verifies that SQLite can use it.
       await database;
 
-      throw Exception(
-        'Restore যাচাই করা যায়নি। আগের Database ফিরিয়ে দেওয়া হয়েছে।',
-      );
-    }
-    
-    final safetyFile = File(safetyPath);
+      if (!await _hasRequiredTables(currentDbPath)) {
+        throw Exception('Restore যাচাই করা যায়নি।');
+      }
 
-    if (await safetyFile.exists()) {
-      await safetyFile.delete();
-    }
-  } finally {
-    final tempFile = File(temporaryPath);
+      if (safetyCreated) {
+        final safetyFile = File(safetyPath);
+        if (await safetyFile.exists()) {
+          await safetyFile.delete();
+        }
+        safetyCreated = false;
+      }
+    } catch (e) {
+      // Never leave a broken/unsupported database in place.
+      try {
+        await closeDatabase();
 
-    if (await tempFile.exists()) {
-      await tempFile.delete();
+        if (safetyCreated && await File(safetyPath).exists()) {
+          for (final suffix in ['-wal', '-shm', '-journal']) {
+            final sidecar = File('$currentDbPath$suffix');
+            if (await sidecar.exists()) {
+              await sidecar.delete();
+            }
+          }
+
+          await File(safetyPath).copy(currentDbPath);
+          await database;
+        }
+      } catch (_) {
+        // Preserve the original restore error below.
+      }
+
+      throw Exception('Database Restore ব্যর্থ হয়েছে: $e');
+    } finally {
+      final tempFile = File(temporaryPath);
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+
+      final safetyFile = File(safetyPath);
+      if (await safetyFile.exists()) {
+        await safetyFile.delete();
+      }
     }
-  }
   }
 
   List<Map<String, dynamic>> _restoreList(dynamic value) {
@@ -1901,7 +2027,7 @@ class DatabaseHelper {
     if (value is num) return value.toDouble();
     return double.tryParse(value.toString()) ?? 0;
   }
-
+  
   String _stringValue(dynamic value, [String fallback = '']) {
     if (value == null) return fallback;
     return value.toString();
@@ -1985,7 +2111,7 @@ class DatabaseHelper {
       'name': _stringValue(row['name']),
       'mobile': _stringValue(row['mobile'] ?? row['phone']),
       'active': _boolInt(row['active'], 1),
-      'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
+            'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
       'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], _stringValue(row['created_at'] ?? row['createdAt'], now)),
     };
   }
@@ -2086,18 +2212,21 @@ Future<void> restoreJsonDatabase(
       'JSON Backup-এর format সঠিক নয়।',
     );
   }
-
+  
   final data = Map<String, dynamic>.from(decoded);
-
   final customers = _restoreList(data['customers']);
-  final payments = _restoreList(data['payments']);
+  final packages = _restoreList(data['packages']);
+  final staff = _restoreList(data['staff']);
   final bills = _restoreList(data['bills']);
+  final payments = _restoreList(data['payments']);
 
   if (customers.isEmpty &&
-      payments.isEmpty &&
-      bills.isEmpty) {
+      packages.isEmpty &&
+      staff.isEmpty &&
+      bills.isEmpty &&
+      payments.isEmpty) {
     throw Exception(
-      'JSON Backup-এ কোনো Customer, Payment বা Bill data পাওয়া যায়নি।',
+      'JSON Backup-এ কোনো data পাওয়া যায়নি।',
     );
   }
 
@@ -2105,101 +2234,153 @@ Future<void> restoreJsonDatabase(
 
   try {
     await db.transaction((txn) async {
-      // =========================
-      // CUSTOMERS
-      // =========================
+      // Restore parent tables before dependent tables because foreign keys
+      // are enabled for this database.
+      if (packages.isNotEmpty) {
+        await txn.delete('packages');
+        for (final row in packages) {
+          final values = _packageRow(row);
+          values.removeWhere((key, value) => value == null);
+          await txn.insert(
+            'packages',
+            values,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+
+      if (staff.isNotEmpty) {
+        await txn.delete('staff');
+        for (final row in staff) {
+          final values = _staffRow(row);
+          values.removeWhere((key, value) => value == null);
+          await txn.insert(
+            'staff',
+            values,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+
       if (customers.isNotEmpty) {
         await txn.delete('customers');
-
         for (final row in customers) {
-          final values = <String, dynamic>{
-            'id': _intValue(row['id']),
-            'serial_no': row['serial_no'],
-            'user_id': _stringValue(row['user_id']),
-            'name': _stringValue(row['name']),
-            'mobile': _stringValue(row['mobile']),
-            'package_name':
-                _stringValue(row['package_name']),
-            'bill_date': _intValue(row['bill_date']),
-            'amount': _doubleValue(row['amount']),
-            'total_amount':
-                _doubleValue(row['total_amount']),
-            'paid_amount':
-                _doubleValue(row['paid_amount']),
-            'payment_date':
-                _stringValue(row['payment_date']),
-            'due_amount':
-                _doubleValue(row['due_amount']),
-            'active': _boolInt(row['active']),
-            'created_at':
-                _stringValue(row['created_at']),
-            'updated_at': _stringValue(
-  row['updated_at'],
-  _stringValue(row['created_at']),
-),
-          };
-          
-          values.removeWhere(
-            (key, value) => value == null,
-          );
-
+          final values = _customerRow(row);
+          values.removeWhere((key, value) => value == null);
           await txn.insert(
             'customers',
             values,
-            conflictAlgorithm:
-                ConflictAlgorithm.replace,
+            conflictAlgorithm: ConflictAlgorithm.replace,
           );
         }
       }
 
-      // =========================
-      // PAYMENTS
-      // =========================
-      if (payments.isNotEmpty) {
-        await txn.delete('payments');
-
-        for (final row in payments) {
-          final values =
-              Map<String, dynamic>.from(row);
-          values['updated_at'] ??= values['created_at'] ?? DateTime.now().toIso8601String();
-
-          await txn.insert(
-            'payments',
-            values,
-            conflictAlgorithm:
-                ConflictAlgorithm.replace,
-          );
-        }
-      }
-
-      // =========================
-      // BILLS
-      // =========================
       if (bills.isNotEmpty) {
         await txn.delete('bills');
-
         for (final row in bills) {
-          final values =
-              Map<String, dynamic>.from(row);
-          values['updated_at'] ??= values['created_at'] ?? DateTime.now().toIso8601String();
+          final customerId = _intValue(row['customer_id']);
+          if (customerId == null) continue;
 
+          final values = _billRow(row, customerId);
+          values.removeWhere((key, value) => value == null);
           await txn.insert(
             'bills',
             values,
-            conflictAlgorithm:
-                ConflictAlgorithm.replace,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+
+      if (payments.isNotEmpty) {
+        await txn.delete('payments');
+        for (final row in payments) {
+          final customerId = _intValue(row['customer_id']);
+          if (customerId == null) continue;
+
+          final billId = _intValue(row['bill_id']);
+          final staffId = _intValue(row['staff_id']);
+          final values = _paymentRow(
+            row,
+            customerId,
+            billId,
+            staffId,
+          );
+          
+          values.removeWhere((key, value) => value == null);
+          await txn.insert(
+            'payments',
+            values,
+            conflictAlgorithm: ConflictAlgorithm.replace,
           );
         }
       }
     });
+
+    // Recalculate legacy customer totals after restoring the source tables.
+    await _recalculateLocalCustomerTotals();
   } catch (e) {
     throw Exception(
       'JSON Restore ব্যর্থ হয়েছে: $e',
     );
   }
-}
+  }
 
-  Future<void> closeDatabase() async {
+  Future<void> _recalculateLocalCustomerTotals() async {
+    final db = await database;
+    final customers = await db.query(
+      'customers',
+      columns: ['id', 'amount'],
+    );
+
+    for (final customer in customers) {
+      final id = _intValue(customer['id']);
+      if (id == null) continue;
+
+      final billRows = await db.rawQuery(
+        'SELECT COALESCE(SUM(amount),0) AS total '
+        'FROM bills WHERE customer_id = ?',
+        [id],
+      );
+      final paidRows = await db.rawQuery(
+        'SELECT COALESCE(SUM(amount),0) AS total '
+        'FROM payments WHERE customer_id = ?',
+        [id],
+      );
+
+      final billTotal = _doubleValue(
+        billRows.isEmpty ? 0 : billRows.first['total'],
+      );
+      final paidTotal = _doubleValue(
+        paidRows.isEmpty ? 0 : paidRows.first['total'],
+      );
+      final due = billTotal - paidTotal;
+
+      await db.update(
+        'customers',
+        {
+          'total_amount': billTotal,
+          'paid_amount': paidTotal,
+          'due_amount': due > 0 ? due : 0,
+          'payment_date': paidRows.isEmpty
+              ? ''
+              : (await db.query(
+                  'payments',
+                  columns: ['payment_date'],
+                  where: 'customer_id = ?',
+                  whereArgs: [id],
+                  orderBy: 'payment_date DESC, id DESC',
+                  limit: 1,
+                )).first['payment_date']?.toString() ?? '',
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
+  }
+
+
+Future<void> closeDatabase() async {
     final db = _db;
 
     if (db != null) {
