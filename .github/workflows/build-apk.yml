@@ -134,42 +134,15 @@ jobs:
         working-directory: build_app
         run: dart run flutter_launcher_icons
 
-      - name: Configure signing
+            - name: Build APK
         working-directory: build_app
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
+        run: flutter build apk --debug
 
-          p = Path("android/app/build.gradle.kts")
-          text = p.read_text()
-
-          signing_block = '''
-              signingConfigs {
-                  create("release") {
-                      storeFile = file("../keystore/digital24.jks")
-                      storePassword = System.getenv("KEYSTORE_PASSWORD")!!
-                      keyAlias = "digital24"
-                      keyPassword = System.getenv("KEYSTORE_PASSWORD")!!
-                  }
-              }
-          '''
-
-          if 'create("release")' not in text:
-              text = text.replace(
-                  'android {',
-                  'android {' + signing_block,
-                  1
-              )
-
-          text = text.replace(
-              'signingConfig = signingConfigs.getByName("debug")',
-              'signingConfig = signingConfigs.getByName("release")'
-          )
-
-          p.write_text(text)
-          PY
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24Online-APK
+          path: build_app/build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Build APK
         working-directory: build_app
