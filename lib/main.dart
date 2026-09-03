@@ -28,20 +28,12 @@ const _pageBg = Color(0xFFF4F7FB);
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  bool firebaseReady = false;
-  try {
-    if (firebase_core.Firebase.apps.isEmpty) {
-  await firebase_core.Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  // Diagnostic: Firebase ছাড়া প্রথমে অ্যাপ চালু করা হচ্ছে।
+  runApp(
+    const Digital24OnlineBilling(
+      firebaseReady: false,
+    ),
   );
-    }
-    firebaseReady = true;
-  } catch (_) {
-    // Firebase failure must never prevent the local offline app from opening.
-    firebaseReady = false;
-  }
-
-  runApp(Digital24OnlineBilling(firebaseReady: firebaseReady));
 }
 
 class Digital24OnlineBilling extends StatefulWidget {
