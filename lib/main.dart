@@ -157,6 +157,9 @@ class CloudAuthGate extends StatefulWidget {
 class _CloudAuthGateState extends State<CloudAuthGate> {
   bool offlineMode = false;
   bool loading = true;
+  List<Map<String, dynamic>> billings = [];
+  int selectedBillingId = 1;
+  bool billingLoading = true;
   User? user;
   StreamSubscription<User?>? authSubscription;
 
@@ -557,7 +560,103 @@ class _BillingHomePageState extends State<BillingHomePage> {
   @override
   void initState() {
     super.initState();
-    loadCustomers();
+    loadBillingContext();
+  }
+
+  Future<void> loadBillingContext() async {
+    try {
+      final rows = await db.getBillings();
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getInt('selected_billing_id') ?? 1;
+      final id = rows.any((r) => (r['id'] as num).toInt() == saved)
+          ? saved
+          : (rows.isNotEmpty ? (rows.first['id'] as num).toInt() : 1);
+      await db.setActiveBilling(id);
+      if (!mounted) return;
+      setState(() { billings = rows; selectedBillingId = id; billingLoading = false; });
+      await loadCustomers();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => billingLoading = false);
+      msg(t('Billing প্রস্তুত করতে সমস্যা: ', 'Billing setup error: ') + '$e');
+    }
+  }
+
+  Future<void> selectBilling(int id) async {
+    if (id == selectedBillingId) return;
+    await db.setActiveBilling(id);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('selected_billing_id', id);
+    if (!mounted) return;
+    setState(() => selectedBillingId = id);
+    await loadCustomers();
+  }
+
+  Future<void> billingManagement() async {
+    final current = await db.getBillings();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('Billing নাম', 'Billing Names')),
+        content: SizedBox(
+          width: 430,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: current.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (_, i) {
+              final row = current[i];
+              final id = (row['id'] as num).toInt();
+              final controller = TextEditingController(text: '${row['name'] ?? ''}');
+              return Row(children: [
+                Expanded(child: TextField(controller: controller, decoration: InputDecoration(labelText: '${t('Billing', 'Billing')} $id'))),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () async {
+                    final name = controller.text.trim();
+                    if (name.isEmpty) { msg(t('Billing নাম খালি রাখা যাবে না', 'Billing name cannot be empty')); return; }
+                    try {
+                      await db.updateBilling(id, name);
+                                   final updated = await db.getBillings();
+                      if (!mounted) return;
+                      setState(() => billings = updated);
+                      msg(t('Billing নাম Save হয়েছে', 'Billing name saved'));
+                    } catch (e) { msg(t('Save করা যায়নি: ', 'Could not save: ') + '$e'); }
+                  },
+                  child: Text(t('Save', 'Save')),
+                ),
+              ]);
+            },
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))) ],
+      ),
+    );
+  }
+
+  Widget _billingSelector() {
+    if (billingLoading || billings.isEmpty) return const SizedBox.shrink();
+    final selected = billings.any((r) => (r['id'] as num).toInt() == selectedBillingId)
+        ? selectedBillingId : (billings.first['id'] as num).toInt();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(children: [
+          const Icon(Icons.account_balance_wallet_rounded),
+          const SizedBox(width: 10),
+          Expanded(child: DropdownButtonHideUnderline(child: DropdownButton<int>(
+            isExpanded: true, value: selected,
+            items: billings.map((r) => DropdownMenuItem<int>(
+              value: (r['id'] as num).toInt(),
+              child: Text('${r['name'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w800)),
+            )).toList(),
+            onChanged: (v) { if (v != null) selectBilling(v); },
+          ))),
+          IconButton(onPressed: billingManagement, icon: const Icon(Icons.edit_rounded), tooltip: t('Billing নাম Edit', 'Edit Billing Names')),
+        ]),
+      ),
+    );
   }
 
   void msg(String text) {
@@ -592,7 +691,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
         final current = id == null ? null : billsByCustomer[id];
         final packageName = '${r['package_name'] ?? ''}'.trim();
         final packagePrice = packagePrices[packageName.toLowerCase()] ?? 0;
-        final billAmount = current == null
+                final billAmount = current == null
             ? packagePrice
             : ((current['amount'] ?? 0) as num).toDouble();
         final paidAmount = current == null
@@ -659,7 +758,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
               field(pkg, t('প্যাকেজ', 'Package'), Icons.speed),
               const SizedBox(height: 10),
               dateDrop(date, (v) => setD(() => date = v)),
-              const SizedBox(height: 10),
+                            const SizedBox(height: 10),
               field(bill, t('মাসিক বিল *', 'Monthly Bill *'), Icons.receipt, type: const TextInputType.numberWithOptions(decimal: true)),
               const SizedBox(height: 10),
               field(paid, t('প্রাথমিক পরিশোধ', 'Initial Payment'), Icons.payments, type: const TextInputType.numberWithOptions(decimal: true)),
@@ -687,15 +786,40 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     'address': address.text.trim(),
                     'package_name': pkg.text.trim(),
                     'bill_date': date,
+                    'amount': b,
+                    'total_amount': b,
+                    'paid_amount': 0,
+                    'due_amount': b,
                     'status': 1,
+                    'active': 1,
                   });
+
+                  // Verify the customer row immediately after the database insert.
+                  // This prevents a false "saved" message when the local write did not persist.
+                  final savedCustomer = await db.getCustomerByUserId(id);
+                  if (savedCustomer == null || (savedCustomer['id'] as num?)?.toInt() != cid) {
+                    throw Exception(t('ইউজার সংরক্ষণ যাচাই করা যায়নি', 'Customer save could not be verified'));
+                  }
+
                   final bid = await db.ensureBill(cid, monthKey(), date, b);
                   if (p > 0) {
-                    await db.addPayment({'customer_id': cid, 'bill_id': bid, 'amount': p, 'payment_date': today(), 'note': 'প্রাথমিক পরিশোধ'});
+                    await db.addPayment({
+                      'customer_id': cid,
+                      'bill_id': bid,
+                      'amount': p,
+                      'payment_date': today(),
+                      'note': 'প্রাথমিক পরিশোধ',
+                    });
                   }
+                  
+                  // The local database write is complete and verified here.
+                  // Close immediately so a slow 2000+ customer list refresh cannot
+                  // make the Save button appear stuck. The list refresh continues
+                  // in the background.
                   if (ctx.mounted) Navigator.pop(ctx);
-                  await loadCustomers();
+                  if (!mounted) return;
                   msg(t('ইউজার সফলভাবে সংরক্ষণ হয়েছে', 'Customer saved successfully'));
+                  unawaited(loadCustomers());
                 } catch (e) {
                   if (ctx.mounted) setD(() => saving = false);
                   msg('$e');
@@ -756,7 +880,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 setD(() => saving = true);
                 try {
                   if (await userIdExists(uid.text.trim(), exceptId: c.id)) throw Exception(t('এই ইউজার আইডি অন্য একজন ব্যবহার করছে', 'User ID is already used'));
-                  await db.updateCustomer(c.id!, {
+                                    await db.updateCustomer(c.id!, {
                     'user_id': uid.text.trim(), 'name': name.text.trim(), 'mobile': mobile.text.trim(),
                     'address': address.text.trim(), 'package_name': pkg.text.trim(), 'bill_date': date,
                   });
@@ -819,7 +943,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           detail('মোট পরিশোধ', '${money(c.paid)} ৳'), detail('মোট বকেয়া', '${money(c.due)} ৳'),
           detail('সর্বশেষ পেমেন্ট', c.paymentDate.isEmpty ? '-' : c.paymentDate), detail('স্ট্যাটাস', c.active ? 'Active' : 'Closed'),
         ])),
-        actions: [
+                actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))),
           FilledButton.icon(onPressed: () { Navigator.pop(ctx); showPaymentHistory(c); }, icon: const Icon(Icons.history), label: Text(t('পেমেন্ট হিস্ট্রি', 'Payment History'))),
         ],
@@ -873,7 +997,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                 onChanged: (v) => setD(() => staffId = v),
               ),
             ],
-            const SizedBox(height: 10), field(note, t('নোট', 'Note'), Icons.note),
+                        const SizedBox(height: 10), field(note, t('নোট', 'Note'), Icons.note),
           ])),
           actions: [
             TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: Text(t('বাতিল', 'Cancel'))),
@@ -935,7 +1059,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-
+  
   Future<void> monthlyBilling() async {
     try {
       final rows = await db.getCustomers();
@@ -1023,7 +1147,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       );
     } catch (e) { msg('$e'); }
   }
-
+  
   Widget reportLine(String a, String b) => Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [Expanded(child: Text(a)), Text(b, style: const TextStyle(fontWeight: FontWeight.bold))]));
 
   Future<void> _showPdfActions(Uint8List bytes, String fileName) async {
@@ -1093,7 +1217,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Paid Amount')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('BDT ${money(amount)}'))]),
           pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Payment Note')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('${p['note'] ?? ''}'))]),
         ]),
-        pw.SizedBox(height: 24),
+                pw.SizedBox(height: 24),
         pw.Text('Thank you for your payment.'),
         pw.SizedBox(height: 30),
         pw.Text('Digital 24 Online Billing'),
@@ -1179,7 +1303,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-
+  
   Future<void> packageManagement() async {
     await showDialog<void>(context: context, builder: (ctx) => PackageManager(db: db, english: widget.english));
   }
@@ -1229,7 +1353,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
     ));
     c.dispose();
   }
-  
+    
   Future<void> languageSwitch() async {
     final next = !widget.english;
     final p = await SharedPreferences.getInstance();
@@ -1294,7 +1418,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       msg('${t('Restore-এ সমস্যা: ', 'Restore error: ')}$e');
     }
   }
-
+  
   Future<void> exportUserListPdf() async {
     try {
       final rows = List<Customer>.from(filtered);
@@ -1515,6 +1639,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
               PopupMenuButton<String>(
                 onSelected: (v) async {
                   if (v == 'today') await todayCollection();
+                  if (v == 'billing') await billingManagement();
                   if (v == 'monthly') await monthlyBilling();
                   if (v == 'packages') await packageManagement();
                   if (v == 'staff') await staffManagement();
@@ -1526,13 +1651,21 @@ class _BillingHomePageState extends State<BillingHomePage> {
                   if (v == 'restore') await restoreBackup();
                   if (v == 'pdf') await exportUserListPdf();
                 },
-                itemBuilder: (_) => [
+                                itemBuilder: (_) => [
                   PopupMenuItem(
                     value: 'today',
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.today_rounded),
                       title: Text(t('আজকের Collection', 'Today Collection')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'billing',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.account_balance_wallet_rounded),
+                      title: Text(t('Billing নির্বাচন / নাম Edit', 'Billing Select / Edit Names')),
                     ),
                   ),
                   PopupMenuItem(
@@ -1609,7 +1742,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                       title: Text(widget.english ? 'বাংলা' : 'English'),
                     ),
                   ),
-                  PopupMenuItem(
+                                     PopupMenuItem(
                     value: 'refresh',
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -1632,6 +1765,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 110),
               children: [
                 _heroHeader(desktop),
+                const SizedBox(height: 12),
+                _billingSelector(),
                 const SizedBox(height: 12),
                 _summaryStrip(),
                 const SizedBox(height: 12),
@@ -1658,7 +1793,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     child: Center(child: CircularProgressIndicator()),
                   )
                 else if (filtered.isEmpty)
-                  SizedBox(
+                                     SizedBox(
                     height: 300,
                     child: Center(
                       child: Text(
@@ -1746,7 +1881,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-
+  
   Widget _summaryStrip() {
     final items = [
       ('মোট ইউজার', '${bnNumber(customers.length)}', Icons.people_alt_rounded, _brandBlue),
@@ -1819,7 +1954,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
       ),
     );
   }
-  
+    
   Widget _filterBar() {
     return Container(
       padding: const EdgeInsets.all(10),
@@ -1935,7 +2070,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                     ],
                   ),
                 ),
-                                DataCell(
+                                                DataCell(
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 190),
                     child: Text(
@@ -2009,7 +2144,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           },
         ),
       );
-  
+    
   Widget summary(String title, String value, IconData icon) => Container(width: 142, height: 82, margin: const EdgeInsets.symmetric(horizontal: 4), padding: const EdgeInsets.all(9), decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(children: [CircleAvatar(radius: 19, child: Icon(icon, size: 19)), const SizedBox(width: 7), Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 11)), Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))]))]));
 
   Widget customerCard(Customer c) => Card(
@@ -2051,7 +2186,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
                         ],
                       ),
                     ),
-                    PopupMenuButton<String>(
+                                        PopupMenuButton<String>(
                       onSelected: (v) async {
                         if (v == 'details') await showDetails(c);
                         if (v == 'edit') await editCustomer(c);
@@ -2123,7 +2258,7 @@ class _BillingHomePageState extends State<BillingHomePage> {
           ),
         ),
       );
-  
+    
   Widget _tag(IconData i, String text) => Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), decoration: BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(i, size: 15), const SizedBox(width: 4), Text(text)]));
   Widget amountBox(String title, double value, {bool due = false}) => Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), color: Theme.of(context).colorScheme.surfaceContainerHighest), child: Column(children: [Text(title, style: const TextStyle(fontSize: 11)), Text('${money(value)} ৳', style: TextStyle(fontWeight: FontWeight.bold, color: due ? Colors.red : null))]));
 }
@@ -2164,7 +2299,7 @@ class _PackageManagerState extends State<PackageManager> {
           const SizedBox(height: 10),
           TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: t('মূল্য', 'Price'))),
         ])),
-        actions: [
+                actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('সংরক্ষণ', 'Save'))),
         ],
@@ -2361,7 +2496,7 @@ class _ReportManagerState extends State<ReportManager> {
     final d = await showDatePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2100), initialDate: isFrom ? from : to);
     if (d != null) setState(() { if (isFrom) from = d; else to = d; });
   }
-
+  
   double sum(List<Map<String, dynamic>> r) => r.fold(0, (s, x) => s + ((x['amount'] ?? 0) as num).toDouble());
 
   @override Widget build(BuildContext context) {
