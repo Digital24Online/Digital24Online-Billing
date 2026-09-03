@@ -6,11 +6,21 @@ import 'package:sqflite/sqflite.dart';
 
 import 'database_helper.dart';
 
-/// Digital 24 Online Billing - Cloud Master Data service.
+/// Digital 24 Online Billing - Firebase/Firestore sync service.
 ///
-/// SQLite remains the working offline database.
-/// Firebase/Firestore is the cloud master for multi-device sync and
-/// reinstall recovery.
+/// SQLite remains the offline working database.
+/// Firestore is the cloud master for multi-device sync and recovery.
+///
+/// Important:
+/// - Every local entity keeps its own updated_at.
+/// - Customer totals are recalculated from bills/payments after sync.
+/// - Recalculated customer totals are then pushed back to Firestore.
+/// - Payment documents use receipt_no as their stable identity.
+/// - Online payment upload uses a Firestore transaction against the bill
+///   document, so concurrent online uploads cannot silently exceed the bill.
+/// - Offline devices can still create conflicting payments while disconnected;
+///   no client-only solution can make two disconnected devices globally
+///   atomic. Such conflicts must be resolved when they reconnect.
 class FirebaseService {
   FirebaseService._() {
     _authSubscription = _auth.authStateChanges().listen((user) {
@@ -92,6 +102,10 @@ class FirebaseService {
   Future<void> sendPasswordResetEmail(String email) =>
       _auth.sendPasswordResetEmail(email: email.trim());
 
+  // ---------------------------------------------------------------------------
+  // AUTO SYNC / CLOUD
+  // ---------------------------------------------------------------------------
+
   void _startAutoSync() {
     if (_autoSyncTimer != null) return;
 
@@ -99,9 +113,7 @@ class FirebaseService {
       if (!isSignedIn) return;
       try {
         await syncNow();
-      } catch (_) {
-        // Offline/unavailable cloud: keep SQLite working and retry later.
-      }
+      } catch (_) {}
     });
   }
 
@@ -129,7 +141,6 @@ class FirebaseService {
 
   Future<bool> cloudAvailable() async {
     if (!isSignedIn) return false;
-
     try {
       await _businessRef.get(
         const GetOptions(source: Source.server),
@@ -144,8 +155,6 @@ class FirebaseService {
   // PUBLIC SYNC API
   // ---------------------------------------------------------------------------
 
-  /// Restores a fresh/empty device from cloud without allowing the six
-  /// locally-seeded default packages to overwrite real cloud package data.
   Future<void> restoreAfterLogin() async {
     if (!isSignedIn) return;
 
@@ -155,25 +164,32 @@ class FirebaseService {
       final db = await DatabaseHelper.instance.database;
       final freshInstall = await _isFreshInstall(db);
 
+      // Never let the six locally seeded packages overwrite a real cloud
+      // package configuration on a fresh installation.
       if (freshInstall && await _hasOnlyDefaultPackages(db)) {
         await db.delete('packages');
       }
 
-      await syncNow();
-
-      // If the cloud account has no packages at all, seed the standard
-      // Digital 24 packages locally. They will be uploaded by the next sync.
       if (freshInstall) {
-        final packages = await db.query('packages');
-        if (packages.isEmpty) {
+        // On a genuinely empty installation, restore cloud master data first.
+        await _pullCloudToLocal(db);
+
+        // If the cloud account is empty, create the standard packages locally
+        // and then publish them.
+        if (await _count(db, 'packages') == 0) {
           await _seedDefaultPackages(db);
-          try {
-            await _mergePackages(db);
-          } catch (_) {}
+          await _mergePackages(db);
         }
+
+        await _repairLocalRelations(db);
+        await _recalculateAllCustomerTotals(db);
+        await _pushRecalculatedCustomers(db);
+        return;
       }
+
+      await syncNow();
     } catch (_) {
-      // Login/recovery must not be blocked when the device is offline.
+      // Offline use must continue even when cloud recovery is unavailable.
     }
   }
 
@@ -206,32 +222,37 @@ class FirebaseService {
     await _mergeStaff(db);
     await _mergeBills(db);
     await _mergePayments(db);
+
     await _repairLocalRelations(db);
     await _recalculateAllCustomerTotals(db);
+
+    // The recalculation changes customer totals locally. Push those values
+    // after the recalculation so Firestore does not keep stale totals.
+    await _pushRecalculatedCustomers(db);
   }
 
   Future<bool> _isFreshInstall(Database db) async {
-    final customers = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM customers'),
-        ) ??
-        0;
-    final bills = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM bills'),
-        ) ??
-        0;
-    final payments = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM payments'),
-        ) ??
-        0;
-    final staff = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM staff'),
-        ) ??
-        0;
+    final customers = await _count(db, 'customers');
+    final bills = await _count(db, 'bills');
+    final payments = await _count(db, 'payments');
+    final staff = await _count(db, 'staff');
 
     return customers == 0 &&
         bills == 0 &&
         payments == 0 &&
         staff == 0;
+  }
+
+  Future<bool> _businessDataIsEmpty(Database db) async {
+    return await _count(db, 'customers') == 0 &&
+        await _count(db, 'bills') == 0 &&
+        await _count(db, 'payments') == 0 &&
+        await _count(db, 'staff') == 0;
+  }
+
+  Future<int> _count(Database db, String table) async {
+    final result = await db.rawQuery('SELECT COUNT(*) AS total FROM $table');
+    return _int(result.isEmpty ? 0 : result.first['total']);
   }
 
   Future<bool> _hasOnlyDefaultPackages(Database db) async {
@@ -267,7 +288,6 @@ class FirebaseService {
 
   Future<void> _seedDefaultPackages(Database db) async {
     final now = DateTime.now().toIso8601String();
-
     final defaults = <Map<String, dynamic>>[
       {'name': '35 Mbps', 'speed': '35 Mbps', 'price': 500.0},
       {'name': '45 Mbps', 'speed': '45 Mbps', 'price': 600.0},
@@ -291,12 +311,36 @@ class FirebaseService {
     }
   }
 
-  Future<bool> _hasLocalCustomerData() async {
-    final db = await DatabaseHelper.instance.database;
-    final rows = await db.rawQuery(
-      'SELECT COUNT(*) AS total FROM customers',
-    );
-    return rows.isNotEmpty && _int(rows.first['total']) > 0;
+  // ---------------------------------------------------------------------------
+  // FRESH INSTALL: CLOUD -> LOCAL
+  // ---------------------------------------------------------------------------
+
+  Future<void> _pullCloudToLocal(Database db) async {
+    final customers = await _readCollection('customers');
+    final packages = await _readCollection('packages');
+    final staff = await _readCollection('staff');
+    final bills = await _readCollection('bills');
+    final payments = await _readCollection('payments');
+
+    for (final row in packages) {
+      await _upsertPackage(db, row);
+    }
+
+    for (final row in staff) {
+      await _upsertStaff(db, row);
+    }
+
+    for (final row in customers) {
+      await _upsertCustomer(db, row);
+    }
+
+    for (final row in bills) {
+      await _upsertBill(db, row);
+    }
+
+    for (final row in payments) {
+      await _upsertPayment(db, row);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -319,18 +363,12 @@ class FirebaseService {
 
       final remote = cloudByKey[key];
       if (remote == null || _localIsNewer(row, remote)) {
-        await _setCloud(
-          'customers',
-          key,
-          _customerToCloud(row),
-        );
+        await _setCloud('customers', key, _customerToCloud(row));
       }
     }
 
     final merged = await _readCollection('customers');
     for (final row in merged) {
-      final key = _string(row['user_id']).trim();
-      if (key.isEmpty) continue;
       await _upsertCustomer(db, row);
     }
   }
@@ -393,7 +431,7 @@ class FirebaseService {
         values,
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
-    } else {
+    } else if (_remoteIsNewer(found.first, r)) {
       await db.update(
         'customers',
         values,
@@ -423,49 +461,13 @@ class FirebaseService {
 
       final remote = byName[name];
       if (remote == null || _localIsNewer(row, remote)) {
-        await _setCloud(
-          'packages',
-          _key(name),
-          _packageToCloud(row),
-        );
+        await _setCloud('packages', _key(name), _packageToCloud(row));
       }
     }
 
     final merged = await _readCollection('packages');
     for (final row in merged) {
-      final name = _string(row['name']).trim();
-      if (name.isEmpty) continue;
-
-      final values = {
-        'name': name,
-        'speed': _string(row['speed']),
-        'price': _double(row['price']),
-        'active': _int(row['active'], fallback: 1),
-        'created_at': _string(row['created_at']),
-        'updated_at': _string(row['updated_at']),
-      };
-
-      final found = await db.query(
-        'packages',
-        where: 'name = ?',
-        whereArgs: [name],
-        limit: 1,
-      );
-
-      if (found.isEmpty) {
-        await db.insert(
-          'packages',
-          values,
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
-      } else if (_remoteIsNewer(found.first, row)) {
-        await db.update(
-          'packages',
-          values,
-          where: 'id = ?',
-          whereArgs: [found.first['id']],
-        );
-      }
+      await _upsertPackage(db, row);
     }
   }
 
@@ -480,12 +482,49 @@ class FirebaseService {
         'cloud_updated_at': FieldValue.serverTimestamp(),
       };
 
+  Future<void> _upsertPackage(
+    Database db,
+    Map<String, dynamic> r,
+  ) async {
+    final name = _string(r['name']).trim();
+    if (name.isEmpty) return;
+
+    final values = {
+      'name': name,
+      'speed': _string(r['speed']),
+      'price': _double(r['price']),
+      'active': _int(r['active'], fallback: 1),
+      'created_at': _string(r['created_at']),
+      'updated_at': _string(r['updated_at']),
+    };
+
+    final found = await db.query(
+      'packages',
+      where: 'name = ?',
+      whereArgs: [name],
+      limit: 1,
+    );
+
+    if (found.isEmpty) {
+      await db.insert(
+        'packages',
+        values,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    } else if (_remoteIsNewer(found.first, r)) {
+      await db.update(
+        'packages',
+        values,
+        where: 'id = ?',
+        whereArgs: [found.first['id']],
+      );
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // STAFF
   // ---------------------------------------------------------------------------
 
-  /// Staff identity is intentionally based on the existing V6 database's
-  /// unique staff name. The local V6 schema does not contain staff_uid.
   Future<void> _mergeStaff(Database db) async {
     final local = await db.query('staff');
     final cloud = await _readCollection('staff');
@@ -518,38 +557,7 @@ class FirebaseService {
 
     final merged = await _readCollection('staff');
     for (final row in merged) {
-      final name = _string(row['name']).trim();
-      if (name.isEmpty) continue;
-
-      final values = {
-        'name': name,
-        'mobile': _string(row['mobile']),
-        'active': _int(row['active'], fallback: 1),
-        'created_at': _string(row['created_at']),
-        'updated_at': _string(row['updated_at']),
-      };
-
-      final found = await db.query(
-        'staff',
-        where: 'name = ?',
-        whereArgs: [name],
-        limit: 1,
-      );
-
-      if (found.isEmpty) {
-        await db.insert(
-          'staff',
-          values,
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
-      } else if (_remoteIsNewer(found.first, row)) {
-        await db.update(
-          'staff',
-          values,
-          where: 'id = ?',
-          whereArgs: [found.first['id']],
-        );
-      }
+      await _upsertStaff(db, row);
     }
   }
 
@@ -563,6 +571,44 @@ class FirebaseService {
         'cloud_updated_at': FieldValue.serverTimestamp(),
       };
 
+  Future<void> _upsertStaff(
+    Database db,
+    Map<String, dynamic> r,
+  ) async {
+    final name = _string(r['name']).trim();
+    if (name.isEmpty) return;
+
+    final values = {
+      'name': name,
+      'mobile': _string(r['mobile']),
+      'active': _int(r['active'], fallback: 1),
+      'created_at': _string(r['created_at']),
+      'updated_at': _string(r['updated_at']),
+    };
+
+    final found = await db.query(
+      'staff',
+      where: 'name = ?',
+      whereArgs: [name],
+      limit: 1,
+    );
+
+    if (found.isEmpty) {
+      await db.insert(
+        'staff',
+        values,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    } else if (_remoteIsNewer(found.first, r)) {
+      await db.update(
+        'staff',
+        values,
+        where: 'id = ?',
+        whereArgs: [found.first['id']],
+      );
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // BILLS
   // ---------------------------------------------------------------------------
@@ -573,12 +619,11 @@ class FirebaseService {
       'customers',
       columns: ['id', 'user_id'],
     );
+    final cloud = await _readCollection('bills');
 
     final userById = <int, String>{
-      for (final c in customers) _int(c['id']): _string(c['user_id']),
+      for (final c in customers) _int(c['id']): _string(c['user_id'])
     };
-
-    final cloud = await _readCollection('bills');
 
     for (final row in local) {
       final customerUserId = userById[_int(row['customer_id'])] ?? '';
@@ -590,8 +635,7 @@ class FirebaseService {
       Map<String, dynamic>? remote;
 
       for (final item in cloud) {
-        if (_string(item['customer_user_id']).trim() ==
-                customerUserId &&
+        if (_string(item['customer_user_id']).trim() == customerUserId &&
             _string(item['billing_month']).trim() == month) {
           remote = item;
           break;
@@ -608,53 +652,60 @@ class FirebaseService {
     }
 
     final merged = await _readCollection('bills');
-
     for (final row in merged) {
-      final userId = _string(row['customer_user_id']).trim();
-      final month = _string(row['billing_month']).trim();
+      await _upsertBill(db, row);
+    }
 
-      if (userId.isEmpty || month.isEmpty) continue;
+    // Initialize the server-side balance guard for each bill. This is done
+    // before payment uploads so online concurrent payments can be checked
+    // atomically against one shared paid_total value.
+    await _initializeBillBalances(merged);
+  }
 
-      int? customerId;
-      for (final customer in customers) {
-        if (_string(customer['user_id']).trim() == userId) {
-          customerId = _int(customer['id']);
-          break;
+  Future<void> _initializeBillBalances(
+    List<Map<String, dynamic>> bills,
+  ) async {
+    final payments = await _readCollection('payments');
+
+    for (final bill in bills) {
+      final customerUserId = _string(bill['customer_user_id']).trim();
+      final month = _string(bill['billing_month']).trim();
+
+      if (customerUserId.isEmpty || month.isEmpty) continue;
+
+      final billKey = _key('${customerUserId}__$month');
+            final balanceRef = _collection('bill_balances').doc(billKey);
+      final existing = await balanceRef.get();
+
+      if (existing.exists) continue;
+
+      double paidTotal = 0;
+      for (final payment in payments) {
+        if (_string(payment['customer_user_id']).trim() ==
+                customerUserId &&
+            _string(payment['billing_month']).trim() == month) {
+          paidTotal += _double(payment['amount']);
         }
       }
 
-      if (customerId == null) continue;
-
-      final values = {
-        'customer_id': customerId,
-        'billing_month': month,
-        'bill_date': _int(row['bill_date'], fallback: 7),
-        'amount': _double(row['amount']),
-        'created_at': _string(row['created_at']),
-        'updated_at': _string(row['updated_at']),
-      };
-
-      final found = await db.query(
-        'bills',
-        where: 'customer_id = ? AND billing_month = ?',
-        whereArgs: [customerId, month],
-        limit: 1,
+      await balanceRef.set(
+        {
+          'customer_user_id': customerUserId,
+          'billing_month': month,
+          'bill_amount': _double(bill['amount']),
+          'paid_total': paidTotal,
+          'updated_at': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
       );
 
-      if (found.isEmpty) {
-        await db.insert(
-          'bills',
-          values,
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
-      } else if (_remoteIsNewer(found.first, row)) {
-        await db.update(
-          'bills',
-          values,
-          where: 'id = ?',
-          whereArgs: [found.first['id']],
-        );
-      }
+      await _collection('bills').doc(billKey).set(
+        {
+          'paid_total': paidTotal,
+          'updated_at': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
     }
   }
 
@@ -673,29 +724,78 @@ class FirebaseService {
         'cloud_updated_at': FieldValue.serverTimestamp(),
       };
 
+  Future<void> _upsertBill(
+    Database db,
+    Map<String, dynamic> r,
+  ) async {
+    final userId = _string(r['customer_user_id']).trim();
+    final month = _string(r['billing_month']).trim();
+
+    if (userId.isEmpty || month.isEmpty) return;
+
+    final customers = await db.query(
+      'customers',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (customers.isEmpty) return;
+
+    final customerId = _int(customers.first['id']);
+
+    final values = {
+      'customer_id': customerId,
+      'billing_month': month,
+      'bill_date': _int(r['bill_date'], fallback: 7),
+      'amount': _double(r['amount']),
+      'created_at': _string(r['created_at']),
+      'updated_at': _string(r['updated_at']),
+    };
+    
+    final found = await db.query(
+      'bills',
+      where: 'customer_id = ? AND billing_month = ?',
+      whereArgs: [customerId, month],
+      limit: 1,
+    );
+
+    if (found.isEmpty) {
+      await db.insert(
+        'bills',
+        values,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    } else if (_remoteIsNewer(found.first, r)) {
+      await db.update(
+        'bills',
+        values,
+        where: 'id = ?',
+        whereArgs: [found.first['id']],
+      );
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // PAYMENTS
   // ---------------------------------------------------------------------------
 
   Future<void> _mergePayments(Database db) async {
     final local = await db.query('payments');
+    final cloud = await _readCollection('payments');
+
     final customers = await db.query(
       'customers',
       columns: ['id', 'user_id'],
     );
 
     final userById = <int, String>{
-      for (final c in customers) _int(c['id']): _string(c['user_id']),
+      for (final c in customers) _int(c['id']): _string(c['user_id'])
     };
 
-    final cloud = await _readCollection('payments');
     final cloudByReceipt = <String, Map<String, dynamic>>{};
-
     for (final row in cloud) {
-            final receipt = _string(row['receipt_no']).trim();
-      if (receipt.isNotEmpty) {
-        cloudByReceipt[receipt] = row;
-      }
+      final receipt = _string(row['receipt_no']).trim();
+      if (receipt.isNotEmpty) cloudByReceipt[receipt] = row;
     }
 
     for (final row in local) {
@@ -706,83 +806,145 @@ class FirebaseService {
 
       final remote = cloudByReceipt[receipt];
 
-      if (remote == null || _localIsNewer(row, remote)) {
+      if (remote == null) {
+        final uploaded = await _tryUploadPaymentAtomically(
+          db,
+          row,
+          customerUserId,
+        );
+
+        // If the cloud bill rejects an overpayment, retain the local record
+        // instead of silently deleting money data. It will be visible locally
+        // until an operator resolves the conflict.
+        if (!uploaded) continue;
+      } else if (_localIsNewer(row, remote)) {
         await _setCloud(
           'payments',
           _key(receipt),
-          await _paymentToCloud(
-            db,
-            row,
-            customerUserId,
-          ),
+          await _paymentToCloud(db, row, customerUserId),
         );
       }
     }
 
     final merged = await _readCollection('payments');
-
     for (final row in merged) {
-      final receipt = _string(row['receipt_no']).trim();
-      final userId = _string(row['customer_user_id']).trim();
+      await _upsertPayment(db, row);
+    }
+  }
+  
+  Future<bool> _tryUploadPaymentAtomically(
+    Database db,
+    Map<String, dynamic> row,
+    String customerUserId,
+  ) async {
+    final receipt = _string(row['receipt_no']).trim();
+    if (receipt.isEmpty) return false;
 
-      if (receipt.isEmpty || userId.isEmpty) continue;
+    final month = await _paymentBillingMonth(db, row);
+    if (month.isEmpty) return false;
 
-      Map<String, dynamic>? customer;
-      for (final c in customers) {
-        if (_string(c['user_id']).trim() == userId) {
-          customer = c;
-          break;
+    final billKey = _key('${customerUserId}__$month');
+    final billRef = _collection('bills').doc(billKey);
+    final balanceRef = _collection('bill_balances').doc(billKey);
+    final paymentRef = _collection('payments').doc(_key(receipt));
+    final amount = _double(row['amount']);
+
+    if (amount <= 0) return false;
+
+    try {
+      await _firestore.runTransaction<void>((transaction) async {
+        final billSnapshot = await transaction.get(billRef);
+        final balanceSnapshot = await transaction.get(balanceRef);
+        final paymentSnapshot = await transaction.get(paymentRef);
+
+        if (paymentSnapshot.exists) return;
+
+        if (!billSnapshot.exists) {
+          throw StateError('Cloud bill not found for payment $receipt.');
         }
-      }
 
-      if (customer == null) continue;
+        // The balance document is created during bill synchronization.
+        // Refuse an uninitialized balance instead of guessing the paid total.
+        if (!balanceSnapshot.exists) {
+          throw StateError(
+            'Cloud bill balance is not initialized for $billKey.',
+          );
+        }
 
-      final customerId = _int(customer['id']);
-      final billId = await _findOrCreateBillForPayment(
-        db,
-        customerId,
-        row,
-      );
-      final staffId = await _findStaffId(
-        db,
-        _string(row['staff_name']),
-      );
+        final billData = billSnapshot.data() ?? <String, dynamic>{};
+        final balanceData = balanceSnapshot.data() ?? <String, dynamic>{};
 
-      final values = {
-        'customer_id': customerId,
-        'bill_id': billId,
-        'user_id': userId,
-        'amount': _double(row['amount']),
-        'payment_date': _string(row['payment_date']),
-        'receipt_no': receipt,
-        'staff_id': staffId,
-        'note': _string(row['note']),
-        'created_at': _string(row['created_at']),
-        'updated_at': _string(row['updated_at']),
-      };
+        final billAmount = _double(billData['amount']);
+        final cloudPaid = _double(balanceData['paid_total']);
 
-      final found = await db.query(
-        'payments',
-        where: 'receipt_no = ?',
-        whereArgs: [receipt],
+        if (cloudPaid + amount > billAmount + 0.000001) {
+          throw StateError(
+            'Payment conflict: bill already has enough payment.',
+          );
+        }
+
+        transaction.set(
+          paymentRef,
+          await _paymentToCloud(db, row, customerUserId),
+          SetOptions(merge: true),
+        );
+
+        transaction.set(
+          balanceRef,
+          {
+            'customer_user_id': customerUserId,
+            'billing_month': month,
+            'bill_amount': billAmount,
+            'paid_total': cloudPaid + amount,
+            'updated_at': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+
+        transaction.set(
+          billRef,
+          {
+            'paid_total': cloudPaid + amount,
+            'updated_at': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      });
+
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+  
+  Future<String> _paymentBillingMonth(
+    Database db,
+    Map<String, dynamic> payment,
+  ) async {
+    final billId = payment['bill_id'];
+
+    if (billId != null) {
+      final bills = await db.query(
+        'bills',
+        columns: ['billing_month'],
+        where: 'id = ?',
+        whereArgs: [billId],
         limit: 1,
       );
 
-      if (found.isEmpty) {
-        await db.insert(
-          'payments',
-          values,
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
-      } else if (_remoteIsNewer(found.first, row)) {
-        await db.update(
-          'payments',
-          values,
-          where: 'id = ?',
-          whereArgs: [found.first['id']],
-        );
+      if (bills.isNotEmpty) {
+        final month = _string(bills.first['billing_month']).trim();
+        if (month.isNotEmpty) return month;
       }
     }
+
+    final month = _string(payment['billing_month']).trim();
+    if (month.isNotEmpty) return month;
+
+    final date = _string(payment['payment_date']);
+    if (date.length >= 7) return date.substring(0, 7);
+
+    return '';
   }
 
   Future<Map<String, dynamic>> _paymentToCloud(
@@ -804,29 +966,8 @@ class FirebaseService {
         staffName = _string(staff.first['name']);
       }
     }
-    
-    String billingMonth = '';
-    final billId = r['bill_id'];
 
-    if (billId != null) {
-      final bills = await db.query(
-        'bills',
-        columns: ['billing_month'],
-        where: 'id = ?',
-        whereArgs: [billId],
-        limit: 1,
-      );
-      if (bills.isNotEmpty) {
-        billingMonth = _string(bills.first['billing_month']);
-      }
-    }
-
-    if (billingMonth.isEmpty) {
-      final date = _string(r['payment_date']);
-      if (date.length >= 7) {
-        billingMonth = date.substring(0, 7);
-      }
-    }
+    final billingMonth = await _paymentBillingMonth(db, r);
 
     return {
       'receipt_no': _string(r['receipt_no']),
@@ -843,12 +984,78 @@ class FirebaseService {
     };
   }
 
+  Future<void> _upsertPayment(
+    Database db,
+    Map<String, dynamic> r,
+  ) async {
+    final receipt = _string(r['receipt_no']).trim();
+    final userId = _string(r['customer_user_id']).trim();
+
+    if (receipt.isEmpty || userId.isEmpty) return;
+
+    final customers = await db.query(
+      'customers',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (customers.isEmpty) return;
+
+    final customerId = _int(customers.first['id']);
+    final billId = await _findOrCreateBillForPayment(
+      db,
+      customerId,
+      r,
+    );
+    if (billId == null) return;
+
+    final staffId = await _findStaffId(
+      db,
+      _string(r['staff_name']),
+    );
+    
+    final values = {
+      'customer_id': customerId,
+      'bill_id': billId,
+      'user_id': userId,
+      'amount': _double(r['amount']),
+      'payment_date': _string(r['payment_date']),
+      'receipt_no': receipt,
+      'staff_id': staffId,
+      'note': _string(r['note']),
+      'created_at': _string(r['created_at']),
+      'updated_at': _string(r['updated_at']),
+    };
+
+    final found = await db.query(
+      'payments',
+      where: 'receipt_no = ?',
+      whereArgs: [receipt],
+      limit: 1,
+    );
+
+    if (found.isEmpty) {
+      await db.insert(
+        'payments',
+        values,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    } else if (_remoteIsNewer(found.first, r)) {
+      await db.update(
+        'payments',
+        values,
+        where: 'id = ?',
+        whereArgs: [found.first['id']],
+      );
+    }
+  }
+
   Future<int?> _findOrCreateBillForPayment(
     Database db,
     int customerId,
     Map<String, dynamic> payment,
   ) async {
-    final month = _string(payment['billing_month']).trim();
+    final month = await _paymentBillingMonth(db, payment);
     if (month.isEmpty) return null;
 
     final existing = await db.query(
@@ -858,9 +1065,7 @@ class FirebaseService {
       limit: 1,
     );
 
-    if (existing.isNotEmpty) {
-      return _int(existing.first['id']);
-    }
+    if (existing.isNotEmpty) return _int(existing.first['id']);
 
     final customer = await db.query(
       'customers',
@@ -868,7 +1073,6 @@ class FirebaseService {
       whereArgs: [customerId],
       limit: 1,
     );
-
     if (customer.isEmpty) return null;
 
     final now = DateTime.now().toIso8601String();
@@ -887,10 +1091,7 @@ class FirebaseService {
     );
   }
 
-  Future<int?> _findStaffId(
-    Database db,
-    String name,
-  ) async {
+  Future<int?> _findStaffId(Database db, String name) async {
     final clean = name.trim();
     if (clean.isEmpty) return null;
 
@@ -903,9 +1104,9 @@ class FirebaseService {
 
     return rows.isEmpty ? null : _int(rows.first['id']);
   }
-  
+
   // ---------------------------------------------------------------------------
-  // RELATION REPAIR
+  // RELATIONS / TOTALS
   // ---------------------------------------------------------------------------
 
   Future<void> _repairLocalRelations(Database db) async {
@@ -913,13 +1114,12 @@ class FirebaseService {
       'customers',
       columns: ['id', 'package_id', 'package_name'],
     );
-
+    
     for (final row in customers) {
       final id = _int(row['id']);
-      if (id <= 0) continue;
-
       final packageName = _string(row['package_name']).trim();
-      if (packageName.isEmpty) continue;
+
+      if (id <= 0 || packageName.isEmpty) continue;
 
       final package = await db.query(
         'packages',
@@ -934,19 +1134,20 @@ class FirebaseService {
       final packageId = _int(package.first['id']);
 
       if (_int(row['package_id']) != packageId) {
+        final now = DateTime.now().toIso8601String();
+
         await db.update(
           'customers',
-          {'package_id': packageId},
+          {
+            'package_id': packageId,
+            'updated_at': now,
+          },
           where: 'id = ?',
           whereArgs: [id],
         );
       }
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // TOTALS / FIRESTORE HELPERS
-  // ---------------------------------------------------------------------------
 
   Future<void> _recalculateAllCustomerTotals(Database db) async {
     final customers = await db.query(
@@ -956,7 +1157,7 @@ class FirebaseService {
 
     for (final customer in customers) {
       final id = _int(customer['id']);
-
+      
       final bill = await db.rawQuery(
         'SELECT COALESCE(SUM(amount),0) AS total '
         'FROM bills WHERE customer_id = ?',
@@ -970,11 +1171,16 @@ class FirebaseService {
       );
 
       final totalBill = _double(
-        bill.first['total'],
+        bill.isEmpty ? 0 : bill.first['total'],
         fallback: _double(customer['amount']),
       );
-      final totalPaid = _double(paid.first['total']);
+      final totalPaid = _double(
+        paid.isEmpty ? 0 : paid.first['total'],
+      );
+
       final due = totalBill - totalPaid;
+      final latestPaymentDate = await _latestPaymentDate(db, id);
+      final now = DateTime.now().toIso8601String();
 
       await db.update(
         'customers',
@@ -982,14 +1188,30 @@ class FirebaseService {
           'total_amount': totalBill,
           'paid_amount': totalPaid,
           'due_amount': due > 0 ? due : 0,
-          'payment_date': await _latestPaymentDate(db, id),
+          'payment_date': latestPaymentDate,
+          'updated_at': now,
         },
         where: 'id = ?',
         whereArgs: [id],
       );
     }
   }
-  
+
+  Future<void> _pushRecalculatedCustomers(Database db) async {
+    final rows = await db.query('customers');
+
+    for (final row in rows) {
+      final userId = _string(row['user_id']).trim();
+      if (userId.isEmpty) continue;
+
+      await _setCloud(
+        'customers',
+        userId,
+        _customerToCloud(row),
+      );
+    }
+  }
+
   Future<String> _latestPaymentDate(
     Database db,
     int customerId,
@@ -1006,19 +1228,25 @@ class FirebaseService {
     return rows.isEmpty ? '' : _string(rows.first['payment_date']);
   }
 
+  // ---------------------------------------------------------------------------
+  // FIRESTORE HELPERS
+  // ---------------------------------------------------------------------------
+
   Future<List<Map<String, dynamic>>> _readCollection(
     String name,
   ) async {
     final snap = await _collection(name).get();
 
     return snap.docs
-        .map((doc) => <String, dynamic>{
-              '_doc_id': doc.id,
-              ...doc.data(),
-            })
+        .map(
+          (doc) => <String, dynamic>{
+            '_doc_id': doc.id,
+            ...doc.data(),
+          },
+        )
         .toList();
   }
-
+  
   Future<void> _setCloud(
     String collection,
     String documentId,
@@ -1051,7 +1279,6 @@ class FirebaseService {
 
   DateTime _remoteTimestamp(Map<String, dynamic> row) {
     final serverValue = row['cloud_updated_at'];
-
     final serverDate = serverValue is Timestamp
         ? serverValue.toDate()
         : DateTime.tryParse(_string(serverValue));
@@ -1093,5 +1320,10 @@ class FirebaseService {
     if (value is num) return value.toDouble();
     return double.tryParse(_string(value)) ?? fallback;
   }
-}
 
+  void dispose() {
+    _stopAutoSync();
+    _authSubscription?.cancel();
+    _authSubscription = null;
+  }
+}
