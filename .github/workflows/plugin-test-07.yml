@@ -1,0 +1,94 @@
+name: Plugin Test 07 - File Picker
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Flutter project
+        run: |
+          flutter create \
+            --org com.digital24online \
+            --project-name file_picker_test \
+            --platforms android \
+            file_picker_test
+
+      - name: Add file_picker dependency
+        working-directory: file_picker_test
+        run: |
+          flutter pub add file_picker:^8.1.7
+
+      - name: Replace test main.dart
+        working-directory: file_picker_test
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'package:flutter/material.dart';
+          import 'package:file_picker/file_picker.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String result;
+
+            try {
+              final cleared = await FilePicker.platform.clearTemporaryFiles();
+
+              result =
+                  'File Picker OK\n\n'
+                  'clearTemporaryFiles: $cleared';
+            } catch (e) {
+              result =
+                  'File Picker ERROR\n\n'
+                  '$e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  appBar: AppBar(
+                    title: const Text('File Picker Test 07'),
+                  ),
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: SelectableText(
+                        result,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: file_picker_test
+        run: flutter build apk --debug
+
+      - name: Prepare APK
+        run: |
+          mkdir -p artifact
+          cp file_picker_test/build/app/outputs/flutter-apk/app-debug.apk \
+             artifact/File-Picker-Test-07.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: File-Picker-Test-07-APK
+          path: artifact/File-Picker-Test-07.apk
