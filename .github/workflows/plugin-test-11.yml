@@ -54,7 +54,9 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
+          # -------------------------------------------------
           # settings.gradle.kts
+          # -------------------------------------------------
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
@@ -72,17 +74,13 @@ jobs:
 
           settings.write_text(text)
 
+          # -------------------------------------------------
           # app/build.gradle.kts
+          # -------------------------------------------------
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          if 'id("com.google.gms.google-services")' not in text:
-              text = text.replace(
-                  'id("dev.flutter.flutter-gradle-plugin")',
-                  'id("dev.flutter.flutter-gradle-plugin")\n'
-                  '    id("com.google.gms.google-services")'
-              )
-
+          # Correct Firebase package
           text = text.replace(
               'applicationId = "com.digital24online.digital24online"',
               'applicationId = "com.digital24online"'
@@ -93,50 +91,61 @@ jobs:
               'namespace = "com.digital24online"'
           )
 
-          # Remove old Kotlin jvmTarget/compilerOptions blocks if present.
+          # Add Google Services plugin
+          if 'id("com.google.gms.google-services")' not in text:
+              text = text.replace(
+                  'id("dev.flutter.flutter-gradle-plugin")',
+                  'id("dev.flutter.flutter-gradle-plugin")\n'
+                  '    id("com.google.gms.google-services")'
+              )
+
+          # Remove old kotlinOptions block completely
           lines = text.splitlines()
           cleaned = []
-          skip_old = False
-          brace_depth = 0
+          skip = False
+          depth = 0
 
           for line in lines:
               stripped = line.strip()
 
-              if stripped.startswith('kotlinOptions {'):
-                  skip_old = True
-                  brace_depth = 1
+              if stripped.startswith("kotlinOptions {"):
+                  skip = True
+                  depth = 1
                   continue
 
-              if skip_old:
-                  brace_depth += line.count('{')
-                  brace_depth -= line.count('}')
+              if skip:
+                  depth += line.count("{")
+                  depth -= line.count("}")
 
-                  if brace_depth <= 0:
-                      skip_old = False
+                  if depth <= 0:
+                      skip = False
 
                   continue
 
               cleaned.append(line)
 
-          text = '\n'.join(cleaned) + '\n'
+          text = "\n".join(cleaned) + "\n"
 
-          # Add the Kotlin 2.3 compilerOptions DSL.
-          if 'compilerOptions {' not in text:
-              text = text.replace(
-                  'android {',
-                  '''android {
-          '''
-              )
+          # -------------------------------------------------
+          # IMPORTANT:
+          # Import MUST be at the top of the Kotlin script.
+          # -------------------------------------------------
+          import_line = "import org.jetbrains.kotlin.gradle.dsl.JvmTarget"
 
-              text += '''
-          import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+          if import_line not in text:
+              text = import_line + "\n\n" + text
 
+          # -------------------------------------------------
+          # Kotlin 2.3 compilerOptions
+          # -------------------------------------------------
+          if "compilerOptions {" not in text:
+              text += """
           kotlin {
               compilerOptions {
                   jvmTarget.set(JvmTarget.JVM_17)
               }
           }
-          '''
+          """
 
           app.write_text(text)
           PY
@@ -149,13 +158,25 @@ jobs:
             android/app/google-services.json || true
 
           echo "===== Kotlin plugin ====="
-          grep -n "kotlin.android" android/settings.gradle.kts || true
+          grep -n "kotlin.android" \
+            android/settings.gradle.kts || true
+
+          echo "===== Google Services plugin ====="
+          grep -n "google-services" \
+            android/settings.gradle.kts \
+            android/app/build.gradle.kts || true
 
           echo "===== Compiler Options ====="
-          grep -n -A5 "compilerOptions" android/app/build.gradle.kts || true
+          grep -n -A6 "compilerOptions" \
+            android/app/build.gradle.kts || true
 
           echo "===== Application ID ====="
-          grep -n "applicationId" android/app/build.gradle.kts || true
+          grep -n "applicationId" \
+            android/app/build.gradle.kts || true
+
+          echo "===== Namespace ====="
+          grep -n "namespace" \
+            android/app/build.gradle.kts || true
 
       - name: Replace test main.dart
         working-directory: firebase_full_test
@@ -175,7 +196,6 @@ jobs:
               final app = await Firebase.initializeApp();
 
               final auth = FirebaseAuth.instance;
-
               final firestore = FirebaseFirestore.instance;
 
               result =
@@ -218,11 +238,13 @@ jobs:
 
       - name: Get dependencies
         working-directory: firebase_full_test
-        run: flutter pub get
+        run: |
+          flutter pub get
 
       - name: Build APK
         working-directory: firebase_full_test
-        run: flutter build apk --debug
+        run: |
+          flutter build apk --debug
 
       - name: Prepare APK
         run: |
