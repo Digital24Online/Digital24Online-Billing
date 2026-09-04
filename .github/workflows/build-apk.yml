@@ -25,121 +25,36 @@ jobs:
             --org=com.digital24online \
             build_app
 
-      - name: Copy app files
-        run: |
-          rm -rf build_app/lib
-          cp -R lib build_app/lib
-          cp pubspec.yaml build_app/pubspec.yaml
-          cp -R assets build_app/assets
-
-      - name: Copy Firebase configuration
-        run: |
-          mkdir -p build_app/android/app
-          cp android/app/google-services.json build_app/android/app/google-services.json
-          test -s build_app/android/app/google-services.json
-
-      - name: Configure Android package and Kotlin
+      - name: Configure Android
         working-directory: build_app
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
 
+          # settings.gradle.kts
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
           text = re.sub(
-              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"',
+              r'id"org\.jetbrains\.kotlin\.android"\s+version\s+"[^"]+"',
               'id("org.jetbrains.kotlin.android") version "2.3.21"',
               text
           )
 
-          if 'id("com.google.gms.google-services") version "4.5.0" apply false' not in text:
+          if "com.google.gms.google-services" not in text:
               text = text.replace(
-                  'plugins {',
-                  'plugins {\n    id("com.google.gms.google-services") version "4.5.0" apply false',
+                  "plugins {",
+                  'plugins {\n'
+                  '    id("com.google.gms.google-services") '
+                  'version "4.4.2" apply false',
                   1
               )
 
           settings.write_text(text)
 
+          # app/build.gradle.kts
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          text = re.sub(
-              r'namespace\s*=\s*"[^"]+"',
-              'namespace = "com.digital24online"',
-              text,
-              count=1
-          )
-
-          text = re.sub(
-              r'applicationId\s*=\s*"[^"]+"',
-              'applicationId = "com.digital24online"',
-              text,
-              count=1
-          )
-
-          text = text.replace(
-              'JavaVersion.VERSION_11',
-              'JavaVersion.VERSION_17'
-          )
-
-          text = re.sub(
-              r'\s*kotlinOptions\s*\{.*?\}',
-              '',
-              text,
-              flags=re.DOTALL
-          )
-
-          if 'jvmToolchain(17)' not in text:
-              text = text.replace(
-                  'android {',
-                  'kotlin {\n    jvmToolchain(17)\n}\n\nandroid {',
-                  1
-              )
-
-          if 'id("com.google.gms.google-services")' not in text:
-              text = text.replace(
-                  'plugins {',
-                  'plugins {\n    id("com.google.gms.google-services")',
-                  1
-              )
-
-          app.write_text(text)
-          PY
-
-      - name: Set app name
-        working-directory: build_app
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("android/app/src/main/AndroidManifest.xml")
-          text = p.read_text()
-
-          text = text.replace(
-              'android:label="digital24online"',
-              'android:label="Digital 24 Online"'
-          )
-
-          p.write_text(text)
-          PY
-
-      - name: Get dependencies
-        working-directory: build_app
-        run: flutter pub get
-
-      - name: Generate App Icon
-        working-directory: build_app
-        run: dart run flutter_launcher_icons
-
-      - name: Build APK
-        working-directory: build_app
-        run: flutter build apk --debug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Digital24Online-APK
-          path: build_app/build/app/outputs/flutter-apk/app-debug.apk
+          text
