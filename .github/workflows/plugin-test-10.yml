@@ -1,0 +1,109 @@
+name: Plugin Test 10 - Crypto
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Flutter project
+        run: |
+          flutter create \
+            --org com.digital24online \
+            --project-name crypto_test \
+            --platforms android \
+            crypto_test
+
+      - name: Add crypto dependency
+        working-directory: crypto_test
+        run: |
+          flutter pub add crypto:^3.0.6
+
+      - name: Replace test main.dart
+        working-directory: crypto_test
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'dart:convert';
+
+          import 'package:crypto/crypto.dart';
+          import 'package:flutter/material.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String result;
+
+            try {
+              const input = 'Digital 24 Online Billing';
+
+              final bytes = utf8.encode(input);
+
+              final sha256Hash =
+                  sha256.convert(bytes).toString();
+
+              final sha1Hash =
+                  sha1.convert(bytes).toString();
+
+              final md5Hash =
+                  md5.convert(bytes).toString();
+
+              result =
+                  'Crypto OK\n\n'
+                  'SHA-256:\n$sha256Hash\n\n'
+                  'SHA-1:\n$sha1Hash\n\n'
+                  'MD5:\n$md5Hash';
+            } catch (e) {
+              result =
+                  'Crypto ERROR\n\n'
+                  '$e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Crypto Test 10'),
+                  ),
+                  body: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: SelectableText(
+                        result,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: crypto_test
+        run: flutter build apk --debug
+
+      - name: Prepare APK
+        run: |
+          mkdir -p artifact
+          cp crypto_test/build/app/outputs/flutter-apk/app-debug.apk \
+             artifact/Crypto-Test-10.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crypto-Test-10-APK
+          path: artifact/Crypto-Test-10.apk
