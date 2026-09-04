@@ -1,0 +1,152 @@
+name: Plugin Test 11 - Firebase Full Initialization
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Flutter project
+        run: |
+          flutter create \
+            --org com.digital24online \
+            --project-name firebase_full_test \
+            --platforms android \
+            firebase_full_test
+
+      - name: Add Firebase dependencies
+        working-directory: firebase_full_test
+        run: |
+          flutter pub add firebase_core
+          flutter pub add firebase_auth
+          flutter pub add cloud_firestore
+
+      - name: Copy Firebase configuration
+        run: |
+          if [ ! -f android/app/google-services.json ]; then
+            echo "ERROR: android/app/google-services.json not found in repository."
+            exit 1
+          fi
+
+          cp android/app/google-services.json \
+             firebase_full_test/android/app/google-services.json
+
+      - name: Configure Android Firebase
+        working-directory: firebase_full_test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          settings = Path("android/settings.gradle.kts")
+          text = settings.read_text()
+
+          if "com.google.gms.google-services" not in text:
+              text = text.replace(
+                  "plugins {",
+                  "plugins {\n"
+                  "    id(\"com.google.gms.google-services\") version \"4.4.4\" apply false"
+              )
+
+          settings.write_text(text)
+
+          app = Path("android/app/build.gradle.kts")
+          text = app.read_text()
+
+          if "com.google.gms.google-services" not in text:
+              text = text.replace(
+                  "plugins {",
+                  "plugins {\n"
+                  "    id(\"com.google.gms.google-services\")"
+              )
+
+          app.write_text(text)
+          PY
+
+      - name: Replace test main.dart
+        working-directory: firebase_full_test
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'package:cloud_firestore/cloud_firestore.dart';
+          import 'package:firebase_auth/firebase_auth.dart';
+          import 'package:firebase_core/firebase_core.dart';
+          import 'package:flutter/material.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String result;
+
+            try {
+              // 1. Firebase Core
+              final app = await Firebase.initializeApp();
+
+              // 2. Firebase Auth
+              final auth = FirebaseAuth.instance;
+
+              // 3. Cloud Firestore
+              final firestore = FirebaseFirestore.instance;
+
+              result =
+                  'Firebase Full Initialization OK\n\n'
+                  'App name: ${app.name}\n'
+                  'App ID: ${app.options.appId}\n'
+                  'Project ID: ${app.options.projectId}\n'
+                  'Auth initialized: ${auth.app.name == app.name}\n'
+                  'Firestore initialized: '
+                  '${firestore.app.name == app.name}';
+            } catch (e) {
+              result =
+                  'Firebase Full Initialization ERROR\n\n'
+                  '$e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Firebase Test 11'),
+                  ),
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: SelectableText(
+                        result,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 17),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: firebase_full_test
+        run: flutter build apk --debug
+
+      - name: Prepare APK
+        run: |
+          mkdir -p artifact
+
+          cp firebase_full_test/build/app/outputs/flutter-apk/app-debug.apk \
+             artifact/Firebase-Full-Test-11.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Firebase-Full-Test-11-APK
+          path: artifact/Firebase-Full-Test-11.apk
