@@ -41,14 +41,14 @@ jobs:
               build_test/android/app/google-services.json
           fi
 
-      - name: Configure Kotlin and Android
+      - name: Configure Kotlin and Java
         working-directory: build_test
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          # settings.gradle.kts
+          # Kotlin plugin
           p = Path("android/settings.gradle.kts")
           text = p.read_text()
 
@@ -60,11 +60,24 @@ jobs:
 
           p.write_text(text)
 
-          # app/build.gradle.kts
+          # Android app Gradle
           p = Path("android/app/build.gradle.kts")
           text = p.read_text()
 
-          # Remove old kotlinOptions block
+          # Force Java 17
+          text = re.sub(
+              r'sourceCompatibility\s*=\s*JavaVersion\.VERSION_\d+',
+              'sourceCompatibility = JavaVersion.VERSION_17',
+              text
+          )
+
+          text = re.sub(
+              r'targetCompatibility\s*=\s*JavaVersion\.VERSION_\d+',
+              'targetCompatibility = JavaVersion.VERSION_17',
+              text
+          )
+
+          # Remove old kotlinOptions
           text = re.sub(
               r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
               '',
@@ -72,7 +85,7 @@ jobs:
               flags=re.DOTALL
           )
 
-          # Remove old compilerOptions block if one already exists
+          # Remove existing kotlin compilerOptions
           text = re.sub(
               r'\n\s*kotlin\s*\{\s*compilerOptions\s*\{.*?\n\s*\}\s*\}',
               '',
@@ -80,23 +93,9 @@ jobs:
               flags=re.DOTALL
           )
 
-          # Add Java 17 configuration
-          if 'compileOptions {' not in text:
-              text = text.replace(
-                  'android {',
-                  '''android {
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-              ''',
-                  1
-              )
-
-          # Add modern Kotlin compilerOptions configuration
-          text = text.replace(
-              'android {',
-              '''android {
+          # Add modern Kotlin configuration
+          marker = 'android {'
+          replacement = '''android {
               kotlin {
                   compilerOptions {
                       jvmTarget.set(
@@ -104,24 +103,24 @@ jobs:
                       )
                   }
               }
-              ''',
-              1
-          )
+          '''
+
+          text = text.replace(marker, replacement, 1)
 
           p.write_text(text)
           PY
 
-      - name: Verify Android configuration
+      - name: Verify Java and Kotlin targets
         working-directory: build_test
         run: |
-          echo "=== Kotlin plugin ==="
+          echo "===== Kotlin ====="
           grep -n "org.jetbrains.kotlin.android" android/settings.gradle.kts
 
-          echo "=== Java target ==="
+          echo "===== Java ====="
           grep -n "sourceCompatibility" android/app/build.gradle.kts
           grep -n "targetCompatibility" android/app/build.gradle.kts
 
-          echo "=== Kotlin compiler target ==="
+          echo "===== Kotlin JVM ====="
           grep -n "JvmTarget.JVM_17" android/app/build.gradle.kts
 
       - name: Create Startup Test 12
