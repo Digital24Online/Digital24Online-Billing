@@ -1,0 +1,63 @@
+name: Android Crash Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create Android project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24online \
+            --org=com.digital24online \
+            test_app
+
+      - name: Copy project files
+        run: |
+          rm -rf test_app/lib
+          cp -R lib test_app/lib
+          cp pubspec.yaml test_app/pubspec.yaml
+          cp -R assets test_app/assets
+
+      - name: Get dependencies
+        working-directory: test_app
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: test_app
+        run: flutter build apk --debug
+
+      - name: Start Android Emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_2
+          script: |
+            adb install -r test_app/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell am force-stop com.digital24online
+            adb logcat -c
+            adb shell monkey -p com.digital24online 1
+            sleep 15
+            adb logcat -d > crash-log.txt
+            cat crash-log.txt
+
+      - name: Upload crash log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-Crash-Log
+          path: crash-log.txt
