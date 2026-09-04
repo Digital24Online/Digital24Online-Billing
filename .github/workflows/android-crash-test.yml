@@ -25,6 +25,25 @@ jobs:
             --org=com.digital24online \
             test_app
 
+      - name: Set Kotlin version
+        working-directory: test_app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("android/settings.gradle.kts")
+          text = p.read_text()
+
+          text = re.sub(
+              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"',
+              'id("org.jetbrains.kotlin.android") version "2.3.21"',
+              text
+          )
+
+          p.write_text(text)
+          PY
+
       - name: Copy project files
         run: |
           rm -rf test_app/lib
