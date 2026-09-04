@@ -3,6 +3,9 @@ name: Build Android APK
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,12 +35,11 @@ jobs:
           from pathlib import Path
           import re
 
-          # settings.gradle.kts
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
           text = re.sub(
-              r'id"org\.jetbrains\.kotlin\.android"\s+version\s+"[^"]+"',
+              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"',
               'id("org.jetbrains.kotlin.android") version "2.3.21"',
               text
           )
@@ -53,8 +55,143 @@ jobs:
 
           settings.write_text(text)
 
-          # app/build.gradle.kts
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          text
+          text = re.sub(
+              r'applicationId\s*=\s*"[^"]+"',
+              'applicationId = "com.digital24online"',
+              text
+          )
+
+          text = text.replace(
+              "JavaVersion.VERSION_11",
+              "JavaVersion.VERSION_17"
+          )
+
+          text = re.sub(
+              r'kotlinOptions\s*\{.*?\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          if "jvmToolchain(17)" not in text:
+              text = text.replace(
+                  "android {",
+                  "kotlin {\n"
+                  "    jvmToolchain(17)\n"
+                  "}\n\n"
+                  "android {",
+                  1
+              )
+
+          if 'id("com.google.gms.google-services")' not in text:
+              text = text.replace(
+                  "plugins {",
+                  'plugins {\n'
+                  '    id("com.google.gms.google-services")',
+                  1
+              )
+
+          app.write_text(text)
+
+          manifest = Path(
+              "android/app/src/main/AndroidManifest.xml"
+          )
+          text = manifest.read_text()
+
+          text = text.replace(
+              'android:name=".MainActivity"',
+              'android:name="com.digital24online.MainActivity"'
+          )
+
+          manifest.write_text(text)
+          PY
+
+      - name: Copy app files
+        run: |
+          rm -rf build_app/lib
+          cp -R lib build_app/lib
+          cp pubspec.yaml build_app/pubspec.yaml
+          cp -R assets build_app/assets
+
+      - name: Add Firebase configuration
+        run: |
+          mkdir -p build_app/android/app
+          cp android/app/google-services.json \
+             build_app/android/app/google-services.json
+
+      - name: Verify Firebase configuration
+        working-directory: build_app
+        run: |
+          echo "===== Firebase package ====="
+          grep -n '"package_name"' \
+            android/app/google-services.json
+
+      - name: Get dependencies
+        working-directory: build_app
+        run: flutter pub get
+
+      - name: Generate App Icon
+        working-directory: build_app
+        run: dart run flutter_launcher_icons
+
+      - name: Verify Android configuration
+        working-directory: build_app
+        run: |
+          echo "===== APPLICATION ID ====="
+          grep -n "applicationId" \
+            android/app/build.gradle.kts
+
+          echo "===== MAIN ACTIVITY ====="
+          find android/app/src/main/kotlin \
+            -name MainActivity.kt \
+            -print \
+            -exec cat {} \;
+
+          echo "===== LAUNCHER ACTIVITY ====="
+          grep -A12 -B3 "MAIN" \
+            android/app/src/main/AndroidManifest.xml
+
+      - name: Build APK
+        working-directory: build_app
+        run: |
+          flutter build apk --debug
+
+      - name: Verify APK
+        working-directory: build_app
+        run: |
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+
+          echo "===== APK CHECK ====="
+          test -f "$APK"
+
+          echo "===== APK SIZE ====="
+          ls -lh "$APK"
+
+          echo "===== APK PACKAGE ====="
+          AAPT="$ANDROID_HOME/build-tools/$(ls \
+            "$ANDROID_HOME/build-tools" | sort -V | tail -1)/aapt"
+
+          "$AAPT" dump badging "$APK" \
+            | grep -E \
+            "package:|launchable-activity:"
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p artifact
+          cp build_app/build/app/outputs/flutter-apk/app-debug.apk \
+             artifact/Digital24-Online-Billing-Debug.apk
+
+          echo "===== ARTIFACT ====="
+          ls -lh artifact/
+
+      - name: Upload APK Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24-Online-Billing-Debug-APK
+          path: artifact/Digital24-Online-Billing-Debug.apk
+          if-no-files-found: error
+          retention-days: 7
