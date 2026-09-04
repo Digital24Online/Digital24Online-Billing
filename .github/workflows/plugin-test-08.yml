@@ -1,0 +1,112 @@
+name: Plugin Test 08 - PDF
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Flutter project
+        run: |
+          flutter create \
+            --org com.digital24online \
+            --project-name pdf_test \
+            --platforms android \
+            pdf_test
+
+      - name: Add PDF dependency
+        working-directory: pdf_test
+        run: |
+          flutter pub add pdf:^3.11.3
+
+      - name: Replace test main.dart
+        working-directory: pdf_test
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'dart:typed_data';
+
+          import 'package:flutter/material.dart';
+          import 'package:pdf/pdf.dart';
+          import 'package:pdf/widgets.dart' as pw;
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String result;
+
+            try {
+              final document = pw.Document();
+
+              document.addPage(
+                pw.Page(
+                  pageFormat: PdfPageFormat.a4,
+                  build: (context) {
+                    return pw.Center(
+                      child: pw.Text(
+                        'Digital 24 Online Billing',
+                      ),
+                    );
+                  },
+                ),
+              );
+
+              final Uint8List bytes = await document.save();
+
+              result =
+                  'PDF OK\n\n'
+                  'PDF bytes: ${bytes.length}';
+            } catch (e) {
+              result =
+                  'PDF ERROR\n\n'
+                  '$e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  appBar: AppBar(
+                    title: const Text('PDF Test 08'),
+                  ),
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: SelectableText(
+                        result,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: pdf_test
+        run: flutter build apk --debug
+
+      - name: Prepare APK
+        run: |
+          mkdir -p artifact
+          cp pdf_test/build/app/outputs/flutter-apk/app-debug.apk \
+             artifact/PDF-Test-08.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDF-Test-08-APK
+          path: artifact/PDF-Test-08.apk
