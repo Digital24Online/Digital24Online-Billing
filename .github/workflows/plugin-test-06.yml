@@ -1,0 +1,104 @@
+name: Plugin Test 06 - Printing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create test project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24test06 \
+            --org=com.digital24test06 \
+            test_app
+
+      - name: Add Printing
+        working-directory: test_app
+        run: |
+          flutter pub add printing
+
+      - name: Create Printing test
+        working-directory: test_app
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'package:flutter/material.dart';
+          import 'package:printing/printing.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String result = 'Printing test started';
+
+            try {
+              final printers = await Printing.listPrinters();
+
+              result =
+                  'Printing OK\n'
+                  'Printers detected: ${printers.length}';
+            } catch (e) {
+              result = 'Printing ERROR\n$e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text(
+                        result,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 22),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: test_app
+        run: |
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Verify APK
+        working-directory: test_app
+        run: |
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+          test -f "$APK"
+          ls -lh "$APK"
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p artifact
+
+          cp test_app/build/app/outputs/flutter-apk/app-debug.apk \
+            artifact/Digital24-Test06-Printing.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24-Test06-Printing
+          path: artifact/Digital24-Test06-Printing.apk
+          if-no-files-found: error
+          retention-days: 7
