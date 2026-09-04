@@ -1,0 +1,182 @@
+name: Plugin Test 03 - Firebase Core
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create test project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24test03 \
+            --org=com.digital24test03 \
+            test_app
+
+      - name: Add Firebase Core
+        working-directory: test_app
+        run: |
+          flutter pub add firebase_core
+
+      - name: Add Firebase configuration
+        run: |
+          mkdir -p test_app/android/app
+          cp android/app/google-services.json \
+             test_app/android/app/google-services.json
+
+      - name: Configure Android package and Firebase
+        working-directory: test_app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Kotlin version
+          settings = Path("android/settings.gradle.kts")
+          text = settings.read_text()
+
+          text = re.sub(
+              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"',
+              'id("org.jetbrains.kotlin.android") version "2.3.21"',
+              text
+          )
+
+          # Google Services plugin
+          if "com.google.gms.google-services" not in text:
+              text = text.replace(
+                  "plugins {",
+                  'plugins {\n'
+                  '    id("com.google.gms.google-services") '
+                  'version "4.4.2" apply false',
+                  1
+              )
+
+          settings.write_text(text)
+
+          # app Gradle
+          app = Path("android/app/build.gradle.kts")
+          text = app.read_text()
+
+          text = re.sub(
+              r'applicationId\s*=\s*"[^"]+"',
+              'applicationId = "com.digital24online"',
+              text
+          )
+
+          text = text.replace(
+              "JavaVersion.VERSION_11",
+              "JavaVersion.VERSION_17"
+          )
+
+          text = re.sub(
+              r'kotlinOptions\s*\{.*?\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          if "jvmToolchain(17)" not in text:
+              text = text.replace(
+                  "android {",
+                  "kotlin {\n"
+                  "    jvmToolchain(17)\n"
+                  "}\n\n"
+                  "android {",
+                  1
+              )
+
+          if 'id("com.google.gms.google-services")' not in text:
+              text = text.replace(
+                  "plugins {",
+                  'plugins {\n'
+                  '    id("com.google.gms.google-services")',
+                  1
+              )
+
+          app.write_text(text)
+          PY
+
+      - name: Create Firebase test
+        working-directory: test_app
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'package:flutter/material.dart';
+          import 'package:firebase_core/firebase_core.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String result = 'Firebase Core test started';
+
+            try {
+              await Firebase.initializeApp();
+
+              result = 'Firebase Core OK';
+            } catch (e) {
+              result = 'Firebase Core ERROR\n$e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  body: Center(
+                    child: Text(
+                      result,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 22),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: test_app
+        run: |
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Verify APK
+        working-directory: test_app
+        run: |
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+
+          test -f "$APK"
+
+          echo "===== APK ====="
+          ls -lh "$APK"
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p artifact
+
+          cp test_app/build/app/outputs/flutter-apk/app-debug.apk \
+            artifact/Digital24-Test03-FirebaseCore.apk
+
+          ls -lh artifact/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24-Test03-FirebaseCore
+          path: artifact/Digital24-Test03-FirebaseCore.apk
+          if-no-files-found: error
+          retention-days: 7
