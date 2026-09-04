@@ -25,7 +25,85 @@ jobs:
             --org=com.digital24online \
             test_app
 
-      - name: Configure Kotlin and Java
+      - name: Configure Android package
+        working-directory: test_app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # MainActivity package
+          activity = Path(
+              "android/app/src/main/kotlin/"
+              "com/digital24online/digital24online/MainActivity.kt"
+          )
+
+          text = activity.read_text()
+          text = text.replace(
+              "package com.digital24online.digital24online",
+              "package com.digital24online"
+          )
+
+          new_activity = Path(
+              "android/app/src/main/kotlin/"
+              "com/digital24online/MainActivity.kt"
+          )
+
+          new_activity.parent.mkdir(parents=True, exist_ok=True)
+          new_activity.write_text(text)
+
+          activity.unlink()
+
+          # Android applicationId
+          app = Path("android/app/build.gradle.kts")
+          text = app.read_text()
+
+          text = re.sub(
+              r'applicationId\s*=\s*"[^"]+"',
+              'applicationId = "com.digital24online"',
+              text
+          )
+
+          # Java 17
+          text = text.replace(
+              "JavaVersion.VERSION_11",
+              "JavaVersion.VERSION_17"
+          )
+
+          # Remove old kotlinOptions block
+          text = re.sub(
+              r'kotlinOptions\s*\{.*?\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          # Kotlin JVM toolchain
+          if "jvmToolchain(17)" not in text:
+              text = text.replace(
+                  "android {",
+                  "kotlin {\n"
+                  "    jvmToolchain(17)\n"
+                  "}\n\n"
+                  "android {",
+                  1
+              )
+
+          app.write_text(text)
+
+          # Manifest MainActivity
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
+
+          text = text.replace(
+              'android:name=".MainActivity"',
+              'android:name="com.digital24online.MainActivity"'
+          )
+
+          manifest.write_text(text)
+          PY
+
+      - name: Configure Kotlin
         working-directory: test_app
         run: |
           python3 - <<'PY'
@@ -42,30 +120,6 @@ jobs:
           )
 
           settings.write_text(text)
-
-          app = Path("android/app/build.gradle.kts")
-          text = app.read_text()
-
-          text = text.replace(
-              'JavaVersion.VERSION_11',
-              'JavaVersion.VERSION_17'
-          )
-
-          text = re.sub(
-              r'kotlinOptions\s*\{.*?\}',
-              '',
-              text,
-              flags=re.DOTALL
-          )
-
-          if 'jvmToolchain(17)' not in text:
-              text = text.replace(
-                  'android {',
-                  'kotlin {\n    jvmToolchain(17)\n}\n\nandroid {',
-                  1
-              )
-
-          app.write_text(text)
           PY
 
       - name: Copy project files
@@ -78,22 +132,24 @@ jobs:
       - name: Add Firebase configuration
         run: |
           mkdir -p test_app/android/app
-          cp android/app/google-services.json test_app/android/app/google-services.json
+          cp android/app/google-services.json \
+             test_app/android/app/google-services.json
 
       - name: Configure Firebase plugin
         working-directory: test_app
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
-          if 'com.google.gms.google-services' not in text:
+          if "com.google.gms.google-services" not in text:
               text = text.replace(
-                  'plugins {',
-                  'plugins {\n    id("com.google.gms.google-services") version "4.4.2" apply false',
+                  "plugins {",
+                  'plugins {\n'
+                  '    id("com.google.gms.google-services") '
+                  'version "4.4.2" apply false',
                   1
               )
 
@@ -102,28 +158,39 @@ jobs:
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          if 'com.google.gms.google-services' not in text:
+          if 'id("com.google.gms.google-services")' not in text:
               text = text.replace(
-                  'plugins {',
-                  'plugins {\n    id("com.google.gms.google-services")',
+                  "plugins {",
+                  'plugins {\n'
+                  '    id("com.google.gms.google-services")',
                   1
               )
 
           app.write_text(text)
           PY
 
-      - name: Verify launcher activity
+      - name: Verify Android configuration
         working-directory: test_app
         run: |
           echo "===== MainActivity ====="
-          cat android/app/src/main/kotlin/com/digital24online/digital24online/MainActivity.kt
+          find android/app/src/main/kotlin -name MainActivity.kt -print -exec cat {} \;
 
           echo "===== AndroidManifest ====="
           cat android/app/src/main/AndroidManifest.xml
 
-          echo "===== APK activities ====="
-          flutter build apk --debug
-          $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | tail -1)/aapt dump badging build/app/outputs/flutter-apk/app-debug.apk | grep -E "package:|launchable-activity:"
+          echo "===== Application ID ====="
+          grep -n "applicationId" android/app/build.gradle.kts
+
+          echo "===== Firebase package ====="
+          grep -n '"package_name"' android/app/google-services.json
+
+      - name: Get dependencies
+        working-directory: test_app
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: test_app
+        run: flutter build apk --debug
 
       - name: Start Android Emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -133,9 +200,9 @@ jobs:
           profile: pixel_2
           script: |
             adb install -r test_app/build/app/outputs/flutter-apk/app-debug.apk
-            adb shell am force-stop com.digital24online.digital24online
+            adb shell am force-stop com.digital24online
             adb logcat -c
-            adb shell monkey -p com.digital24online.digital24online 1 || true
+            adb shell monkey -p com.digital24online 1 || true
             sleep 15
             adb logcat -d > crash-log.txt
             cat crash-log.txt
