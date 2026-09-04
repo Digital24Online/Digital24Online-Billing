@@ -1,0 +1,102 @@
+name: Plugin Test 01 - Shared Preferences
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create test project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24test01 \
+            --org=com.digital24test01 \
+            test_app
+
+      - name: Add Shared Preferences
+        working-directory: test_app
+        run: |
+          flutter pub add shared_preferences
+
+      - name: Create test main.dart
+        working-directory: test_app
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'package:flutter/material.dart';
+          import 'package:shared_preferences/shared_preferences.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String status = 'Shared Preferences test';
+
+            try {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString(
+                'diagnostic_test',
+                'Digital 24 Online Billing',
+              );
+
+              status = prefs.getString('diagnostic_test') ??
+                  'Shared Preferences OK';
+            } catch (e) {
+              status = 'ERROR: $e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  body: Center(
+                    child: Text(
+                      status,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 22),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: test_app
+        run: |
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Verify APK
+        working-directory: test_app
+        run: |
+          test -f build/app/outputs/flutter-apk/app-debug.apk
+          ls -lh build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p artifact
+          cp test_app/build/app/outputs/flutter-apk/app-debug.apk \
+             artifact/Digital24-Test01-SharedPreferences.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24-Test01-SharedPreferences
+          path: artifact/Digital24-Test01-SharedPreferences.apk
+          if-no-files-found: error
+          retention-days: 7
