@@ -1,51 +1,9 @@
-name: Test-12 Startup Isolation
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.35.0'
-          channel: stable
-
-      - name: Create clean Android project
-        run: |
-          flutter create \
-            --platforms=android \
-            --project-name=digital24startup12 \
-            --org=com.digital24online \
-            build_test
-
-      - name: Copy current project files
-        run: |
-          rm -rf build_test/lib
-          cp -R lib build_test/lib
-          cp pubspec.yaml build_test/pubspec.yaml
-
-          if [ -d assets ]; then
-            cp -R assets build_test/assets
-          fi
-
-          if [ -f android/app/google-services.json ]; then
-            mkdir -p build_test/android/app
-            cp android/app/google-services.json \
-              build_test/android/app/google-services.json
-          fi
-
       - name: Configure Kotlin and Android
         working-directory: build_test
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           # settings.gradle.kts
           p = Path("android/settings.gradle.kts")
@@ -62,6 +20,15 @@ jobs:
           p = Path("android/app/build.gradle.kts")
           text = p.read_text()
 
+          # Remove old Kotlin jvmTarget configuration
+          text = re.sub(
+              r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          # Add Java 17 configuration if missing
           if 'compileOptions {' not in text:
               text = text.replace(
                   'android {',
@@ -70,9 +37,21 @@ jobs:
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
+              ''',
+                  1
+              )
 
-              kotlinOptions {
-                  jvmTarget = "17"
+          # Add modern Kotlin compilerOptions configuration
+          if 'compilerOptions {' not in text:
+              text = text.replace(
+                  'android {',
+                  '''android {
+              kotlin {
+                  compilerOptions {
+                      jvmTarget.set(
+                          org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+                      )
+                  }
               }
               ''',
                   1
@@ -80,54 +59,3 @@ jobs:
 
           p.write_text(text)
           PY
-
-      - name: Verify Kotlin version
-        working-directory: build_test
-        run: |
-          grep -n "org.jetbrains.kotlin.android" android/settings.gradle.kts
-          grep -n "jvmTarget" android/app/build.gradle.kts
-          grep -n "sourceCompatibility" android/app/build.gradle.kts
-     
-      - name: Create Startup Test 12
-        working-directory: build_test
-        run: |
-          cat > lib/startup_test_12.dart <<'DART'
-          import 'package:flutter/material.dart';
-
-          void main() {
-            runApp(
-              const MaterialApp(
-                home: Scaffold(
-                  body: Center(
-                    child: Text(
-                      'TEST-12 STARTUP OK',
-                      style: TextStyle(fontSize: 28),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }
-                    DART
-          test -s lib/startup_test_12.dart
-      - name: Get dependencies
-        working-directory: build_test
-        run: |
-          flutter pub get
-
-      - name: Build Test-12 APK
-        working-directory: build_test
-        run: |
-          flutter build apk \
-            --debug \
-            --target=lib/startup_test_12.dart
-
-      - name: Verify APK exists
-        run: |
-          test -s build_test/build/app/outputs/flutter-apk/app-debug.apk
-
-      - name: Upload Test-12 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Digital24Online-Test12-APK
-          path: build_test/build/app/outputs/flutter-apk/app-debug.apk
