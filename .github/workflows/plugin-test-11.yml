@@ -17,6 +17,12 @@ jobs:
           flutter-version: '3.35.0'
           channel: stable
 
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Create clean Flutter project
         run: |
           flutter create \
@@ -35,21 +41,27 @@ jobs:
       - name: Copy Firebase configuration
         run: |
           if [ ! -f android/app/google-services.json ]; then
-            echo "ERROR: android/app/google-services.json not found in repository."
+            echo "ERROR: android/app/google-services.json not found."
             exit 1
           fi
 
           cp android/app/google-services.json \
              firebase_full_test/android/app/google-services.json
 
-      - name: Configure Android Firebase
+      - name: Configure Kotlin and Firebase
         working-directory: firebase_full_test
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
+          # settings.gradle.kts
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
+
+          text = text.replace(
+              'id("org.jetbrains.kotlin.android") version "2.1.0" apply false',
+              'id("org.jetbrains.kotlin.android") version "2.3.21" apply false'
+          )
 
           text = text.replace(
               'id("dev.flutter.flutter-plugin-loader") version "1.0.0"',
@@ -59,6 +71,7 @@ jobs:
 
           settings.write_text(text)
 
+          # app/build.gradle.kts
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
@@ -78,21 +91,43 @@ jobs:
               'namespace = "com.digital24online"'
           )
 
+          text = text.replace(
+              'jvmTarget = JavaVersion.VERSION_11',
+              'jvmTarget = JavaVersion.VERSION_17'
+          )
+
+          text = text.replace(
+              'JavaVersion.VERSION_11',
+              'JavaVersion.VERSION_17'
+          )
+
           app.write_text(text)
+
+          # gradle.properties
+          gradle_properties = Path("android/gradle.properties")
+          text = gradle_properties.read_text()
+
+          if "android.useAndroidX=true" not in text:
+              text += "\nandroid.useAndroidX=true\n"
+
+          if "android.enableJetifier=true" not in text:
+              text += "android.enableJetifier=true\n"
+
+          gradle_properties.write_text(text)
           PY
 
-      - name: Verify Firebase package configuration
+      - name: Verify Android configuration
         working-directory: firebase_full_test
         run: |
-          echo "===== settings.gradle.kts ====="
-          cat android/settings.gradle.kts
-
-          echo "===== app/build.gradle.kts ====="
-          cat android/app/build.gradle.kts
-
-          echo "===== google-services package check ====="
+          echo "===== Google Services package ====="
           grep -o '"package_name": "[^"]*"' \
             android/app/google-services.json || true
+
+          echo "===== Kotlin configuration ====="
+          grep -n "kotlin.android" android/settings.gradle.kts || true
+
+          echo "===== Java configuration ====="
+          grep -n "VERSION_17" android/app/build.gradle.kts || true
 
       - name: Replace test main.dart
         working-directory: firebase_full_test
@@ -152,6 +187,10 @@ jobs:
             );
           }
           EOF
+
+      - name: Get dependencies
+        working-directory: firebase_full_test
+        run: flutter pub get
 
       - name: Build APK
         working-directory: firebase_full_test
