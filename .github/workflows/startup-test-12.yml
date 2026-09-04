@@ -1,3 +1,46 @@
+name: Test-12 Startup Isolation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Android project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24startup12 \
+            --org=com.digital24online \
+            build_test
+
+      - name: Copy current project files
+        run: |
+          rm -rf build_test/lib
+          cp -R lib build_test/lib
+          cp pubspec.yaml build_test/pubspec.yaml
+
+          if [ -d assets ]; then
+            cp -R assets build_test/assets
+          fi
+
+          if [ -f android/app/google-services.json ]; then
+            mkdir -p build_test/android/app
+            cp android/app/google-services.json \
+              build_test/android/app/google-services.json
+          fi
+
       - name: Configure Kotlin and Android
         working-directory: build_test
         run: |
@@ -9,9 +52,10 @@
           p = Path("android/settings.gradle.kts")
           text = p.read_text()
 
-          text = text.replace(
-              'id("org.jetbrains.kotlin.android") version "2.1.0" apply false',
-              'id("org.jetbrains.kotlin.android") version "2.3.21" apply false'
+          text = re.sub(
+              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"\s+apply\s+false',
+              'id("org.jetbrains.kotlin.android") version "2.3.21" apply false',
+              text
           )
 
           p.write_text(text)
@@ -20,7 +64,7 @@
           p = Path("android/app/build.gradle.kts")
           text = p.read_text()
 
-          # Remove old Kotlin jvmTarget configuration
+          # Remove old kotlinOptions block
           text = re.sub(
               r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
               '',
@@ -28,7 +72,15 @@
               flags=re.DOTALL
           )
 
-          # Add Java 17 configuration if missing
+          # Remove old compilerOptions block if one already exists
+          text = re.sub(
+              r'\n\s*kotlin\s*\{\s*compilerOptions\s*\{.*?\n\s*\}\s*\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          # Add Java 17 configuration
           if 'compileOptions {' not in text:
               text = text.replace(
                   'android {',
@@ -42,10 +94,9 @@
               )
 
           # Add modern Kotlin compilerOptions configuration
-          if 'compilerOptions {' not in text:
-              text = text.replace(
-                  'android {',
-                  '''android {
+          text = text.replace(
+              'android {',
+              '''android {
               kotlin {
                   compilerOptions {
                       jvmTarget.set(
@@ -54,8 +105,73 @@
                   }
               }
               ''',
-                  1
-              )
+              1
+          )
 
           p.write_text(text)
           PY
+
+      - name: Verify Android configuration
+        working-directory: build_test
+        run: |
+          echo "=== Kotlin plugin ==="
+          grep -n "org.jetbrains.kotlin.android" android/settings.gradle.kts
+
+          echo "=== Java target ==="
+          grep -n "sourceCompatibility" android/app/build.gradle.kts
+          grep -n "targetCompatibility" android/app/build.gradle.kts
+
+          echo "=== Kotlin compiler target ==="
+          grep -n "JvmTarget.JVM_17" android/app/build.gradle.kts
+
+      - name: Create Startup Test 12
+        working-directory: build_test
+        run: |
+          cat > lib/startup_test_12.dart <<'DART'
+          import 'package:flutter/material.dart';
+
+          void main() {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            runApp(
+              const MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  body: Center(
+                    child: Text(
+                      'TEST-12 STARTUP OK',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          DART
+
+          test -s lib/startup_test_12.dart
+
+      - name: Get dependencies
+        working-directory: build_test
+        run: |
+          flutter pub get
+
+      - name: Build Test-12 APK
+        working-directory: build_test
+        run: |
+          flutter build apk \
+            --debug \
+            --target=lib/startup_test_12.dart
+
+      - name: Verify APK exists
+        run: |
+          test -s build_test/build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Upload Test-12 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24Online-Test12-APK
+          path: build_test/build/app/outputs/flutter-apk/app-debug.apk
