@@ -1,0 +1,201 @@
+name: Plugin Test 05 - Cloud Firestore
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create test project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24test05 \
+            --org=com.digital24test05 \
+            test_app
+
+      - name: Add Firebase packages
+        working-directory: test_app
+        run: |
+          flutter pub add firebase_core
+          flutter pub add firebase_auth
+          flutter pub add cloud_firestore
+
+      - name: Add Firebase configuration
+        run: |
+          mkdir -p test_app/android/app
+
+          cp android/app/google-services.json \
+             test_app/android/app/google-services.json
+
+      - name: Configure Android
+        working-directory: test_app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # settings.gradle.kts
+          settings = Path("android/settings.gradle.kts")
+          text = settings.read_text()
+
+          text = re.sub(
+              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"',
+              'id("org.jetbrains.kotlin.android") version "2.3.21"',
+              text
+          )
+
+          if "com.google.gms.google-services" not in text:
+              text = text.replace(
+                  "plugins {",
+                  'plugins {\n'
+                  '    id("com.google.gms.google-services") '
+                  'version "4.4.2" apply false',
+                  1
+              )
+
+          settings.write_text(text)
+
+          # app/build.gradle.kts
+          app = Path("android/app/build.gradle.kts")
+          text = app.read_text()
+
+          text = re.sub(
+              r'applicationId\s*=\s*"[^"]+"',
+              'applicationId = "com.digital24online"',
+              text
+          )
+
+          text = text.replace(
+              "JavaVersion.VERSION_11",
+              "JavaVersion.VERSION_17"
+          )
+
+          text = re.sub(
+              r'kotlinOptions\s*\{.*?\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          if "jvmToolchain(17)" not in text:
+              text = text.replace(
+                  "android {",
+                  "kotlin {\n"
+                  "    jvmToolchain(17)\n"
+                  "}\n\n"
+                  "android {",
+                  1
+              )
+
+          if 'id("com.google.gms.google-services")' not in text:
+              text = text.replace(
+                  "plugins {",
+                  'plugins {\n'
+                  '    id("com.google.gms.google-services")',
+                  1
+              )
+
+          app.write_text(text)
+          PY
+
+      - name: Create Firestore test
+        working-directory: test_app
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'package:flutter/material.dart';
+          import 'package:firebase_core/firebase_core.dart';
+          import 'package:firebase_auth/firebase_auth.dart';
+          import 'package:cloud_firestore/cloud_firestore.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String result = 'Firestore test started';
+
+            try {
+              await Firebase.initializeApp();
+
+              final auth = FirebaseAuth.instance;
+              final firestore = FirebaseFirestore.instance;
+
+              final user = auth.currentUser;
+
+              // Access the Firestore instance without requiring
+              // a database read/write or changing user data.
+              final settings = firestore.settings;
+
+              result =
+                  'Cloud Firestore OK\n'
+                  'Auth: ${user == null ? "No user" : "User signed in"}\n'
+                  'Host: ${settings.host}';
+            } catch (e) {
+              result = 'Cloud Firestore ERROR\n$e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text(
+                        result,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 20),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: test_app
+        run: |
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Verify APK
+        working-directory: test_app
+        run: |
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+
+          test -f "$APK"
+
+          echo "===== APK ====="
+          ls -lh "$APK"
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p artifact
+
+          cp test_app/build/app/outputs/flutter-apk/app-debug.apk \
+            artifact/Digital24-Test05-Firestore.apk
+
+          ls -lh artifact/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24-Test05-Firestore
+          path: artifact/Digital24-Test05-Firestore.apk
+          if-no-files-found: error
+          retention-days: 7
