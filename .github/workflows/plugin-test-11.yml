@@ -31,7 +31,7 @@ jobs:
             --platforms android \
             firebase_full_test
 
-      - name: Add Firebase dependencies
+      - name: Add Firebase packages
         working-directory: firebase_full_test
         run: |
           flutter pub add firebase_core
@@ -40,11 +40,6 @@ jobs:
 
       - name: Copy Firebase configuration
         run: |
-          if [ ! -f android/app/google-services.json ]; then
-            echo "ERROR: android/app/google-services.json not found."
-            exit 1
-          fi
-
           cp android/app/google-services.json \
              firebase_full_test/android/app/google-services.json
 
@@ -54,9 +49,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # -------------------------------------------------
           # settings.gradle.kts
-          # -------------------------------------------------
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
@@ -74,13 +67,10 @@ jobs:
 
           settings.write_text(text)
 
-          # -------------------------------------------------
           # app/build.gradle.kts
-          # -------------------------------------------------
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          # Correct Firebase package
           text = text.replace(
               'applicationId = "com.digital24online.digital24online"',
               'applicationId = "com.digital24online"'
@@ -91,7 +81,6 @@ jobs:
               'namespace = "com.digital24online"'
           )
 
-          # Add Google Services plugin
           if 'id("com.google.gms.google-services")' not in text:
               text = text.replace(
                   'id("dev.flutter.flutter-gradle-plugin")',
@@ -99,48 +88,78 @@ jobs:
                   '    id("com.google.gms.google-services")'
               )
 
-          # Remove old kotlinOptions block completely
-          lines = text.splitlines()
-          cleaned = []
-          skip = False
-          depth = 0
+          # Force Java 17
+          if "compileOptions {" in text:
+              start = text.index("compileOptions {")
+              end = text.index("}", start) + 1
+              text = (
+                  text[:start]
+                  + """compileOptions {
+              sourceCompatibility = JavaVersion.VERSION_17
+              targetCompatibility = JavaVersion.VERSION_17
+          }"""
+                  + text[end:]
+              )
+          else:
+              text += """
+          android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+          }
+          """
 
-          for line in lines:
-              stripped = line.strip()
+          # Remove any old kotlinOptions block
+          while "kotlinOptions {" in text:
+              start = text.index("kotlinOptions {")
+              brace = text.index("{", start)
+              depth = 0
+              end = brace
 
-              if stripped.startswith("kotlinOptions {"):
-                  skip = True
-                  depth = 1
-                  continue
+              for i in range(brace, len(text)):
+                  if text[i] == "{":
+                      depth += 1
+                  elif text[i] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = i + 1
+                          break
 
-              if skip:
-                  depth += line.count("{")
-                  depth -= line.count("}")
+              text = text[:start] + text[end:]
 
-                  if depth <= 0:
-                      skip = False
+          # Remove old compilerOptions/kotlin block if present
+          while "kotlin {" in text:
+              start = text.index("kotlin {")
+              brace = text.index("{", start)
+              depth = 0
+              end = brace
 
-                  continue
+              for i in range(brace, len(text)):
+                  if text[i] == "{":
+                      depth += 1
+                  elif text[i] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = i + 1
+                          break
 
-              cleaned.append(line)
+              text = text[:start] + text[end:]
 
-          text = "\n".join(cleaned) + "\n"
-
-          # -------------------------------------------------
-          # IMPORTANT:
-          # Import MUST be at the top of the Kotlin script.
-          # -------------------------------------------------
+          # Import MUST be at the very beginning
           import_line = "import org.jetbrains.kotlin.gradle.dsl.JvmTarget"
 
-          if import_line not in text:
+          if text.startswith(import_line):
+              pass
+          else:
               text = import_line + "\n\n" + text
 
-          # -------------------------------------------------
-          # Kotlin 2.3 compilerOptions
-          # -------------------------------------------------
-          if "compilerOptions {" not in text:
-              text += """
+          # Kotlin 17
+          text += """
+
           kotlin {
+              jvmToolchain(17)
+
               compilerOptions {
                   jvmTarget.set(JvmTarget.JVM_17)
               }
@@ -148,34 +167,31 @@ jobs:
           """
 
           app.write_text(text)
+
+          print("Android configuration completed.")
           PY
 
-      - name: Verify Android configuration
+      - name: Verify JVM configuration
         working-directory: firebase_full_test
         run: |
-          echo "===== Google Services package ====="
-          grep -o '"package_name": "[^"]*"' \
-            android/app/google-services.json || true
+          echo "===== JAVA ====="
+          java -version
 
-          echo "===== Kotlin plugin ====="
-          grep -n "kotlin.android" \
-            android/settings.gradle.kts || true
+          echo "===== KOTLIN ====="
+          grep -n "kotlin.android" android/settings.gradle.kts || true
 
-          echo "===== Google Services plugin ====="
+          echo "===== JAVA 17 CONFIG ====="
+          grep -n -A4 "compileOptions" android/app/build.gradle.kts || true
+
+          echo "===== KOTLIN JVM TOOLCHAIN ====="
+          grep -n -A8 "kotlin {" android/app/build.gradle.kts || true
+
+          echo "===== APPLICATION ID ====="
+          grep -n "applicationId" android/app/build.gradle.kts || true
+
+          echo "===== FIREBASE PLUGIN ====="
           grep -n "google-services" \
             android/settings.gradle.kts \
-            android/app/build.gradle.kts || true
-
-          echo "===== Compiler Options ====="
-          grep -n -A6 "compilerOptions" \
-            android/app/build.gradle.kts || true
-
-          echo "===== Application ID ====="
-          grep -n "applicationId" \
-            android/app/build.gradle.kts || true
-
-          echo "===== Namespace ====="
-          grep -n "namespace" \
             android/app/build.gradle.kts || true
 
       - name: Replace test main.dart
@@ -200,17 +216,14 @@ jobs:
 
               result =
                   'Firebase Full Initialization OK\n\n'
-                  'App name: ${app.name}\n'
+                  'App: ${app.name}\n'
+                  'Project: ${app.options.projectId}\n'
                   'App ID: ${app.options.appId}\n'
-                  'Project ID: ${app.options.projectId}\n'
-                  'Auth initialized: '
-                  '${auth.app.name == app.name}\n'
-                  'Firestore initialized: '
-                  '${firestore.app.name == app.name}';
+                  'Auth: ${auth.app.name == app.name ? "OK" : "ERROR"}\n'
+                  'Firestore: ${firestore.app.name == app.name ? "OK" : "ERROR"}';
             } catch (e) {
               result =
-                  'Firebase Full Initialization ERROR\n\n'
-                  '$e';
+                  'Firebase Full Initialization ERROR\n\n$e';
             }
 
             runApp(
