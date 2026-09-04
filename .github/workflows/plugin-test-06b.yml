@@ -1,0 +1,96 @@
+name: Plugin Test 06B - Printing Info
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Flutter project
+        run: |
+          flutter create \
+            --org com.digital24online \
+            --project-name printing_test \
+            --platforms android \
+            printing_test
+
+      - name: Add printing dependency
+        working-directory: printing_test
+        run: |
+          flutter pub add printing:^5.14.3
+
+      - name: Replace test main.dart
+        working-directory: printing_test
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'package:flutter/material.dart';
+          import 'package:printing/printing.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String result;
+
+            try {
+              final info = await Printing.info();
+
+              result =
+                  'Printing.info OK\n\n'
+                  'directPrint: ${info.directPrint}\n'
+                  'dynamicLayout: ${info.dynamicLayout}\n'
+                  'canPrint: ${info.canPrint}\n'
+                  'canShare: ${info.canShare}\n'
+                  'canRaster: ${info.canRaster}';
+            } catch (e) {
+              result = 'Printing.info ERROR\n\n$e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Printing Test 06B'),
+                  ),
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: SelectableText(
+                        result,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: printing_test
+        run: flutter build apk --debug
+
+      - name: Prepare APK
+        run: |
+          mkdir -p artifact
+          cp printing_test/build/app/outputs/flutter-apk/app-debug.apk \
+             artifact/Printing-Test-06B.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Printing-Test-06B-APK
+          path: artifact/Printing-Test-06B.apk
