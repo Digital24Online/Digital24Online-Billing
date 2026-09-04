@@ -1,0 +1,103 @@
+name: Plugin Test 09 - Intl
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Flutter project
+        run: |
+          flutter create \
+            --org com.digital24online \
+            --project-name intl_test \
+            --platforms android \
+            intl_test
+
+      - name: Add intl dependency
+        working-directory: intl_test
+        run: |
+          flutter pub add intl:^0.20.2
+
+      - name: Replace test main.dart
+        working-directory: intl_test
+        run: |
+          cat > lib/main.dart <<'EOF'
+          import 'package:flutter/material.dart';
+          import 'package:intl/intl.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String result;
+
+            try {
+              final now = DateTime.now();
+
+              final date = DateFormat('dd-MM-yyyy').format(now);
+              final month = DateFormat('yyyy-MM').format(now);
+              final time = DateFormat('HH:mm:ss').format(now);
+
+              final parsed = DateTime.parse('2026-09-04');
+
+              result =
+                  'Intl OK\n\n'
+                  'Date: $date\n'
+                  'Month: $month\n'
+                  'Time: $time\n'
+                  'Parsed: ${DateFormat('dd-MM-yyyy').format(parsed)}';
+            } catch (e) {
+              result =
+                  'Intl ERROR\n\n'
+                  '$e';
+            }
+
+            runApp(
+              MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Intl Test 09'),
+                  ),
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: SelectableText(
+                        result,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: intl_test
+        run: flutter build apk --debug
+
+      - name: Prepare APK
+        run: |
+          mkdir -p artifact
+          cp intl_test/build/app/outputs/flutter-apk/app-debug.apk \
+             artifact/Intl-Test-09.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Intl-Test-09-APK
+          path: artifact/Intl-Test-09.apk
