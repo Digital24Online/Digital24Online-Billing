@@ -87,7 +87,29 @@ jobs:
           grep -n "org.jetbrains.kotlin.android" android/settings.gradle.kts
           grep -n "jvmTarget" android/app/build.gradle.kts
           grep -n "sourceCompatibility" android/app/build.gradle.kts
+     
+      - name: Create Startup Test 12
+        working-directory: build_test
+        run: |
+          cat > lib/startup_test_12.dart <<'DART'
+          import 'package:flutter/material.dart';
 
+          void main() {
+            runApp(
+              const MaterialApp(
+                home: Scaffold(
+                  body: Center(
+                    child: Text(
+                      'TEST-12 STARTUP OK',
+                      style: TextStyle(fontSize: 28),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+                    DART
+          test -s lib/startup_test_12.dart
       - name: Get dependencies
         working-directory: build_test
         run: |
