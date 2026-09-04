@@ -41,47 +41,24 @@ jobs:
               build_test/android/app/google-services.json
           fi
 
-      - name: Replace main.dart with Startup Test 12
-        working-directory: build_test
-        run: |
-          cat > lib/startup_test_12.dart <<'DART'
-          import 'package:flutter/material.dart';
-
-          import 'main.dart';
-
-          void main() {
-            WidgetsFlutterBinding.ensureInitialized();
-
-            runApp(
-              const MaterialApp(
-                debugShowCheckedModeBanner: false,
-                home: Scaffold(
-                  body: Center(
-                    child: Text(
-                      'TEST-12 STARTUP OK',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }
-          DART
-
-      - name: Get dependencies
-        working-directory: build_test
-        run: |
-          flutter pub get
-
-      - name: Configure Android Java and Kotlin
+      - name: Configure Kotlin and Android
         working-directory: build_test
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
+          # settings.gradle.kts
+          p = Path("android/settings.gradle.kts")
+          text = p.read_text()
+
+          text = text.replace(
+              'id("org.jetbrains.kotlin.android") version "2.1.0" apply false',
+              'id("org.jetbrains.kotlin.android") version "2.3.21" apply false'
+          )
+
+          p.write_text(text)
+
+          # app/build.gradle.kts
           p = Path("android/app/build.gradle.kts")
           text = p.read_text()
 
@@ -103,6 +80,18 @@ jobs:
 
           p.write_text(text)
           PY
+
+      - name: Verify Kotlin version
+        working-directory: build_test
+        run: |
+          grep -n "org.jetbrains.kotlin.android" android/settings.gradle.kts
+          grep -n "jvmTarget" android/app/build.gradle.kts
+          grep -n "sourceCompatibility" android/app/build.gradle.kts
+
+      - name: Get dependencies
+        working-directory: build_test
+        run: |
+          flutter pub get
 
       - name: Build Test-12 APK
         working-directory: build_test
