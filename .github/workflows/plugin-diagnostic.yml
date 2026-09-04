@@ -1,0 +1,91 @@
+name: Plugin Diagnostic APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Flutter project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24diagnostic \
+            --org=com.digital24diagnostic \
+            diagnostic_app
+
+      - name: Replace main.dart
+        run: |
+          cat > diagnostic_app/lib/main.dart <<'EOF'
+          import 'package:flutter/material.dart';
+
+          void main() {
+            runApp(
+              const MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  body: Center(
+                    child: Text(
+                      'Digital 24 Online Billing',
+                      style: TextStyle(fontSize: 22),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          EOF
+
+      - name: Build clean diagnostic APK
+        working-directory: diagnostic_app
+        run: |
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Verify APK
+        working-directory: diagnostic_app
+        run: |
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+
+          test -f "$APK"
+
+          echo "===== APK ====="
+          ls -lh "$APK"
+
+          echo "===== PACKAGE ====="
+          AAPT="$ANDROID_HOME/build-tools/$(ls \
+            "$ANDROID_HOME/build-tools" | sort -V | tail -1)/aapt"
+
+          "$AAPT" dump badging "$APK" \
+            | grep -E "package:|launchable-activity:"
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p artifact
+
+          cp diagnostic_app/build/app/outputs/flutter-apk/app-debug.apk \
+             artifact/Digital24-Diagnostic.apk
+
+          ls -lh artifact/
+
+      - name: Upload Diagnostic APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24-Diagnostic-APK
+          path: artifact/Digital24-Diagnostic.apk
+          if-no-files-found: error
+          retention-days: 7
