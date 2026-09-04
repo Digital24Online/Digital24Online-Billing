@@ -21,7 +21,7 @@ jobs:
         run: |
           flutter create \
             --org com.digital24online \
-            --project-name firebase_full_test \
+            --project-name digital24online \
             --platforms android \
             firebase_full_test
 
@@ -51,27 +51,48 @@ jobs:
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
-          if "com.google.gms.google-services" not in text:
-              text = text.replace(
-                  "plugins {",
-                  "plugins {\n"
-                  "    id(\"com.google.gms.google-services\") version \"4.4.4\" apply false"
-              )
+          text = text.replace(
+              'id("dev.flutter.flutter-plugin-loader") version "1.0.0"',
+              'id("dev.flutter.flutter-plugin-loader") version "1.0.0"\n'
+              '    id("com.google.gms.google-services") version "4.4.4" apply false'
+          )
 
           settings.write_text(text)
 
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          if "com.google.gms.google-services" not in text:
-              text = text.replace(
-                  "plugins {",
-                  "plugins {\n"
-                  "    id(\"com.google.gms.google-services\")"
-              )
+          text = text.replace(
+              'id("dev.flutter.flutter-gradle-plugin")',
+              'id("dev.flutter.flutter-gradle-plugin")\n'
+              '    id("com.google.gms.google-services")'
+          )
+
+          text = text.replace(
+              'applicationId = "com.digital24online.digital24online"',
+              'applicationId = "com.digital24online"'
+          )
+
+          text = text.replace(
+              'namespace = "com.digital24online.digital24online"',
+              'namespace = "com.digital24online"'
+          )
 
           app.write_text(text)
           PY
+
+      - name: Verify Firebase package configuration
+        working-directory: firebase_full_test
+        run: |
+          echo "===== settings.gradle.kts ====="
+          cat android/settings.gradle.kts
+
+          echo "===== app/build.gradle.kts ====="
+          cat android/app/build.gradle.kts
+
+          echo "===== google-services package check ====="
+          grep -o '"package_name": "[^"]*"' \
+            android/app/google-services.json || true
 
       - name: Replace test main.dart
         working-directory: firebase_full_test
@@ -88,13 +109,10 @@ jobs:
             String result;
 
             try {
-              // 1. Firebase Core
               final app = await Firebase.initializeApp();
 
-              // 2. Firebase Auth
               final auth = FirebaseAuth.instance;
 
-              // 3. Cloud Firestore
               final firestore = FirebaseFirestore.instance;
 
               result =
@@ -102,7 +120,8 @@ jobs:
                   'App name: ${app.name}\n'
                   'App ID: ${app.options.appId}\n'
                   'Project ID: ${app.options.projectId}\n'
-                  'Auth initialized: ${auth.app.name == app.name}\n'
+                  'Auth initialized: '
+                  '${auth.app.name == app.name}\n'
                   'Firestore initialized: '
                   '${firestore.app.name == app.name}';
             } catch (e) {
