@@ -48,7 +48,7 @@ jobs:
           cp android/app/google-services.json \
              firebase_full_test/android/app/google-services.json
 
-      - name: Configure Kotlin and Firebase
+      - name: Configure Android
         working-directory: firebase_full_test
         run: |
           python3 - <<'PY'
@@ -63,11 +63,12 @@ jobs:
               'id("org.jetbrains.kotlin.android") version "2.3.21" apply false'
           )
 
-          text = text.replace(
-              'id("dev.flutter.flutter-plugin-loader") version "1.0.0"',
-              'id("dev.flutter.flutter-plugin-loader") version "1.0.0"\n'
-              '    id("com.google.gms.google-services") version "4.4.4" apply false'
-          )
+          if 'id("com.google.gms.google-services")' not in text:
+              text = text.replace(
+                  'id("dev.flutter.flutter-plugin-loader") version "1.0.0"',
+                  'id("dev.flutter.flutter-plugin-loader") version "1.0.0"\n'
+                  '    id("com.google.gms.google-services") version "4.4.4" apply false'
+              )
 
           settings.write_text(text)
 
@@ -75,11 +76,12 @@ jobs:
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          text = text.replace(
-              'id("dev.flutter.flutter-gradle-plugin")',
-              'id("dev.flutter.flutter-gradle-plugin")\n'
-              '    id("com.google.gms.google-services")'
-          )
+          if 'id("com.google.gms.google-services")' not in text:
+              text = text.replace(
+                  'id("dev.flutter.flutter-gradle-plugin")',
+                  'id("dev.flutter.flutter-gradle-plugin")\n'
+                  '    id("com.google.gms.google-services")'
+              )
 
           text = text.replace(
               'applicationId = "com.digital24online.digital24online"',
@@ -91,29 +93,52 @@ jobs:
               'namespace = "com.digital24online"'
           )
 
-          text = text.replace(
-              'jvmTarget = JavaVersion.VERSION_11',
-              'jvmTarget = JavaVersion.VERSION_17'
-          )
+          # Remove old Kotlin jvmTarget/compilerOptions blocks if present.
+          lines = text.splitlines()
+          cleaned = []
+          skip_old = False
+          brace_depth = 0
 
-          text = text.replace(
-              'JavaVersion.VERSION_11',
-              'JavaVersion.VERSION_17'
-          )
+          for line in lines:
+              stripped = line.strip()
+
+              if stripped.startswith('kotlinOptions {'):
+                  skip_old = True
+                  brace_depth = 1
+                  continue
+
+              if skip_old:
+                  brace_depth += line.count('{')
+                  brace_depth -= line.count('}')
+
+                  if brace_depth <= 0:
+                      skip_old = False
+
+                  continue
+
+              cleaned.append(line)
+
+          text = '\n'.join(cleaned) + '\n'
+
+          # Add the Kotlin 2.3 compilerOptions DSL.
+          if 'compilerOptions {' not in text:
+              text = text.replace(
+                  'android {',
+                  '''android {
+          '''
+              )
+
+              text += '''
+          import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+          kotlin {
+              compilerOptions {
+                  jvmTarget.set(JvmTarget.JVM_17)
+              }
+          }
+          '''
 
           app.write_text(text)
-
-          # gradle.properties
-          gradle_properties = Path("android/gradle.properties")
-          text = gradle_properties.read_text()
-
-          if "android.useAndroidX=true" not in text:
-              text += "\nandroid.useAndroidX=true\n"
-
-          if "android.enableJetifier=true" not in text:
-              text += "android.enableJetifier=true\n"
-
-          gradle_properties.write_text(text)
           PY
 
       - name: Verify Android configuration
@@ -123,11 +148,14 @@ jobs:
           grep -o '"package_name": "[^"]*"' \
             android/app/google-services.json || true
 
-          echo "===== Kotlin configuration ====="
+          echo "===== Kotlin plugin ====="
           grep -n "kotlin.android" android/settings.gradle.kts || true
 
-          echo "===== Java configuration ====="
-          grep -n "VERSION_17" android/app/build.gradle.kts || true
+          echo "===== Compiler Options ====="
+          grep -n -A5 "compilerOptions" android/app/build.gradle.kts || true
+
+          echo "===== Application ID ====="
+          grep -n "applicationId" android/app/build.gradle.kts || true
 
       - name: Replace test main.dart
         working-directory: firebase_full_test
