@@ -1,0 +1,221 @@
+name: Test-15 Full Firebase Release Startup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Android project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24startup15 \
+            --org=com.digital24online \
+            build_test
+
+      - name: Copy current project files
+        run: |
+          rm -rf build_test/lib
+          cp -R lib build_test/lib
+
+          cp pubspec.yaml build_test/pubspec.yaml
+
+          if [ -d assets ]; then
+            cp -R assets build_test/assets
+          fi
+
+          if [ -f android/app/google-services.json ]; then
+            mkdir -p build_test/android/app
+            cp android/app/google-services.json \
+              build_test/android/app/google-services.json
+          else
+            echo "ERROR: google-services.json not found"
+            exit 1
+          fi
+
+      - name: Configure Firebase, Kotlin and Java
+        working-directory: build_test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # -------------------------------------------------
+          # Configure Kotlin plugin and Google Services plugin
+          # -------------------------------------------------
+          p = Path("android/settings.gradle.kts")
+          text = p.read_text()
+
+          text = re.sub(
+              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"\s+apply\s+false',
+              'id("org.jetbrains.kotlin.android") version "2.3.21" apply false',
+              text
+          )
+
+          if 'com.google.gms.google-services' not in text:
+              marker = 'plugins {'
+              text = text.replace(
+                  marker,
+                  '''plugins {
+              id("com.google.gms.google-services") version "4.4.4" apply false
+              ''',
+                  1
+              )
+
+          p.write_text(text)
+
+          # -------------------------------------------------
+          # Configure Android app Gradle
+          # -------------------------------------------------
+          p = Path("android/app/build.gradle.kts")
+          text = p.read_text()
+
+          # Add Google Services plugin
+          if 'id("com.google.gms.google-services")' not in text:
+              marker = 'plugins {'
+              text = text.replace(
+                  marker,
+                  '''plugins {
+              id("com.google.gms.google-services")
+              ''',
+                  1
+              )
+
+          # Force Java 17
+          text = re.sub(
+              r'sourceCompatibility\s*=\s*JavaVersion\.VERSION_\d+',
+              'sourceCompatibility = JavaVersion.VERSION_17',
+              text
+          )
+
+          text = re.sub(
+              r'targetCompatibility\s*=\s*JavaVersion\.VERSION_\d+',
+              'targetCompatibility = JavaVersion.VERSION_17',
+              text
+          )
+
+          # Remove old kotlinOptions
+          text = re.sub(
+              r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          # Remove existing Kotlin compilerOptions
+          text = re.sub(
+              r'\n\s*kotlin\s*\{\s*compilerOptions\s*\{.*?\n\s*\}\s*\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          # Add modern Kotlin JVM 17 configuration
+          marker = 'android {'
+
+          replacement = '''android {
+              kotlin {
+                  compilerOptions {
+                      jvmTarget.set(
+                          org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+                      )
+                  }
+              }
+          '''
+
+          text = text.replace(marker, replacement, 1)
+
+          p.write_text(text)
+          PY
+
+      - name: Verify Firebase configuration
+        working-directory: build_test
+        run: |
+          echo "===== Firebase configuration ====="
+          test -s android/app/google-services.json
+          grep -n "com.google.gms.google-services" android/settings.gradle.kts
+          grep -n "com.google.gms.google-services" android/app/build.gradle.kts
+
+          echo "===== Kotlin configuration ====="
+          grep -n "org.jetbrains.kotlin.android" android/settings.gradle.kts
+          grep -n "JvmTarget.JVM_17" android/app/build.gradle.kts
+
+          echo "===== Java configuration ====="
+          grep -n "sourceCompatibility" android/app/build.gradle.kts
+          grep -n "targetCompatibility" android/app/build.gradle.kts
+
+      - name: Verify Firebase Android package
+        working-directory: build_test
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(
+              Path("android/app/google-services.json").read_text()
+          )
+
+          clients = data.get("client", [])
+
+          packages = []
+
+          for client in clients:
+              package = (
+                  client
+                  .get("client_info", {})
+                  .get("android_client_info", {})
+                  .get("package_name")
+              )
+
+              if package:
+                  packages.append(package)
+
+          print("Firebase Android packages:")
+          for package in packages:
+              print(package)
+
+          if "com.digital24online" not in packages:
+              raise SystemExit(
+                  "ERROR: Firebase config does not contain "
+                  "com.digital24online"
+              )
+          PY
+
+      - name: Get dependencies
+        working-directory: build_test
+        run: |
+          flutter pub get
+
+      - name: Analyze current main.dart
+        working-directory: build_test
+        run: |
+          flutter analyze lib/main.dart
+
+      - name: Build Test-15 Release APK
+        working-directory: build_test
+        run: |
+          flutter build apk \
+            --release \
+            --target=lib/main.dart
+
+      - name: Verify Release APK
+        run: |
+          test -s build_test/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload Test-15 Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24Online-Test15-Release-Firebase-APK
+          path: build_test/build/app/outputs/flutter-apk/app-release.apk
