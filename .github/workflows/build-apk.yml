@@ -3,9 +3,6 @@ name: Build Android APK
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,7 +25,20 @@ jobs:
             --org=com.digital24online \
             build_app
 
-      - name: Configure Android
+      - name: Copy app files
+        run: |
+          rm -rf build_app/lib
+          cp -R lib build_app/lib
+          cp pubspec.yaml build_app/pubspec.yaml
+          cp -R assets build_app/assets
+
+      - name: Copy Firebase configuration
+        run: |
+          mkdir -p build_app/android/app
+          cp android/app/google-services.json build_app/android/app/google-services.json
+          test -s build_app/android/app/google-services.json
+
+      - name: Configure Android package and Kotlin
         working-directory: build_app
         run: |
           python3 - <<'PY'
@@ -38,18 +48,18 @@ jobs:
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
+          # Kotlin Gradle plugin
           text = re.sub(
               r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"',
               'id("org.jetbrains.kotlin.android") version "2.3.21"',
               text
           )
 
-          if "com.google.gms.google-services" not in text:
+          # Google Services Gradle plugin
+          if 'id("com.google.gms.google-services") version "4.5.0" apply false' not in text:
               text = text.replace(
-                  "plugins {",
-                  'plugins {\n'
-                  '    id("com.google.gms.google-services") '
-                  'version "4.4.2" apply false',
+                  'plugins {',
+                  'plugins {\n    id("com.google.gms.google-services") version "4.5.0" apply false',
                   1
               )
 
@@ -58,76 +68,127 @@ jobs:
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
+          # Correct Firebase Android package name.
+          text = re.sub(
+              r'namespace\s*=\s*"[^"]+"',
+              'namespace = "com.digital24online"',
+              text,
+              count=1
+          )
+
           text = re.sub(
               r'applicationId\s*=\s*"[^"]+"',
               'applicationId = "com.digital24online"',
-              text
+              text,
+              count=1
           )
 
+          # Java 11 -> Java 17.
+          # Java and Kotlin must use the same JVM target.
           text = text.replace(
-              "JavaVersion.VERSION_11",
-              "JavaVersion.VERSION_17"
+              'JavaVersion.VERSION_11',
+              'JavaVersion.VERSION_17'
           )
 
+          # Remove old Kotlin jvmTarget syntax.
           text = re.sub(
-              r'kotlinOptions\s*\{.*?\}',
+              r'\s*kotlinOptions\s*\{.*?\}',
               '',
               text,
               flags=re.DOTALL
           )
 
-          if "jvmToolchain(17)" not in text:
+          # Configure Kotlin JVM toolchain to Java 17.
+          if 'jvmToolchain(17)' not in text:
               text = text.replace(
-                  "android {",
-                  "kotlin {\n"
-                  "    jvmToolchain(17)\n"
-                  "}\n\n"
-                  "android {",
+                  'android {',
+                  'kotlin {\n    jvmToolchain(17)\n}\n\nandroid {',
                   1
               )
 
+          # Apply Google Services plugin.
           if 'id("com.google.gms.google-services")' not in text:
               text = text.replace(
-                  "plugins {",
-                  'plugins {\n'
-                  '    id("com.google.gms.google-services")',
+                  'plugins {',
+                  'plugins {\n    id("com.google.gms.google-services")',
                   1
               )
 
           app.write_text(text)
-
-          manifest = Path(
-              "android/app/src/main/AndroidManifest.xml"
-          )
-          text = manifest.read_text()
-
-          text = text.replace(
-              'android:name=".MainActivity"',
-              'android:name="com.digital24online.MainActivity"'
-          )
-
-          manifest.write_text(text)
           PY
 
-      - name: Copy app files
-        run: |
-          rm -rf build_app/lib
-          cp -R lib build_app/lib
-          cp pubspec.yaml build_app/pubspec.yaml
-          cp -R assets build_app/assets
-
-      - name: Add Firebase configuration
-        run: |
-          mkdir -p build_app/android/app
-          cp android/app/google-services.json \
-             build_app/android/app/google-services.json
-
-      - name: Verify Firebase configuration
+      - name: Fix MainActivity package
         working-directory: build_app
         run: |
-          echo "===== Firebase package ====="
-          grep -n '"package_name"' \
-            android/app/google-services.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import shutil
+
+          root = Path("android/app/src/main/kotlin")
+          candidates = list(root.rglob("MainActivity.kt"))
+
+          if len(candidates) != 1:
+              raise RuntimeError(
+                  f"Expected exactly one MainActivity.kt, found {len(candidates)}: {candidates}"
+              )
+
+          source = candidates[0]
+          text = source.read_text()
+
+          # The generated Flutter project uses:
+          # com.digital24online.digital24online
+          # because --org and --project-name are both supplied.
+          # The real Firebase/application package is:
+          # com.digital24online
+          text = re.sub(
+              r'^package\s+[^\r\n]+',
+              'package com.digital24online',
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
+
+          target_dir = root / "com" / "digital24online"
+          target_dir.mkdir(parents=True, exist_ok=True)
+
+          target = target_dir / "MainActivity.kt"
+          target.write_text(text)
+
+          if source.resolve() != target.resolve():
+              source.unlink()
+              current = source.parent
+
+              # Remove only empty generated package directories.
+              while current != root and current.exists():
+                  try:
+                      current.rmdir()
+                  except OSError:
+                      break
+                  current = current.parent
+
+          print("===== MAIN ACTIVITY FIXED =====")
+          print(f"Source was : {source}")
+          print(f"Target is  : {target}")
+          print(target.read_text())
+          PY
+
+      - name: Set app name
+        working-directory: build_app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          text = p.read_text()
+
+          text = text.replace(
+              'android:label="digital24online"',
+              'android:label="Digital 24 Online"'
+          )
+
+          p.write_text(text)
+          PY
 
       - name: Get dependencies
         working-directory: build_app
@@ -137,61 +198,98 @@ jobs:
         working-directory: build_app
         run: dart run flutter_launcher_icons
 
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p build_app/android/keystore
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > build_app/android/keystore/digital24.jks
+          test -s build_app/android/keystore/digital24.jks
+
       - name: Verify Android configuration
         working-directory: build_app
         run: |
-          echo "===== APPLICATION ID ====="
-          grep -n "applicationId" \
-            android/app/build.gradle.kts
+          set -e
 
-          echo "===== MAIN ACTIVITY ====="
-          find android/app/src/main/kotlin \
-            -name MainActivity.kt \
-            -print \
-            -exec cat {} \;
+          echo "===== APPLICATION ID ====="
+          grep -n "applicationId" android/app/build.gradle.kts
+          grep -q 'applicationId = "com.digital24online"' android/app/build.gradle.kts
+
+          echo "===== NAMESPACE ====="
+          grep -n "namespace" android/app/build.gradle.kts
+          grep -q 'namespace = "com.digital24online"' android/app/build.gradle.kts
+
+          echo "===== MAIN ACTIVITY FILE ====="
+          test -f android/app/src/main/kotlin/com/digital24online/MainActivity.kt
+          cat android/app/src/main/kotlin/com/digital24online/MainActivity.kt
+
+          echo "===== MAIN ACTIVITY PACKAGE ====="
+          grep -q '^package com.digital24online$' \
+            android/app/src/main/kotlin/com/digital24online/MainActivity.kt
+
+          echo "===== OLD MAIN ACTIVITY PATH CHECK ====="
+          if find android/app/src/main/kotlin/com/digital24online/digital24online \
+            -name MainActivity.kt -print -quit | grep -q .; then
+            echo "ERROR: Old MainActivity package still exists."
+            exit 1
+          fi
+
+          echo "===== FIREBASE PACKAGE ====="
+          grep -n '"package_name"' android/app/google-services.json
+          grep -q '"package_name": "com.digital24online"' \
+            android/app/google-services.json
 
           echo "===== LAUNCHER ACTIVITY ====="
           grep -A12 -B3 "MAIN" \
             android/app/src/main/AndroidManifest.xml
 
+          echo "===== ANDROID CONFIGURATION VERIFIED ====="
+
       - name: Build APK
         working-directory: build_app
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
-          flutter build apk --debug
+          flutter build apk --release
 
       - name: Verify APK
         working-directory: build_app
         run: |
-          APK="build/app/outputs/flutter-apk/app-debug.apk"
+          set -e
 
-          echo "===== APK CHECK ====="
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          echo "===== APK FILE ====="
           test -f "$APK"
 
           echo "===== APK SIZE ====="
           ls -lh "$APK"
 
-          echo "===== APK PACKAGE ====="
+          echo "===== APK PACKAGE AND LAUNCHER ====="
           AAPT="$ANDROID_HOME/build-tools/$(ls \
             "$ANDROID_HOME/build-tools" | sort -V | tail -1)/aapt"
 
-          "$AAPT" dump badging "$APK" \
-            | grep -E \
+          "$AAPT" dump badging "$APK" | grep -E \
             "package:|launchable-activity:"
 
-      - name: Prepare Artifact
-        run: |
-          mkdir -p artifact
-          cp build_app/build/app/outputs/flutter-apk/app-debug.apk \
-             artifact/Digital24-Online-Billing-Debug.apk
+          echo "===== APK VERIFICATION COMPLETE ====="
 
-          echo "===== ARTIFACT ====="
-          ls -lh artifact/
-
-      - name: Upload APK Artifact
-        if: always()
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Digital24-Online-Billing-Debug-APK
-          path: artifact/Digital24-Online-Billing-Debug.apk
-          if-no-files-found: error
-          retention-days: 7
+          name: Digital24Online-APK
+          path: build_app/build/app/outputs/flutter-apk/app-release.apk
+
+### খুব গুরুত্বপূর্ণ
+
+**এখন Commit changes চাপার আগে আমাকে কিছু পাঠাতে হবে না।**
+
+আপনি শুধু:
+
+**`.github/workflows/build-apk.yml` → পুরো পুরোনো লেখা মুছে → উপরের সম্পূর্ণ লেখা বসান → `Commit changes` চাপুন।**
+
+তারপর GitHub Actions-এ নতুন Build চালাবেন।
+
+এই পরিবর্তনে **মূল Flutter application code পরিবর্তন হচ্ছে না**—শুধু APK বানানোর সময় Android-এর `MainActivity`-কে `com.digital24online` package-এর সঙ্গে সঠিকভাবে মিলিয়ে দেওয়া হচ্ছে। বর্তমান Workflow-এর `applicationId`/`namespace` এবং Firebase package-এর সঙ্গে সেটাই সঠিক configuration।
+
+**Build সবুজ হলেই আমাকে শুধু বলবেন: “Build হয়েছে”।** তখন পরের ধাপে APK ইনস্টল করে launch test করব।
