@@ -1245,285 +1245,236 @@ class DatabaseHelper {
   }
 
   // পুরোনো main.dart-এর জন্য compatibility method।
-  Future<int> addPayment(
-    Map<String, dynamic> data,
-  ) async {
-    final db = await database;
+Future<int> addPayment(
+  Map<String, dynamic> data,
+) async {
+  final db = await database;
 
-    final customerId =
-        (data['customer_id'] as num?)
-                ?.toInt();
+  final customerId =
+      (data['customer_id'] as num?)?.toInt();
 
-    if (customerId == null) {
-      throw Exception(
-        'Customer ID পাওয়া যায়নি',
+  if (customerId == null) {
+    throw Exception(
+      'Customer ID পাওয়া যায়নি',
+    );
+  }
+
+  final amount =
+      (data['amount'] as num?)?.toDouble() ?? 0;
+
+  if (amount <= 0) {
+    throw Exception(
+      'Payment amount সঠিক নয়',
+    );
+  }
+
+  final paymentDate =
+      data['payment_date']?.toString() ?? _today();
+
+  final billId =
+      (data['bill_id'] as num?)?.toInt();
+
+  final staffId =
+      (data['staff_id'] as num?)?.toInt();
+
+  final userId =
+      data['user_id']?.toString() ?? '';
+
+  final note =
+      data['note']?.toString() ?? '';
+
+  return db.transaction(
+    (txn) async {
+      // Customer must belong to active Billing.
+      final customerRows = await txn.query(
+        'customers',
+        where: 'id = ? AND billing_id = ?',
+        whereArgs: [
+          customerId,
+          _activeBillingId,
+        ],
+        limit: 1,
       );
-    }
-    
-    final amount =
-        (data['amount'] as num?)
-                ?.toDouble() ??
-            0;
 
-    if (amount <= 0) {
-      throw Exception(
-        'Payment amount সঠিক নয়',
-      );
-    }
-
-    final paymentDate =
-        data['payment_date']
-                ?.toString() ??
-            _today();
-    
-    final billId =
-        (data['bill_id'] as num?)
-            ?.toInt();
-
-    final staffId =
-        (data['staff_id'] as num?)
-            ?.toInt();
-
-    final userId =
-        data['user_id']
-                ?.toString() ??
-            '';
-
-    final note =
-        data['note']
-                ?.toString() ??
-            '';
-
-    return db.transaction(
-      (txn) async {
-        int? actualBillId = billId;
-
-        if (actualBillId == null) {
-          final customer =
-              await txn.query(
-            'customers',
-            where: 'id = ? AND billing_id = ?',
-            whereArgs: [customerId, _activeBillingId],
-            limit: 1,
-          );
-
-          if (customer.isEmpty) {
-            throw Exception(
-              'Customer পাওয়া যায়নি',
-            );
-          }
-          
-          final customerRow =
-              customer.first;
-
-          final billDate =
-              (customerRow['bill_date']
-                          as num?)
-                      ?.toInt() ??
-                  7;
-
-          final billAmount =
-              (customerRow['amount']
-                          as num?)
-                      ?.toDouble() ??
-                  0;
-
-          final month =
-              _monthFromDate(
-            paymentDate,
-          );
-
-          final existing =
-              await txn.query(
-            'bills',
-            where:
-                'billing_id = ? AND customer_id = ? AND billing_month = ?',
-            whereArgs: [
-              _activeBillingId,
-              customerId,
-              month,
-            ],
-            limit: 1,
-          );
-          
-          if (existing.isNotEmpty) {
-            actualBillId =
-                (existing.first['id'] as num)
-                    .toInt();
-          } else {
-            actualBillId =
-                await txn.insert(
-              'bills',
-              {
-                'billing_id':
-                    _activeBillingId,
-                'customer_id':
-                    customerId,
-                'billing_month':
-                    month,
-                'bill_date':
-                    billDate,
-                'amount':
-                    billAmount,
-                'created_at':
-                    DateTime.now()
-                        .toIso8601String(),
-                'updated_at':
-                    DateTime.now()
-                        .toIso8601String(),
-              },
-            );
-          }
-        }
-        
-        if (actualBillId != null) {
-          final bill =
-              await txn.query(
-            'bills',
-            where: 'id = ?',
-            whereArgs: [
-              actualBillId,
-            ],
-            limit: 1,
-          );
-          
-          if (bill.isNotEmpty) {
-            final paidResult =
-                await txn.rawQuery(
-              '''
-              SELECT COALESCE(
-                SUM(amount),
-                0
-              ) AS total
-              FROM payments
-              WHERE bill_id = ?
-              ''',
-              [actualBillId],
-            );
-
-            final alreadyPaid =
-                (paidResult.first['total']
-                            as num?)
-                        ?.toDouble() ??
-                    0;
-
-            final billAmount =
-                (bill.first['amount']
-                            as num?)
-                        ?.toDouble() ??
-                    0;
-
-            if (amount >
-                billAmount -
-                    alreadyPaid +
-                    0.0001) {
-              throw Exception(
-                'Payment bill-এর বকেয়ার চেয়ে বেশি',
-              );
-            }
-          }
-        }
-        
-        final receiptNo =
-            _receiptNumber();
-
-        final paymentId =
-            await txn.insert(
-          'payments',
-          {
-            'billing_id':
-                _activeBillingId,
-            'customer_id':
-                customerId,
-            'bill_id':
-                actualBillId,
-            'user_id':
-                userId,
-            'amount':
-                amount,
-            'payment_date':
-                paymentDate,
-            'receipt_no':
-                receiptNo,
-            'staff_id':
-                staffId,
-            'note':
-                note,
-            'created_at':
-                DateTime.now()
-                    .toIso8601String(),
-            'updated_at':
-                DateTime.now()
-                    .toIso8601String(),
-          },
+      if (customerRows.isEmpty) {
+        throw Exception(
+          'Customer বর্তমান Billing-এর নয়',
         );
-        
-        // Legacy customer fields update।
-        final paidResult =
-            await txn.rawQuery(
+      }
+
+      final customer = customerRows.first;
+
+      int? actualBillId = billId;
+
+      // Bill ID না থাকলে current month's bill খুঁজবে/তৈরি করবে।
+      if (actualBillId == null) {
+        final billDate =
+            (customer['bill_date'] as num?)?.toInt() ?? 7;
+
+        final billAmount =
+            (customer['amount'] as num?)?.toDouble() ?? 0;
+
+        final month =
+            _monthFromDate(paymentDate);
+
+        final existingBills = await txn.query(
+          'bills',
+          where:
+              'billing_id = ? AND customer_id = ? AND billing_month = ?',
+          whereArgs: [
+            _activeBillingId,
+            customerId,
+            month,
+          ],
+          limit: 1,
+        );
+
+        if (existingBills.isNotEmpty) {
+          actualBillId =
+              (existingBills.first['id'] as num).toInt();
+        } else {
+          actualBillId = await txn.insert(
+            'bills',
+            {
+              'billing_id': _activeBillingId,
+              'customer_id': customerId,
+              'billing_month': month,
+              'bill_date': billDate,
+              'amount': billAmount,
+              'created_at':
+                  DateTime.now().toIso8601String(),
+              'updated_at':
+                  DateTime.now().toIso8601String(),
+            },
+          );
+        }
+      }
+
+      // Bill must belong to active Billing and selected Customer.
+      if (actualBillId != null) {
+        final billRows = await txn.query(
+          'bills',
+          where:
+              'id = ? AND billing_id = ? AND customer_id = ?',
+          whereArgs: [
+            actualBillId,
+            _activeBillingId,
+            customerId,
+          ],
+          limit: 1,
+        );
+
+        if (billRows.isEmpty) {
+          throw Exception(
+            'Bill বর্তমান Billing বা Customer-এর সাথে মিলে না',
+          );
+        }
+
+        final bill = billRows.first;
+
+        // Only payments from the same Billing are counted.
+        final paidResult = await txn.rawQuery(
           '''
-          SELECT COALESCE(
-            SUM(amount),
-            0
-          ) AS total
+          SELECT COALESCE(SUM(amount), 0) AS total
           FROM payments
-          WHERE customer_id = ?
+          WHERE billing_id = ?
+            AND customer_id = ?
+            AND bill_id = ?
           ''',
-          [customerId],
+          [
+            _activeBillingId,
+            customerId,
+            actualBillId,
+          ],
         );
 
-        final totalPaid =
-            (paidResult.first['total']
-                        as num?)
+        final alreadyPaid =
+            (paidResult.first['total'] as num?)
                     ?.toDouble() ??
                 0;
 
-        final customerRows =
-            await txn.query(
-          'customers',
-          where: 'id = ?',
-          whereArgs: [customerId],
-          limit: 1,
-        );
-                
-        if (customerRows.isNotEmpty) {
-          final customer =
-              customerRows.first;
+        final billAmount =
+            (bill['amount'] as num?)?.toDouble() ?? 0;
 
-          final totalAmount =
-              (customer['amount']
-                          as num?)
-                      ?.toDouble() ??
-                  0;
+        final remainingDue =
+            billAmount - alreadyPaid;
 
-          final due =
-              totalAmount -
-                  totalPaid;
-
-          await txn.update(
-            'customers',
-            {
-              'paid_amount':
-                  totalPaid,
-              'due_amount':
-                  due < 0
-                      ? 0
-                      : due,
-              'payment_date':
-                  paymentDate,
-              'updated_at':
-                  DateTime.now()
-                      .toIso8601String(),
-            },
-            where: 'id = ?',
-            whereArgs: [customerId],
+        // Payment cannot be greater than remaining bill due.
+        if (amount > remainingDue + 0.0001) {
+          throw Exception(
+            'Payment bill-এর বকেয়ার চেয়ে বেশি',
           );
         }
+      }
 
-        return paymentId;
-      },
-    );
-  }
+      // Save payment.
+      final receiptNo = _receiptNumber();
+
+      final paymentId = await txn.insert(
+        'payments',
+        {
+          'billing_id': _activeBillingId,
+          'customer_id': customerId,
+          'bill_id': actualBillId,
+          'user_id': userId,
+          'amount': amount,
+          'payment_date': paymentDate,
+          'receipt_no': receiptNo,
+          'staff_id': staffId,
+          'note': note,
+          'created_at':
+              DateTime.now().toIso8601String(),
+          'updated_at':
+              DateTime.now().toIso8601String(),
+        },
+      );
+
+      // Calculate total paid only for this Billing and Customer.
+      final totalPaidResult = await txn.rawQuery(
+        '''
+        SELECT COALESCE(SUM(amount), 0) AS total
+        FROM payments
+        WHERE billing_id = ?
+          AND customer_id = ?
+        ''',
+        [
+          _activeBillingId,
+          customerId,
+        ],
+      );
+
+      final totalPaid =
+          (totalPaidResult.first['total'] as num?)
+                  ?.toDouble() ??
+              0;
+
+      final totalAmount =
+          (customer['amount'] as num?)?.toDouble() ?? 0;
+
+      final due = totalAmount - totalPaid;
+
+      // Update customer Paid/Due.
+      await txn.update(
+        'customers',
+        {
+          'paid_amount': totalPaid,
+          'due_amount': due < 0 ? 0 : due,
+          'payment_date': paymentDate,
+          'updated_at':
+              DateTime.now().toIso8601String(),
+        },
+        where:
+            'id = ? AND billing_id = ?',
+        whereArgs: [
+          customerId,
+          _activeBillingId,
+        ],
+      );
+
+      return paymentId;
+    },
+  );
+}
 
   // নতুন named-parameter API।
   Future<int> addPaymentNew({
