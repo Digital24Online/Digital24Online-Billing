@@ -25,18 +25,23 @@ const _brandPurple = Color(0xFF6D3FD3);
 const _brandPink = Color(0xFFE91E63);
 const _pageBg = Color(0xFFF4F7FB);
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  bool firebaseReady = false;
+
+  try {
+    await firebase_core.Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    firebaseReady = true;
+  } catch (_) {
+    firebaseReady = false;
+  }
+
   runApp(
-    const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        body: Center(
-          child: Text(
-            'Digital 24 Online Billing',
-            style: TextStyle(fontSize: 22),
-          ),
-        ),
-      ),
+    Digital24OnlineBilling(
+      firebaseReady: firebaseReady,
     ),
   );
 }
