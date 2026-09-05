@@ -1,0 +1,277 @@
+name: Test-18 Firebase Dart Only Runtime
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Flutter project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24firebase18 \
+            --org=com.digital24online \
+            build_test
+
+      - name: Copy Firebase Dart configuration
+        run: |
+          test -s lib/firebase_options.dart
+
+          cp lib/firebase_options.dart \
+            build_test/lib/firebase_options.dart
+
+      - name: Create minimal Firebase test app
+        run: |
+          cat > build_test/lib/main.dart <<'DART'
+          import 'package:flutter/material.dart';
+          import 'package:firebase_core/firebase_core.dart';
+
+          import 'firebase_options.dart';
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            String status;
+
+            try {
+              await Firebase.initializeApp(
+                options: DefaultFirebaseOptions.currentPlatform,
+              );
+
+              status = 'FIREBASE DART INITIALIZATION OK';
+            } catch (e, stackTrace) {
+              status = 'FIREBASE INITIALIZATION ERROR\n\n$e\n\n$stackTrace';
+            }
+
+            runApp(
+              Test18App(status: status),
+            );
+          }
+
+          class Test18App extends StatelessWidget {
+            final String status;
+
+            const Test18App({
+              super.key,
+              required this.status,
+            });
+
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Test-18'),
+                  ),
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        status,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+          }
+          DART
+
+          test -s build_test/lib/main.dart
+
+      - name: Force correct Android package
+        working-directory: build_test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("android/app/build.gradle.kts")
+          text = p.read_text()
+
+          text = re.sub(
+              r'namespace\s*=\s*"[^"]+"',
+              'namespace = "com.digital24online"',
+              text
+          )
+
+          text = re.sub(
+              r'applicationId\s*=\s*"[^"]+"',
+              'applicationId = "com.digital24online"',
+              text
+          )
+
+          p.write_text(text)
+          PY
+
+      - name: Configure Kotlin and Java
+        working-directory: build_test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # ---------------------------------------------
+          # Kotlin plugin
+          # ---------------------------------------------
+          p = Path("android/settings.gradle.kts")
+          text = p.read_text()
+
+          text = re.sub(
+              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"\s+apply\s+false',
+              'id("org.jetbrains.kotlin.android") version "2.3.21" apply false',
+              text
+          )
+
+          p.write_text(text)
+
+          # ---------------------------------------------
+          # Android app Gradle
+          # ---------------------------------------------
+          p = Path("android/app/build.gradle.kts")
+          text = p.read_text()
+
+          text = re.sub(
+              r'sourceCompatibility\s*=\s*JavaVersion\.VERSION_\d+',
+              'sourceCompatibility = JavaVersion.VERSION_17',
+              text
+          )
+
+          text = re.sub(
+              r'targetCompatibility\s*=\s*JavaVersion\.VERSION_\d+',
+              'targetCompatibility = JavaVersion.VERSION_17',
+              text
+          )
+
+          text = re.sub(
+              r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          text = re.sub(
+              r'\n\s*kotlin\s*\{\s*compilerOptions\s*\{.*?\n\s*\}\s*\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          marker = 'android {'
+
+          replacement = '''android {
+              kotlin {
+                  compilerOptions {
+                      jvmTarget.set(
+                          org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+                      )
+                  }
+              }
+          '''
+
+          text = text.replace(marker, replacement, 1)
+
+          p.write_text(text)
+          PY
+
+      - name: Verify Google Services plugin is absent
+        working-directory: build_test
+        run: |
+          if grep -q "com.google.gms.google-services" \
+            android/settings.gradle.kts; then
+            echo "ERROR: Google Services plugin found in settings.gradle.kts"
+            exit 1
+          fi
+
+          if grep -q "com.google.gms.google-services" \
+            android/app/build.gradle.kts; then
+            echo "ERROR: Google Services plugin found in app/build.gradle.kts"
+            exit 1
+          fi
+
+          echo "Google Services Gradle plugin: ABSENT"
+
+      - name: Verify Google Services file is absent
+        working-directory: build_test
+        run: |
+          if [ -f android/app/google-services.json ]; then
+            echo "ERROR: google-services.json must not exist in Test-18"
+            exit 1
+          fi
+
+          echo "google-services.json: ABSENT"
+
+      - name: Verify Android package
+        working-directory: build_test
+        run: |
+          grep -n "namespace" android/app/build.gradle.kts
+          grep -n "applicationId" android/app/build.gradle.kts
+
+          if ! grep -q \
+            'namespace = "com.digital24online"' \
+            android/app/build.gradle.kts; then
+            echo "ERROR: namespace mismatch"
+            exit 1
+          fi
+
+          if ! grep -q \
+            'applicationId = "com.digital24online"' \
+            android/app/build.gradle.kts; then
+            echo "ERROR: applicationId mismatch"
+            exit 1
+          fi
+
+          echo "Android package: OK"
+
+      - name: Add Firebase Core
+        working-directory: build_test
+        run: |
+          flutter pub add firebase_core:^4.14.0
+
+      - name: Get dependencies
+        working-directory: build_test
+        run: |
+          flutter pub get
+
+      - name: Analyze Test-18
+        working-directory: build_test
+        run: |
+          flutter analyze lib/main.dart
+
+      - name: Build Test-18 Release APK
+        working-directory: build_test
+        run: |
+          flutter build apk \
+            --release \
+            --target=lib/main.dart
+
+      - name: Verify APK
+        run: |
+          test -s \
+            build_test/build/app/outputs/flutter-apk/app-release.apk
+
+          echo "Test-18 APK created successfully."
+
+      - name: Upload Test-18 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24Online-Test18-Firebase-Dart-Only-APK
+          path: build_test/build/app/outputs/flutter-apk/app-release.apk
