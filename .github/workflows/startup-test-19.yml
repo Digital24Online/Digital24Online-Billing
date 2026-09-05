@@ -1,0 +1,220 @@
+name: Test-19 Firebase Core Without Initialization
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+
+      - name: Create clean Flutter project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=digital24firebase19 \
+            --org=com.digital24online \
+            build_test
+
+      - name: Force correct Android package
+        working-directory: build_test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("android/app/build.gradle.kts")
+          text = p.read_text()
+
+          text = re.sub(
+              r'namespace\s*=\s*"[^"]+"',
+              'namespace = "com.digital24online"',
+              text
+          )
+
+          text = re.sub(
+              r'applicationId\s*=\s*"[^"]+"',
+              'applicationId = "com.digital24online"',
+              text
+          )
+
+          p.write_text(text)
+          PY
+
+      - name: Configure Java 17 and Kotlin 17
+        working-directory: build_test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # settings.gradle.kts
+          p = Path("android/settings.gradle.kts")
+          text = p.read_text()
+
+          text = re.sub(
+              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"\s+apply\s+false',
+              'id("org.jetbrains.kotlin.android") version "2.3.21" apply false',
+              text
+          )
+
+          p.write_text(text)
+
+          # app/build.gradle.kts
+          p = Path("android/app/build.gradle.kts")
+          text = p.read_text()
+
+          text = re.sub(
+              r'sourceCompatibility\s*=\s*JavaVersion\.VERSION_\d+',
+              'sourceCompatibility = JavaVersion.VERSION_17',
+              text
+          )
+
+          text = re.sub(
+              r'targetCompatibility\s*=\s*JavaVersion\.VERSION_\d+',
+              'targetCompatibility = JavaVersion.VERSION_17',
+              text
+          )
+
+          text = re.sub(
+              r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          text = re.sub(
+              r'\n\s*kotlin\s*\{\s*compilerOptions\s*\{.*?\n\s*\}\s*\}',
+              '',
+              text,
+              flags=re.DOTALL
+          )
+
+          marker = 'android {'
+
+          replacement = '''android {
+              kotlin {
+                  compilerOptions {
+                      jvmTarget.set(
+                          org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+                      )
+                  }
+              }
+          '''
+
+          text = text.replace(marker, replacement, 1)
+
+          p.write_text(text)
+          PY
+
+      - name: Verify Firebase is not configured
+        working-directory: build_test
+        run: |
+          if [ -f android/app/google-services.json ]; then
+            echo "ERROR: google-services.json must not exist"
+            exit 1
+          fi
+
+          if grep -q "com.google.gms.google-services" \
+            android/settings.gradle.kts; then
+            echo "ERROR: Google Services plugin found"
+            exit 1
+          fi
+
+          if grep -q "com.google.gms.google-services" \
+            android/app/build.gradle.kts; then
+            echo "ERROR: Google Services plugin found"
+            exit 1
+          fi
+
+          echo "Firebase Android configuration: ABSENT"
+
+      - name: Add Firebase Core dependency
+        working-directory: build_test
+        run: |
+          flutter pub add firebase_core:^4.14.0
+
+      - name: Create Test-19 application
+        working-directory: build_test
+        run: |
+          cat > lib/main.dart <<'DART'
+          import 'package:flutter/material.dart';
+
+          void main() {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            runApp(
+              const Test19App(),
+            );
+          }
+
+          class Test19App extends StatelessWidget {
+            const Test19App({super.key});
+
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                debugShowCheckedModeBanner: false,
+                home: Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Test-19'),
+                  ),
+                  body: const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'FIREBASE CORE PRESENT\nINITIALIZATION NOT CALLED',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+          }
+          DART
+
+          test -s lib/main.dart
+
+      - name: Get dependencies
+        working-directory: build_test
+        run: |
+          flutter pub get
+
+      - name: Analyze Test-19
+        working-directory: build_test
+        run: |
+          flutter analyze lib/main.dart
+
+      - name: Build Test-19 Release APK
+        working-directory: build_test
+        run: |
+          flutter build apk \
+            --release \
+            --target=lib/main.dart
+
+      - name: Verify APK
+        run: |
+          test -s \
+            build_test/build/app/outputs/flutter-apk/app-release.apk
+
+          echo "Test-19 APK created successfully."
+
+      - name: Upload Test-19 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24Online-Test19-Firebase-Core-No-Init-APK
+          path: build_test/build/app/outputs/flutter-apk/app-release.apk
