@@ -117,6 +117,7 @@ jobs:
           app.write_text(text)
           PY
 
+      # MainActivity package fix applied
       - name: Fix MainActivity package
         working-directory: build_app
         run: |
