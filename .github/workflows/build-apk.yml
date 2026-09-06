@@ -36,9 +36,9 @@ jobs:
         run: |
           mkdir -p build_app/android/app
           cp android/app/google-services.json build_app/android/app/google-services.json
-          test -s build_app/android/app/google-services.json
+                    test -s build_app/android/app/google-services.json
 
-                  - name: Configure Android package, Kotlin and release signing
+      - name: Configure Android package, Kotlin and release signing
         working-directory: build_app
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -258,7 +258,7 @@ jobs:
         working-directory: build_app
         run: flutter pub get
 
-            - name: Generate App Icon
+                  - name: Generate App Icon
         working-directory: build_app
         run: dart run flutter_launcher_icons
 
