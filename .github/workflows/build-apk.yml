@@ -335,7 +335,6 @@ jobs:
 
           echo "===== MAIN ACTIVITY VERIFIED ====="
           cat "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
-          PY
 
       - name: Set app name
         working-directory: build_app
