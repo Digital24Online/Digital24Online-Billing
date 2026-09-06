@@ -290,7 +290,6 @@ jobs:
           import re
 
           root = Path("android/app/src/main/kotlin")
-
           candidates = list(root.rglob("MainActivity.kt"))
 
           if len(candidates) != 1:
@@ -325,16 +324,17 @@ jobs:
                       current.rmdir()
                   except OSError:
                       break
+
                   current = current.parent
 
-          test -f "$target"
+          PY
 
-          grep -q \
-            '^package com.digital24online$' \
-            "$target"
+          test -f "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
+          grep -q '^package com.digital24online$' \
+            "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
 
           echo "===== MAIN ACTIVITY VERIFIED ====="
-          cat "$target"
+          cat "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
           PY
 
       - name: Set app name
