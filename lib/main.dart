@@ -2428,13 +2428,6 @@ class _PackageManagerState extends State<PackageManager> {
 class StaffManager extends StatefulWidget {
   final DatabaseHelper db;
   final bool english;
-  const StaffManager({super.key, required this.db, required this.english});
-  @override State<StaffManager> createState() => _StaffManagerState();
-}
-
-class StaffManager extends StatefulWidget {
-  final DatabaseHelper db;
-  final bool english;
 
   const StaffManager({
     super.key,
