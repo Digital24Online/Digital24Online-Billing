@@ -38,7 +38,7 @@ jobs:
           cp android/app/google-services.json build_app/android/app/google-services.json
           test -s build_app/android/app/google-services.json
 
-            - name: Configure Android package, Kotlin and release signing
+                  - name: Configure Android package, Kotlin and release signing
         working-directory: build_app
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -262,7 +262,7 @@ jobs:
         working-directory: build_app
         run: dart run flutter_launcher_icons
 
-            - name: Restore signing key
+                  - name: Restore signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
