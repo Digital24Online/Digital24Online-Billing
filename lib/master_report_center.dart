@@ -764,40 +764,6 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         bytes: bytes,
       );
 
-      if (!mounted) return;
-
-      if (savedPath == null ||
-          savedPath.trim().isEmpty) {
-        _error(
-          t(
-            'PDF সংরক্ষণ করা হয়নি',
-            'PDF was not saved',
-          ),
-        );
-      } else {
-        _error(
-          t(
-            'PDF সফলভাবে সংরক্ষণ হয়েছে',
-            'PDF saved successfully',
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        _error(
-          '${t(
-            'PDF Download করতে সমস্যা: ',
-            'PDF download error: ',
-          )}$e',
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => busy = false);
-      }
-    }
-  }
-
   Future<void> printPdf() async {
     if (!await _preparePdf()) return;
 
