@@ -280,17 +280,3 @@ jobs:
         with:
           name: Digital24Online-APK
           path: build_app/build/app/outputs/flutter-apk/app-release.apk
-
-### খুব গুরুত্বপূর্ণ
-
-**এখন Commit changes চাপার আগে আমাকে কিছু পাঠাতে হবে না।**
-
-আপনি শুধু:
-
-**`.github/workflows/build-apk.yml` → পুরো পুরোনো লেখা মুছে → উপরের সম্পূর্ণ লেখা বসান → `Commit changes` চাপুন।**
-
-তারপর GitHub Actions-এ নতুন Build চালাবেন।
-
-এই পরিবর্তনে **মূল Flutter application code পরিবর্তন হচ্ছে না**—শুধু APK বানানোর সময় Android-এর `MainActivity`-কে `com.digital24online` package-এর সঙ্গে সঠিকভাবে মিলিয়ে দেওয়া হচ্ছে। বর্তমান Workflow-এর `applicationId`/`namespace` এবং Firebase package-এর সঙ্গে সেটাই সঠিক configuration।
-
-**Build সবুজ হলেই আমাকে শুধু বলবেন: “Build হয়েছে”।** তখন পরের ধাপে APK ইনস্টল করে launch test করব।
