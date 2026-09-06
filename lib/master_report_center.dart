@@ -88,103 +88,250 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
   }
 
   Future<void> runStaffReport() async {
-    if (staffId == null) {
-      _error(t('আগে একজন স্টাফ নির্বাচন করুন', 'Select a staff first'));
-      return;
-    }
-    setState(() => busy = true);
-    try {
-      final database = await widget.db.database;
-      late String start;
-      late String end;
-      if (period == 'monthly' || period == '7' || period == '14' || period == '21') {
-        final first = DateTime.parse('$month-01');
-        final last = DateTime(first.year, first.month + 1, 0);
-        start = dateText(first);
-        end = dateText(last);
-        if (period != 'monthly') billDate = int.parse(period);
-      } else {
-        start = dateText(from);
-        end = dateText(to);
-      }
+  if (staffId == null) {
+    _error(t('আগে একজন স্টাফ নির্বাচন করুন', 'Select a staff first'));
+    return;
+  }
 
-      // A collection belongs to a staff through payments.staff_id.
-      // Grouping is by customer, so multiple payments from the same customer
-      // never inflate the customer count.
-      final billDateCondition = billDate == null ? '' : ' AND c.bill_date=?';
-      final rows = await database.rawQuery('''
-        SELECT
-          c.id AS customer_id,
-          c.user_id,
-          c.name,
-          c.mobile,
-          c.package_name,
-          c.bill_date,
-          c.active,
-          b.billing_month,
-          COALESCE(b.amount, c.amount, 0) AS bill_amount,
-          COALESCE((SELECT SUM(p2.amount) FROM payments p2 WHERE p2.bill_id=b.id), 0) AS bill_paid,
-          COALESCE((SELECT SUM(p3.amount) FROM payments p3
-            WHERE p3.billing_id=? AND p3.customer_id=c.id AND p3.staff_id=?
-              AND date(p3.payment_date) BETWEEN date(?) AND date(?)), 0) AS staff_collection,
-          MAX(CASE WHEN p.billing_id=? AND p.staff_id=? THEN p.payment_date ELSE NULL END) AS last_staff_payment_date
-        FROM customers c
-        LEFT JOIN bills b ON b.customer_id=c.id AND b.billing_id=? AND b.billing_month=?
-        LEFT JOIN payments p ON p.customer_id=c.id
-        WHERE c.billing_id=? AND EXISTS (
-          SELECT 1 FROM payments ps
-          WHERE ps.billing_id=? AND ps.customer_id=c.id AND ps.staff_id=?
-            AND date(ps.payment_date) BETWEEN date(?) AND date(?)
+  setState(() => busy = true);
+
+  try {
+    final database = await widget.db.database;
+
+    late String start;
+    late String end;
+
+    if (period == 'monthly' ||
+        period == '7' ||
+        period == '14' ||
+        period == '21') {
+      final first = DateTime.parse('$month-01');
+      final last = DateTime(first.year, first.month + 1, 0);
+
+      start = dateText(first);
+      end = dateText(last);
+
+      billDate = (period == '7' ||
+              period == '14' ||
+              period == '21')
+          ? int.parse(period)
+          : null;
+    } else {
+      start = dateText(from);
+      end = dateText(to);
+      billDate = null;
+    }
+
+    final billDateCondition =
+        billDate == null ? '' : ' AND c.bill_date=?';
+
+    final activeBillingId = widget.db.activeBillingId;
+
+    final args = <dynamic>[
+      // p2
+      activeBillingId,
+
+      // p3
+      activeBillingId,
+      staffId,
+      start,
+      end,
+
+      // p
+      activeBillingId,
+      staffId,
+
+      // bills
+      activeBillingId,
+      month,
+
+      // customers
+      activeBillingId,
+
+      // ps
+      activeBillingId,
+      staffId,
+      start,
+      end,
+    ];
+
+    if (billDate != null) {
+      args.add(billDate);
+    }
+
+    final rows = await database.rawQuery(
+      '''
+      SELECT
+        c.id AS customer_id,
+        c.user_id,
+        c.name,
+        c.mobile,
+        c.package_name,
+        c.bill_date,
+        c.active,
+        b.billing_month,
+
+        COALESCE(b.amount, c.amount, 0) AS bill_amount,
+
+        COALESCE(
+          (
+            SELECT SUM(p2.amount)
+            FROM payments p2
+            WHERE p2.billing_id=?
+              AND p2.bill_id=b.id
+          ),
+          0
+        ) AS bill_paid,
+
+        COALESCE(
+          (
+            SELECT SUM(p3.amount)
+            FROM payments p3
+            WHERE p3.billing_id=?
+              AND p3.customer_id=c.id
+              AND p3.staff_id=?
+              AND date(p3.payment_date)
+                  BETWEEN date(?) AND date(?)
+          ),
+          0
+        ) AS staff_collection,
+
+        MAX(
+          CASE
+            WHEN p.billing_id=?
+             AND p.staff_id=?
+            THEN p.payment_date
+            ELSE NULL
+          END
+        ) AS last_staff_payment_date
+
+      FROM customers c
+
+      LEFT JOIN bills b
+        ON b.customer_id=c.id
+       AND b.billing_id=?
+       AND b.billing_month=?
+
+      LEFT JOIN payments p
+        ON p.customer_id=c.id
+
+      WHERE c.billing_id=?
+
+        AND EXISTS (
+          SELECT 1
+          FROM payments ps
+          WHERE ps.billing_id=?
+            AND ps.customer_id=c.id
+            AND ps.staff_id=?
+            AND date(ps.payment_date)
+                BETWEEN date(?) AND date(?)
         )
+
         $billDateCondition
-        GROUP BY c.id, c.user_id, c.name, c.mobile, c.package_name, c.bill_date, c.active,
-                 b.billing_month, b.amount, c.amount
-        ORDER BY c.user_id COLLATE NOCASE
-      ''', [staffId, start, end, widget.db.activeBillingId, staffId, widget.db.activeBillingId, month, widget.db.activeBillingId, staffId, start, end, if (billDate != null) billDate]);
 
-      final collectedRows = <Map<String, dynamic>>[];
-      final dueRows = <Map<String, dynamic>>[];
-      final closedRows = <Map<String, dynamic>>[];
+      GROUP BY
+        c.id,
+        c.user_id,
+        c.name,
+        c.mobile,
+        c.package_name,
+        c.bill_date,
+        c.active,
+        b.billing_month,
+        b.amount,
+        c.amount
 
-      for (final raw in rows) {
-        final r = Map<String, dynamic>.from(raw);
-        final bill = ((r['bill_amount'] ?? 0) as num).toDouble();
-        final paid = ((r['bill_paid'] ?? 0) as num).toDouble();
-        final staffAmount = ((r['staff_collection'] ?? 0) as num).toDouble();
-        r['bill_amount'] = bill;
-        r['bill_paid'] = paid;
-        r['due_amount'] = (bill - paid).clamp(0, double.infinity).toDouble();
-        r['staff_collection'] = staffAmount;
-        if ((r['active'] ?? 1) == 0) closedRows.add(r);
-        if (staffAmount > 0) collectedRows.add(r);
-        if (r['due_amount'] > 0) dueRows.add(r);
+      ORDER BY c.user_id COLLATE NOCASE
+      ''',
+      args,
+    );
+
+    final collectedRows = <Map<String, dynamic>>[];
+    final dueRows = <Map<String, dynamic>>[];
+    final closedRows = <Map<String, dynamic>>[];
+
+    for (final raw in rows) {
+      final r = Map<String, dynamic>.from(raw);
+
+      final bill =
+          ((r['bill_amount'] ?? 0) as num).toDouble();
+
+      final paid =
+          ((r['bill_paid'] ?? 0) as num).toDouble();
+
+      final staffAmount =
+          ((r['staff_collection'] ?? 0) as num).toDouble();
+
+      final dueAmount =
+          (bill - paid).clamp(0, double.infinity).toDouble();
+
+      r['bill_amount'] = bill;
+      r['bill_paid'] = paid;
+      r['staff_collection'] = staffAmount;
+      r['due_amount'] = dueAmount;
+
+      if ((r['active'] ?? 1) == 0) {
+        closedRows.add(r);
       }
 
-      final billTotal = rows.fold<double>(0, (s, r) => s + ((r['bill_amount'] ?? 0) as num).toDouble());
-      final collectionTotal = rows.fold<double>(0, (s, r) => s + ((r['staff_collection'] ?? 0) as num).toDouble());
-      final dueTotal = dueRows.fold<double>(0, (s, r) => s + ((r['due_amount'] ?? 0) as num).toDouble());
-      totals = {
-        'users': rows.length,
-        'bill': billTotal,
-        'collection': collectionTotal,
-        'due': dueTotal,
-        'collected_users': collectedRows.length,
-        'due_users': dueRows.length,
-        'closed_users': closedRows.length,
-      };
-      if (!mounted) return;
-      setState(() {
-        collected = collectedRows;
-        due = dueRows;
-        closed = closedRows;
-        busy = false;
-      });
-    } catch (e) {
-      if (mounted) {
-        setState(() => busy = false);
-        _error('${t('স্টাফ রিপোর্ট তৈরি করতে সমস্যা: ', 'Staff report error: ')}$e');
+      if (staffAmount > 0) {
+        collectedRows.add(r);
+      }
+
+      if (dueAmount > 0) {
+        dueRows.add(r);
       }
     }
+
+    final billTotal = rows.fold<double>(
+      0,
+      (sum, r) =>
+          sum +
+          ((r['bill_amount'] ?? 0) as num).toDouble(),
+    );
+
+    final collectionTotal = rows.fold<double>(
+      0,
+      (sum, r) =>
+          sum +
+          ((r['staff_collection'] ?? 0) as num).toDouble(),
+    );
+
+    final dueTotal = dueRows.fold<double>(
+      0,
+      (sum, r) =>
+          sum +
+          ((r['due_amount'] ?? 0) as num).toDouble(),
+    );
+
+    totals = {
+      'users': rows.length,
+      'bill': billTotal,
+      'collection': collectionTotal,
+      'due': dueTotal,
+      'collected_users': collectedRows.length,
+      'due_users': dueRows.length,
+      'closed_users': closedRows.length,
+    };
+
+    if (!mounted) return;
+
+    setState(() {
+      collected = collectedRows;
+      due = dueRows;
+      closed = closedRows;
+      busy = false;
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() => busy = false);
+
+    _error(
+      '${t('স্টাফ রিপোর্ট তৈরি করতে সমস্যা: ',
+          'Staff report error: ')}$e',
+    );
+  }
   }
 
   String get selectedBillingName {
@@ -313,88 +460,515 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
     );
   }
 
-  Widget section(String title, List<Map<String, dynamic>> rows, {required bool collection}) {
-    return ExpansionTile(
+  Widget section(
+  String title,
+  List<Map<String, dynamic>> rows, {
+  required bool collection,
+}) {
+  return Card(
+    margin: const EdgeInsets.only(bottom: 10),
+    child: ExpansionTile(
       initiallyExpanded: true,
-      title: Text('$title (${rows.length})', style: const TextStyle(fontWeight: FontWeight.bold)),
+      leading: Icon(
+        collection
+            ? Icons.payments
+            : title.contains('বন্ধ') || title.contains('Closed')
+                ? Icons.person_off
+                : Icons.money_off,
+      ),
+      title: Text(
+        '$title (${rows.length})',
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+        ),
+      ),
       children: rows.isEmpty
-          ? [Padding(padding: const EdgeInsets.all(12), child: Text(t('কোনো তথ্য নেই', 'No records')))]
-          : rows.map((r) => ListTile(
-              dense: true,
-              title: Text('${r['user_id'] ?? ''} — ${r['name'] ?? ''}'),
-              subtitle: Text('${r['mobile'] ?? ''} • ${r['package_name'] ?? ''} • Bill Date: ${r['bill_date'] ?? ''} • ${(r['active'] ?? 1) == 1 ? 'Active' : 'Closed'}'),
-              trailing: Text('${money((collection ? r['staff_collection'] : r['due_amount']) as num)} ৳'),
-            )).toList(),
-    );
+          ? [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  t(
+                    'কোনো তথ্য পাওয়া যায়নি',
+                    'No records found',
+                  ),
+                ),
+              ),
+            ]
+          : rows.map((r) {
+              final value = collection
+                  ? r['staff_collection']
+                  : r['due_amount'];
+
+              final isClosed = (r['active'] ?? 1) == 0;
+
+              return ListTile(
+                dense: true,
+                leading: CircleAvatar(
+                  child: Text(
+                    '${r['bill_date'] ?? ''}',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
+                title: Text(
+                  '${r['user_id'] ?? ''} — ${r['name'] ?? ''}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  '${r['mobile'] ?? ''} • '
+                  '${r['package_name'] ?? ''}\n'
+                  '${t('বিল ডেট', 'Bill Date')}: ${r['bill_date'] ?? ''} • '
+                  '${isClosed ? t('বন্ধ', 'Closed') : t('চালু', 'Active')}',
+                ),
+                isThreeLine: true,
+                trailing: Text(
+                  '${money((value ?? 0) as num)} ৳',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: collection
+                        ? Colors.green
+                        : Colors.red,
+                  ),
+                ),
+              );
+            }).toList(),
+    ),
+  );
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(t('স্টাফ Collection Report', 'Staff Collection Report')),
-      content: SizedBox(
-        width: 900,
-        height: 650,
-        child: Column(children: [
-          Row(children: [
-            Expanded(child: DropdownButtonFormField<int>(
-              value: staffId,
-              decoration: InputDecoration(labelText: t('স্টাফ নির্বাচন', 'Select Staff')),
-              items: staff.map((s) => DropdownMenuItem<int>(value: (s['id'] as num).toInt(), child: Text('${s['name'] ?? ''}'))).toList(),
-              onChanged: (v) => setState(() => staffId = v),
-            )),
-            const SizedBox(width: 8),
-            Expanded(child: DropdownButtonFormField<String>(
-              value: period,
-              decoration: InputDecoration(labelText: t('রিপোর্ট সময়', 'Report Period')),
-              items: [
-                DropdownMenuItem(value: '7', child: Text(t('৭ তারিখের বিল', '7th Bill Date'))),
-                DropdownMenuItem(value: '14', child: Text(t('১৪ তারিখের বিল', '14th Bill Date'))),
-                DropdownMenuItem(value: '21', child: Text(t('২১ তারিখের বিল', '21st Bill Date'))),
-                DropdownMenuItem(value: 'monthly', child: Text(t('মাসিক ৩০/৩১ দিন', 'Full Month'))),
-                DropdownMenuItem(value: 'custom', child: Text(t('নির্দিষ্ট তারিখ', 'Custom Date Range'))),
-              ],
-              onChanged: (v) => setState(() { period = v ?? period; billDate = (period == '7' || period == '14' || period == '21') ? int.parse(period) : null; }),
-            )),
-          ]),
-          const SizedBox(height: 8),
-          if (period == 'monthly' || period == '7' || period == '14' || period == '21')
-            SizedBox(width: double.infinity, child: OutlinedButton(onPressed: pickMonth, child: Text('${t('মাস', 'Month')}: $month')))
-          else
-            Row(children: [
-              Expanded(child: OutlinedButton(onPressed: () => pickDate(true), child: Text(dateText(from)))),
-              const SizedBox(width: 8),
-              Expanded(child: OutlinedButton(onPressed: () => pickDate(false), child: Text(dateText(to)))),
-            ]),
-          const SizedBox(height: 8),
-          Row(children: [
-            Expanded(child: FilledButton.icon(onPressed: busy ? null : runStaffReport, icon: const Icon(Icons.assessment), label: Text(t('রিপোর্ট তৈরি', 'Generate Report')))),
-            const SizedBox(width: 6),
-            Expanded(child: OutlinedButton.icon(onPressed: busy ? null : () => exportPdf(print: false), icon: const Icon(Icons.picture_as_pdf), label: Text(t('PDF / Download', 'PDF / Download')))),
-            const SizedBox(width: 6),
-            Expanded(child: OutlinedButton.icon(onPressed: busy ? null : () => exportPdf(print: true), icon: const Icon(Icons.print), label: Text(t('Print', 'Print')))),
-          ]),
-          if (busy) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
-          if (totals.isNotEmpty) Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Wrap(spacing: 12, runSpacing: 6, children: [
-              Text('${t('মোট ইউজার', 'Users')}: ${totals['users'] ?? 0}'),
-              Text('${t('বিল', 'Bill')}: ${money((totals['bill'] ?? 0) as num)} ৳'),
-              Text('${t('কালেকশন', 'Collection')}: ${money((totals['collection'] ?? 0) as num)} ৳'),
-              Text('${t('বকেয়া', 'Due')}: ${money((totals['due'] ?? 0) as num)} ৳'),
-              Text('${t('কালেকশন হয়েছে', 'Collected')}: ${totals['collected_users'] ?? 0}'),
-              Text('${t('বকেয়া', 'Due Users')}: ${totals['due_users'] ?? 0}'),
-              Text('${t('বন্ধ', 'Closed')}: ${totals['closed_users'] ?? 0}'),
-            ]),
+Widget build(BuildContext context) {
+  Widget optionCard({
+    required IconData icon,
+    required String bangla,
+    required String english,
+    required VoidCallback onTap,
+    bool selected = false,
+  }) {
+    return Card(
+      elevation: selected ? 4 : 1,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: busy ? null : onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 13,
           ),
-          Expanded(child: ListView(children: [
-            section(t('কালেকশন হয়েছে', 'Collected Users'), collected, collection: true),
-            section(t('বকেয়া আছে', 'Due Users'), due, collection: false),
-            section(t('বন্ধ ইউজার', 'Closed Users'), closed, collection: false),
-          ])),
-        ]),
+          child: Row(
+            children: [
+              CircleAvatar(
+                child: Icon(icon),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  t(bangla, english),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (selected)
+                const Icon(
+                  Icons.check_circle,
+                  color: Colors.green,
+                )
+              else
+                const Icon(Icons.arrow_forward_ios, size: 16),
+            ],
+          ),
+        ),
       ),
-      actions: [FilledButton(onPressed: () => Navigator.pop(context), child: Text(t('বন্ধ', 'Close')))],
     );
   }
+
+  return AlertDialog(
+    title: Row(
+      children: [
+        const Icon(Icons.assessment),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            t(
+              'স্টাফ রিপোর্ট সেন্টার',
+              'Staff Report Center',
+            ),
+          ),
+        ),
+      ],
+    ),
+    content: SizedBox(
+      width: 900,
+      height: 650,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+
+            // STAFF SELECTION
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: DropdownButtonFormField<int>(
+                  value: staffId,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.person),
+                    labelText: t(
+                      'স্টাফ নির্বাচন করুন',
+                      'Select Staff',
+                    ),
+                    border: const OutlineInputBorder(),
+                  ),
+                  items: staff.map((s) {
+                    final id = (s['id'] as num).toInt();
+
+                    return DropdownMenuItem<int>(
+                      value: id,
+                      child: Text(
+                        '${s['name'] ?? ''}'
+                        '${s['mobile'] != null && s['mobile'].toString().isNotEmpty ? ' — ${s['mobile']}' : ''}',
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: busy
+                      ? null
+                      : (v) {
+                          setState(() {
+                            staffId = v;
+                            collected = [];
+                            due = [];
+                            closed = [];
+                            totals = {};
+                          });
+                        },
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              t(
+                'রিপোর্টের ধরন নির্বাচন করুন',
+                'Select Report Type',
+              ),
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // 7 DAY
+            optionCard(
+              icon: Icons.looks_one,
+              bangla: '৭ তারিখের বিল রিপোর্ট',
+              english: '7th Bill Date Report',
+              selected: period == '7',
+              onTap: () {
+                setState(() {
+                  period = '7';
+                  billDate = 7;
+                });
+                runStaffReport();
+              },
+            ),
+
+            // 14 DAY
+            optionCard(
+              icon: Icons.looks_two,
+              bangla: '১৪ তারিখের বিল রিপোর্ট',
+              english: '14th Bill Date Report',
+              selected: period == '14',
+              onTap: () {
+                setState(() {
+                  period = '14';
+                  billDate = 14;
+                });
+                runStaffReport();
+              },
+            ),
+
+            // 21 DAY
+            optionCard(
+              icon: Icons.looks_3,
+              bangla: '২১ তারিখের বিল রিপোর্ট',
+              english: '21st Bill Date Report',
+              selected: period == '21',
+              onTap: () {
+                setState(() {
+                  period = '21';
+                  billDate = 21;
+                });
+                runStaffReport();
+              },
+            ),
+
+            // MONTHLY
+            optionCard(
+              icon: Icons.calendar_month,
+              bangla: 'মাসিক রিপোর্ট',
+              english: 'Monthly Report',
+              selected: period == 'monthly',
+              onTap: () {
+                setState(() {
+                  period = 'monthly';
+                  billDate = null;
+                });
+                runStaffReport();
+              },
+            ),
+
+            // CUSTOM DATE
+            optionCard(
+              icon: Icons.date_range,
+              bangla: 'নির্দিষ্ট তারিখের রিপোর্ট',
+              english: 'Custom Date Range',
+              selected: period == 'custom',
+              onTap: () async {
+                setState(() {
+                  period = 'custom';
+                  billDate = null;
+                });
+
+                await pickDate(true);
+                await pickDate(false);
+
+                if (mounted) {
+                  runStaffReport();
+                }
+              },
+            ),
+
+            const SizedBox(height: 10),
+
+            // CURRENT PERIOD
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.event),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '${t('বর্তমান রিপোর্ট: ', 'Current Report: ')}$periodLabel',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // MONTH PICKER
+            if (period == 'monthly' ||
+                period == '7' ||
+                period == '14' ||
+                period == '21')
+              OutlinedButton.icon(
+                onPressed: busy ? null : pickMonth,
+                icon: const Icon(Icons.calendar_month),
+                label: Text(
+                  '${t('মাস নির্বাচন: ', 'Select Month: ')}$month',
+                ),
+              ),
+
+            // CUSTOM DATE
+            if (period == 'custom')
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: busy
+                          ? null
+                          : () => pickDate(true),
+                      child: Text(
+                        '${t('শুরু: ', 'From: ')}${dateText(from)}',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: busy
+                          ? null
+                          : () => pickDate(false),
+                      child: Text(
+                        '${t('শেষ: ', 'To: ')}${dateText(to)}',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+            const SizedBox(height: 10),
+
+            // GENERATE
+            FilledButton.icon(
+              onPressed: busy ? null : runStaffReport,
+              icon: const Icon(Icons.assessment),
+              label: Text(
+                t(
+                  'রিপোর্ট তৈরি করুন',
+                  'Generate Report',
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // PDF + DOWNLOAD
+            OutlinedButton.icon(
+              onPressed: busy
+                  ? null
+                  : () => exportPdf(print: false),
+              icon: const Icon(Icons.picture_as_pdf),
+              label: Text(
+                t(
+                  'PDF / Download',
+                  'PDF / Download',
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // PRINT
+            OutlinedButton.icon(
+              onPressed: busy
+                  ? null
+                  : () => exportPdf(print: true),
+              icon: const Icon(Icons.print),
+              label: Text(
+                t('Print', 'Print'),
+              ),
+            ),
+
+            if (busy)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: LinearProgressIndicator(),
+              ),
+
+            // SUMMARY
+            if (totals.isNotEmpty) ...[
+              const SizedBox(height: 12),
+
+              Text(
+                t(
+                  'রিপোর্ট সারাংশ',
+                  'Report Summary',
+                ),
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Chip(
+                    avatar: const Icon(
+                      Icons.people,
+                      size: 18,
+                    ),
+                    label: Text(
+                      '${t('মোট ইউজার', 'Users')}: ${totals['users'] ?? 0}',
+                    ),
+                  ),
+                  Chip(
+                    avatar: const Icon(
+                      Icons.receipt_long,
+                      size: 18,
+                    ),
+                    label: Text(
+                      '${t('মোট বিল', 'Total Bill')}: ${money((totals['bill'] ?? 0) as num)} ৳',
+                    ),
+                  ),
+                  Chip(
+                    avatar: const Icon(
+                      Icons.payments,
+                      size: 18,
+                    ),
+                    label: Text(
+                      '${t('কালেকশন', 'Collection')}: ${money((totals['collection'] ?? 0) as num)} ৳',
+                    ),
+                  ),
+                  Chip(
+                    avatar: const Icon(
+                      Icons.money_off,
+                      size: 18,
+                    ),
+                    label: Text(
+                      '${t('বকেয়া', 'Due')}: ${money((totals['due'] ?? 0) as num)} ৳',
+                    ),
+                  ),
+                  Chip(
+                    label: Text(
+                      '${t('Paid Users', 'Paid Users')}: ${totals['collected_users'] ?? 0}',
+                    ),
+                  ),
+                  Chip(
+                    label: Text(
+                      '${t('Due Users', 'Due Users')}: ${totals['due_users'] ?? 0}',
+                    ),
+                  ),
+                  Chip(
+                    label: Text(
+                      '${t('Closed Users', 'Closed Users')}: ${totals['closed_users'] ?? 0}',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+
+            const SizedBox(height: 12),
+
+            // COLLECTION
+            section(
+              t('কালেকশন হয়েছে', 'Collected Users'),
+              collected,
+              collection: true,
+            ),
+
+            // DUE
+            section(
+              t('বকেয়া ইউজার', 'Due Users'),
+              due,
+              collection: false,
+            ),
+
+            // CLOSED
+            section(
+              t('বন্ধ ইউজার', 'Closed Users'),
+              closed,
+              collection: false,
+            ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      FilledButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(
+          t('বন্ধ', 'Close'),
+        ),
+      ),
+    ],
+  );
 }
