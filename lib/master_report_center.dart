@@ -361,85 +361,316 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
     return '${dateText(from)} → ${dateText(to)}';
   }
 
-  Future<Uint8List> buildPdf() async {
+    Future<Uint8List> buildPdf() async {
     final billingName = await currentBillingName();
+
     final logoData = await rootBundle.load('assets/logo.png');
-    final logo = pw.MemoryImage(logoData.buffer.asUint8List());
-    final doc = pw.Document();
-    final watermark = pw.Opacity(
-      opacity: 0.07,
-      child: pw.Center(child: pw.Image(logo, width: 260, height: 260)),
+    final logo = pw.MemoryImage(
+      logoData.buffer.asUint8List(),
     );
 
-    pw.Widget summaryBox() => pw.Container(
-      padding: const pw.EdgeInsets.all(8),
-      decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
-      child: pw.Wrap(
-        spacing: 18,
-        runSpacing: 6,
-        children: [
-          pw.Text('Total Users: ${totals['users'] ?? 0}'),
-          pw.Text('Total Bill: BDT ${money((totals['bill'] ?? 0) as num)}'),
-          pw.Text('Staff Collection: BDT ${money((totals['collection'] ?? 0) as num)}'),
-          pw.Text('Total Due: BDT ${money((totals['due'] ?? 0) as num)}'),
-          pw.Text('Collected Users: ${totals['collected_users'] ?? 0}'),
-          pw.Text('Due Users: ${totals['due_users'] ?? 0}'),
-          pw.Text('Closed Users: ${totals['closed_users'] ?? 0}'),
-        ],
+    final doc = pw.Document();
+
+    final watermark = pw.Positioned.fill(
+      child: pw.Center(
+        child: pw.Opacity(
+          opacity: 0.06,
+          child: pw.Image(
+            logo,
+            width: 300,
+            height: 300,
+            fit: pw.BoxFit.contain,
+          ),
+        ),
       ),
     );
 
-    pw.Widget table(String title, List<Map<String, dynamic>> data, {required bool collection}) {
-      return pw.Stack(children: [
-        watermark,
-        pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-          pw.Text(title, style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
-          pw.SizedBox(height: 5),
-          if (data.isEmpty) pw.Text('No records') else pw.Table.fromTextArray(
-            headers: ['User ID', 'Name', 'Mobile', 'Bill Date', 'Package', collection ? 'Collection' : 'Due', 'Status'],
-            data: data.map((r) => [
-              '${r['user_id'] ?? ''}', '${r['name'] ?? ''}', '${r['mobile'] ?? ''}', '${r['bill_date'] ?? ''}',
-              '${r['package_name'] ?? ''}', money((collection ? r['staff_collection'] : r['due_amount']) as num),
-              (r['active'] ?? 1) == 1 ? 'Active' : 'Closed',
-            ]).toList(),
-            cellStyle: const pw.TextStyle(fontSize: 6.5),
-            headerStyle: pw.TextStyle(fontSize: 6.5, fontWeight: pw.FontWeight.bold),
-          ),
-          pw.SizedBox(height: 10),
-        ]),
-      ]);
+    pw.Widget summaryBox() {
+      return pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.all(10),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(width: 0.6),
+        ),
+        child: pw.Wrap(
+          spacing: 18,
+          runSpacing: 7,
+          children: [
+            pw.Text(
+              'Total Users: ${totals['users'] ?? 0}',
+            ),
+            pw.Text(
+              'Total Bill: BDT ${money((totals['bill'] ?? 0) as num)}',
+            ),
+            pw.Text(
+              'Staff Collection: BDT ${money((totals['collection'] ?? 0) as num)}',
+            ),
+            pw.Text(
+              'Total Due: BDT ${money((totals['due'] ?? 0) as num)}',
+            ),
+            pw.Text(
+              'Collected Users: ${totals['collected_users'] ?? 0}',
+            ),
+            pw.Text(
+              'Due Users: ${totals['due_users'] ?? 0}',
+            ),
+            pw.Text(
+              'Closed Users: ${totals['closed_users'] ?? 0}',
+            ),
+          ],
+        ),
+      );
     }
 
-    doc.addPage(pw.MultiPage(
-      pageFormat: PdfPageFormat.a4.landscape,
-      margin: const pw.EdgeInsets.all(24),
-      build: (_) => [
-        pw.Stack(children: [
-          watermark,
-          pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-            pw.Row(children: [pw.Image(logo, width: 34, height: 34), pw.SizedBox(width: 8), pw.Text('Digital 24 Online', style: pw.TextStyle(fontSize: 21, fontWeight: pw.FontWeight.bold))]),
-            pw.Text('Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100'),
-            pw.SizedBox(height: 8),
-            pw.Text('BILLING: $billingName', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
-            pw.Text('STAFF COLLECTION REPORT — $selectedStaffName', style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold)),
-            pw.Text('Period: $periodLabel'),
-            pw.SizedBox(height: 10),
-            summaryBox(),
-            pw.SizedBox(height: 12),
-            table('Collected Users (${collected.length})', collected, collection: true),
-            table('Due Users (${due.length})', due, collection: false),
-            table('Closed Users (${closed.length})', closed, collection: false),
-            pw.Text('Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}', style: const pw.TextStyle(fontSize: 7)),
-          ]),
-        ]),
-      ],
-    ));
-    return Uint8List.fromList(await doc.save());
-  }
+    pw.Widget reportTable(
+      String title,
+      List<Map<String, dynamic>> data, {
+      required bool collection,
+    }) {
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(height: 10),
 
-    Future<void> exportPdf({
-    required bool print,
-  }) async {
+          pw.Text(
+            title,
+            style: pw.TextStyle(
+              fontSize: 13,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+
+          pw.SizedBox(height: 5),
+
+          if (data.isEmpty)
+            pw.Container(
+              padding: const pw.EdgeInsets.all(8),
+              child: pw.Text('No records'),
+            )
+          else
+            pw.Table.fromTextArray(
+              headers: [
+                'User ID',
+                'Name',
+                'Mobile',
+                'Bill Date',
+                'Package',
+                collection ? 'Collection' : 'Due',
+                'Status',
+              ],
+              data: data.map((r) {
+                final value = collection
+                    ? r['staff_collection']
+                    : r['due_amount'];
+
+                return [
+                  '${r['user_id'] ?? ''}',
+                  '${r['name'] ?? ''}',
+                  '${r['mobile'] ?? ''}',
+                  '${r['bill_date'] ?? ''}',
+                  '${r['package_name'] ?? ''}',
+                  money((value ?? 0) as num),
+                  (r['active'] ?? 1) == 1
+                      ? 'Active'
+                      : 'Closed',
+                ];
+              }).toList(),
+              cellStyle: const pw.TextStyle(
+                fontSize: 6.5,
+              ),
+              headerStyle: pw.TextStyle(
+                fontSize: 6.5,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              cellAlignment: pw.Alignment.centerLeft,
+              headerAlignment: pw.Alignment.centerLeft,
+              border: pw.TableBorder.all(
+                width: 0.4,
+              ),
+              cellPadding: const pw.EdgeInsets.all(4),
+            ),
+
+          pw.SizedBox(height: 8),
+        ],
+      );
+    }
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          28,
+        ),
+
+        header: (_) {
+          return pw.Column(
+            crossAxisAlignment:
+                pw.CrossAxisAlignment.start,
+            children: [
+              pw.Row(
+                crossAxisAlignment:
+                    pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Container(
+                    width: 48,
+                    height: 48,
+                    child: pw.Image(
+                      logo,
+                      fit: pw.BoxFit.contain,
+                    ),
+                  ),
+
+                  pw.SizedBox(width: 10),
+
+                  pw.Column(
+                    crossAxisAlignment:
+                        pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'Digital 24 Online Billing',
+                        style: pw.TextStyle(
+                          fontSize: 20,
+                          fontWeight:
+                              pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        'Internet Service Provider',
+                        style: const pw.TextStyle(
+                          fontSize: 9,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+
+              pw.SizedBox(height: 4),
+
+              pw.Text(
+                'Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100',
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                ),
+              ),
+
+              pw.SizedBox(height: 5),
+
+              pw.Divider(
+                thickness: 0.8,
+              ),
+            ],
+          );
+        },
+
+        footer: (context) {
+          return pw.Row(
+            mainAxisAlignment:
+                pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'Digital 24 Online Billing',
+                style: const pw.TextStyle(
+                  fontSize: 7,
+                ),
+              ),
+              pw.Text(
+                'Page ${context.pageNumber} / ${context.pagesCount}',
+                style: const pw.TextStyle(
+                  fontSize: 7,
+                ),
+              ),
+            ],
+          );
+        },
+
+        build: (_) {
+          return [
+            pw.Stack(
+              children: [
+                watermark,
+
+                pw.Column(
+                  crossAxisAlignment:
+                      pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'BILLING: $billingName',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight:
+                            pw.FontWeight.bold,
+                      ),
+                    ),
+
+                    pw.SizedBox(height: 4),
+
+                    pw.Text(
+                      'STAFF COLLECTION REPORT — $selectedStaffName',
+                      style: pw.TextStyle(
+                        fontSize: 15,
+                        fontWeight:
+                            pw.FontWeight.bold,
+                      ),
+                    ),
+
+                    pw.SizedBox(height: 3),
+
+                    pw.Text(
+                      'Period: $periodLabel',
+                      style: const pw.TextStyle(
+                        fontSize: 9,
+                      ),
+                    ),
+
+                    pw.SizedBox(height: 10),
+
+                    summaryBox(),
+
+                    reportTable(
+                      'Collected Users (${collected.length})',
+                      collected,
+                      collection: true,
+                    ),
+
+                    reportTable(
+                      'Due Users (${due.length})',
+                      due,
+                      collection: false,
+                    ),
+
+                    reportTable(
+                      'Closed Users (${closed.length})',
+                      closed,
+                      collection: false,
+                    ),
+
+                    pw.SizedBox(height: 8),
+
+                    pw.Text(
+                      'Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
+                      style: const pw.TextStyle(
+                        fontSize: 7,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ];
+        },
+      ),
+    );
+
+    return Uint8List.fromList(
+      await doc.save(),
+    );
+    }
+
+      Future<bool> _preparePdf() async {
     if (staffId == null) {
       _error(
         t(
@@ -447,60 +678,79 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           'Select a staff first',
         ),
       );
-      return;
+      return false;
     }
 
+    if (collected.isEmpty &&
+        due.isEmpty &&
+        closed.isEmpty) {
+      await runStaffReport();
+    }
+
+    if (!mounted) return false;
+
+    if (collected.isEmpty &&
+        due.isEmpty &&
+        closed.isEmpty) {
+      _error(
+        t(
+          'এই রিপোর্টে কোনো তথ্য পাওয়া যায়নি',
+          'No data found for this report',
+        ),
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> previewPdf() async {
+    if (!await _preparePdf()) return;
+
     try {
-      if (collected.isEmpty &&
-          due.isEmpty &&
-          closed.isEmpty) {
-        await runStaffReport();
+      if (mounted) {
+        setState(() => busy = true);
       }
-
-      if (!mounted) return;
-
-      if (collected.isEmpty &&
-          due.isEmpty &&
-          closed.isEmpty) {
-        _error(
-          t(
-            'এই রিপোর্টে কোনো তথ্য পাওয়া যায়নি',
-            'No data found for this report',
-          ),
-        );
-        return;
-      }
-
-      setState(() => busy = true);
 
       final bytes = await buildPdf();
 
-      final safeName = selectedStaffName
-          .replaceAll(
-            RegExp(r'[^a-zA-Z0-9_-]+'),
-            '_',
-          );
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'Digital24Online_Staff_Report.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        _error(
+          '${t(
+            'PDF খুলতে সমস্যা: ',
+            'PDF preview error: ',
+          )}$e',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => busy = false);
+      }
+    }
+  }
+
+  Future<void> downloadPdf() async {
+    if (!await _preparePdf()) return;
+
+    try {
+      if (mounted) {
+        setState(() => busy = true);
+      }
+
+      final bytes = await buildPdf();
+
+      final safeName = selectedStaffName.replaceAll(
+        RegExp(r'[^a-zA-Z0-9_-]+'),
+        '_',
+      );
 
       final filename =
           'Digital24Online_Staff_${safeName}_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-
-      if (print) {
-        await Printing.layoutPdf(
-          onLayout: (_) async => bytes,
-          name: filename,
-        );
-
-        if (mounted) {
-          _error(
-            t(
-              'Print অপশন খোলা হয়েছে',
-              'Print preview opened',
-            ),
-          );
-        }
-
-        return;
-      }
 
       final savedPath =
           await FilePicker.platform.saveFile(
@@ -513,6 +763,78 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         allowedExtensions: ['pdf'],
         bytes: bytes,
       );
+
+      if (!mounted) return;
+
+      if (savedPath == null ||
+          savedPath.trim().isEmpty) {
+        _error(
+          t(
+            'PDF সংরক্ষণ করা হয়নি',
+            'PDF was not saved',
+          ),
+        );
+      } else {
+        _error(
+          t(
+            'PDF সফলভাবে সংরক্ষণ হয়েছে',
+            'PDF saved successfully',
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _error(
+          '${t(
+            'PDF Download করতে সমস্যা: ',
+            'PDF download error: ',
+          )}$e',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => busy = false);
+      }
+    }
+  }
+
+  Future<void> printPdf() async {
+    if (!await _preparePdf()) return;
+
+    try {
+      if (mounted) {
+        setState(() => busy = true);
+      }
+
+      final bytes = await buildPdf();
+
+      final safeName = selectedStaffName.replaceAll(
+        RegExp(r'[^a-zA-Z0-9_-]+'),
+        '_',
+      );
+
+      final filename =
+          'Digital24Online_Staff_${safeName}_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: filename,
+      );
+    } catch (e) {
+      if (mounted) {
+        _error(
+          '${t(
+            'Print করতে সমস্যা: ',
+            'Print error: ',
+          )}$e',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => busy = false);
+      }
+    }
+  }
 
       if (!mounted) return;
 
