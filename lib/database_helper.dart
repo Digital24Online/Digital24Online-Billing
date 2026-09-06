@@ -1862,99 +1862,117 @@ Future<void> exportBackupToFile() async {
   }
 
   Future<void> restoreDatabase(Uint8List bytes) async {
-    if (bytes.isEmpty) {
-      throw Exception('Backup Database ফাইলটি খালি।');
+  if (bytes.isEmpty) {
+    throw Exception('Backup Database ফাইলটি খালি।');
+  }
+
+  final currentDbPath = join(
+    await getDatabasesPath(),
+    'digital24_billing.db',
+  );
+
+  final temporaryPath = join(
+    await getDatabasesPath(),
+    '_restore_${DateTime.now().millisecondsSinceEpoch}.db',
+  );
+
+  final safetyPath = join(
+    await getDatabasesPath(),
+    '_before_restore_${DateTime.now().millisecondsSinceEpoch}.db',
+  );
+
+  bool safetyCreated = false;
+
+  try {
+    await File(temporaryPath).writeAsBytes(
+      bytes,
+      flush: true,
+    );
+
+    if (!await _hasRequiredTables(temporaryPath)) {
+      throw Exception(
+        'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
+      );
     }
 
-    final currentDbPath = join(
-      await getDatabasesPath(),
-      'digital24_billing.db',
-    );
+    final currentFile = File(currentDbPath);
 
-    final temporaryPath = join(
-      await getDatabasesPath(),
-      '_restore_${DateTime.now().millisecondsSinceEpoch}.db',
-    );
+    if (await currentFile.exists()) {
+      await currentFile.copy(safetyPath);
+      safetyCreated = true;
+    }
 
-    final safetyPath = join(
-      await getDatabasesPath(),
-      '_before_restore_${DateTime.now().millisecondsSinceEpoch}.db',
-    );
+    await closeDatabase();
 
-    bool safetyCreated = false;
+    for (final suffix in [
+      '-wal',
+      '-shm',
+      '-journal',
+    ]) {
+      final sidecar = File('$currentDbPath$suffix');
 
-    try {
-      await File(temporaryPath).writeAsBytes(bytes, flush: true);
-
-      if (!await _hasRequiredTables(temporaryPath)) {
-        throw Exception(
-          'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
-        );
+      if (await sidecar.exists()) {
+        await sidecar.delete();
       }
-      
-      final currentFile = File(currentDbPath);
-      if (await currentFile.exists()) {
-        await currentFile.copy(safetyPath);
-        safetyCreated = true;
-      }
+    }
 
-      await closeDatabase();
+    await File(temporaryPath).copy(currentDbPath);
 
-      for (final suffix in ['-wal', '-shm', '-journal']) {
-        final sidecar = File('$currentDbPath$suffix');
-        if (await sidecar.exists()) {
-          await sidecar.delete();
-        }
-      }
+    // Opening the restored file also verifies that SQLite can use it.
+    await database;
 
-      await File(temporaryPath).copy(currentDbPath);
+    if (!await _hasRequiredTables(currentDbPath)) {
+      throw Exception('Restore যাচাই করা যায়নি।');
+    }
 
-      // Opening the restored file also verifies that SQLite can use it.
-      await database;
-
-      if (!await _hasRequiredTables(currentDbPath)) {
-        throw Exception('Restore যাচাই করা যায়নি।');
-      }
-
-      if (safetyCreated) {
-        final safetyFile = File(safetyPath);
-        if (await safetyFile.exists()) {
-          await safetyFile.delete();
-        }
-        safetyCreated = false;
-      }
-    } catch (e) {
-      // Never leave a broken/unsupported database in place.
-      try {
-        await closeDatabase();
-
-        if (safetyCreated && await File(safetyPath).exists()) {
-          for (final suffix in ['-wal', '-shm', '-journal']) {
-            final sidecar = File('$currentDbPath$suffix');
-            if (await sidecar.exists()) {
-              await sidecar.delete();
-            }
-          }
-
-          await File(safetyPath).copy(currentDbPath);
-          await database;
-        }
-      } catch (_) {
-        // Preserve the original restore error below.
-      }
-
-      throw Exception('Database Restore ব্যর্থ হয়েছে: $e');
-    } finally {
-      final tempFile = File(temporaryPath);
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
-
+    if (safetyCreated) {
       final safetyFile = File(safetyPath);
+
       if (await safetyFile.exists()) {
         await safetyFile.delete();
       }
+
+      safetyCreated = false;
     }
+  } catch (e) {
+    // Never leave a broken/unsupported database in place.
+    try {
+      await closeDatabase();
+
+      if (safetyCreated && await File(safetyPath).exists()) {
+        for (final suffix in [
+          '-wal',
+          '-shm',
+          '-journal',
+        ]) {
+          final sidecar = File('$currentDbPath$suffix');
+
+          if (await sidecar.exists()) {
+            await sidecar.delete();
+          }
+        }
+
+        await File(safetyPath).copy(currentDbPath);
+        await database;
+      }
+    } catch (_) {
+      // Preserve the original restore error below.
+    }
+
+    throw Exception('Database Restore ব্যর্থ হয়েছে: $e');
+  } finally {
+    final tempFile = File(temporaryPath);
+
+    if (await tempFile.exists()) {
+      await tempFile.delete();
+    }
+
+    final safetyFile = File(safetyPath);
+
+    if (await safetyFile.exists()) {
+      await safetyFile.delete();
+    }
+  }
   }
 
   List<Map<String, dynamic>> _restoreList(dynamic value) {
