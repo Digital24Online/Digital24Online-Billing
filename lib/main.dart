@@ -1392,49 +1392,96 @@ bool billingLoading = false;
   }
 
   Future<void> restoreBackup() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(t('Restore Backup', 'Restore Backup')),
-        content: Text(t(
-          'Restore করলে বর্তমান Customer, Billing, Payment, Package ও Staff data নির্বাচিত Backup-এর data দিয়ে প্রতিস্থাপিত হবে। আগে একটি Backup রেখে নিন। আপনি কি চালিয়ে যেতে চান?',
-          'Restore will replace the current Customer, Billing, Payment, Package and Staff data with the selected backup. Please keep a backup first. Continue?',
-        )),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('Restore করুন', 'Restore'))),
-        ],
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(
+        t('Restore Backup', 'Restore Backup'),
+      ),
+      content: Text(
+        t(
+          'Restore করলে বর্তমান Customer, Billing, Payment, Package ও Staff data নির্বাচিত Backup Database-এর data দিয়ে প্রতিস্থাপিত হবে। Restore করার আগে বর্তমান Database-এর একটি Backup রেখে নিন। আপনি কি চালিয়ে যেতে চান?',
+          'Restore will replace the current Customer, Billing, Payment, Package and Staff data with the selected Backup Database. Please keep a backup of the current Database first. Continue?',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: Text(
+            t('বাতিল', 'Cancel'),
+          ),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(
+            t('Restore করুন', 'Restore'),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  try {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['db'],
+      allowMultiple: false,
+      withData: true,
+    );
+
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+
+    final picked = result.files.single;
+
+    Uint8List? bytes = picked.bytes;
+
+    if ((bytes == null || bytes.isEmpty) && picked.path != null) {
+      final file = File(picked.path!);
+
+      if (await file.exists()) {
+        bytes = await file.readAsBytes();
+      }
+    }
+
+    if (bytes == null || bytes.isEmpty) {
+      throw Exception(
+        t(
+          'Backup Database ফাইলটি পড়া যায়নি।',
+          'Backup Database file could not be read.',
+        ),
+      );
+    }
+
+    final fileName = picked.name.toLowerCase();
+
+    if (!fileName.endsWith('.db')) {
+      throw Exception(
+        t(
+          'শুধু .db Database Backup ফাইল নির্বাচন করুন।',
+          'Please select a .db Database Backup file.',
+        ),
+      );
+    }
+
+    await db.restoreDatabase(bytes);
+
+    await loadCustomers();
+
+    msg(
+      t(
+        'Backup Database সফলভাবে Restore হয়েছে।',
+        'Backup Database restored successfully.',
       ),
     );
-    if (confirmed != true) return;
-
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        allowMultiple: false,
-        withData: true,
-      );
-      if (result == null || result.files.isEmpty) return;
-      final picked = result.files.single;
-      Uint8List? bytes = picked.bytes;
-      if (bytes == null && picked.path != null) {
-        final file = File(picked.path!);
-        if (await file.exists()) bytes = await file.readAsBytes();
-      }
-      if (bytes == null || bytes.isEmpty) throw Exception(t('Backup ফাইলটি পড়া যায়নি।', 'Backup file could not be read.'));
-      final name = picked.name.toLowerCase();
-      if (name.endsWith('.json') || name.contains('json')) {
-        await db.restoreJsonDatabase(bytes);
-      } else if (name.endsWith('.db') || name.contains('backup')) {
-        await db.restoreDatabase(bytes);
-      } else {
-        throw Exception(t('শুধু .db অথবা .json Backup ফাইল নির্বাচন করুন।', 'Select a .db or .json backup file.'));
-      }
-      await loadCustomers();
-      msg(t('Backup সফলভাবে Restore হয়েছে।', 'Backup restored successfully.'));
-    } catch (e) {
-      msg('${t('Restore-এ সমস্যা: ', 'Restore error: ')}$e');
-    }
+  } catch (e) {
+    msg(
+      '${t('Restore-এ সমস্যা: ', 'Restore error: ')}$e',
+    );
+  }
   }
   
   Future<void> exportUserListPdf() async {
