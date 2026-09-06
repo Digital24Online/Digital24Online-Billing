@@ -2432,21 +2432,47 @@ class StaffManager extends StatefulWidget {
   @override State<StaffManager> createState() => _StaffManagerState();
 }
 
+class StaffManager extends StatefulWidget {
+  final DatabaseHelper db;
+  final bool english;
+
+  const StaffManager({
+    super.key,
+    required this.db,
+    required this.english,
+  });
+
+  @override
+  State<StaffManager> createState() => _StaffManagerState();
+}
+
 class _StaffManagerState extends State<StaffManager> {
   List<Map<String, dynamic>> rows = [];
+
   String t(String b, String e) => widget.english ? e : b;
 
-  @override void initState() { super.initState(); load(); }
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
 
   Future<void> load() async {
     try {
       final r = await widget.db.getStaff();
-      if (mounted) setState(() => rows = r);
+
+      if (mounted) {
+        setState(() => rows = r);
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e')),
+        );
+      }
     }
   }
-  
+
   Future<void> collectionReport() async {
     await showDialog<void>(
       context: context,
@@ -2460,57 +2486,347 @@ class _StaffManagerState extends State<StaffManager> {
   Future<void> add() async {
     final n = TextEditingController();
     final m = TextEditingController();
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(t('স্টাফ যোগ', 'Add Staff')),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: n, decoration: InputDecoration(labelText: t('নাম', 'Name'))),
-          const SizedBox(height: 10),
-          TextField(controller: m, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: t('মোবাইল', 'Mobile'))),
-        ]),
+        title: Text(
+          t('স্টাফ যোগ', 'Add Staff'),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: n,
+              decoration: InputDecoration(
+                labelText: t('নাম', 'Name'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: m,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: t('মোবাইল', 'Mobile'),
+              ),
+            ),
+          ],
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('সংরক্ষণ', 'Save'))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              t('বাতিল', 'Cancel'),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              t('সংরক্ষণ', 'Save'),
+            ),
+          ),
         ],
       ),
     );
+
     if (ok == true && n.text.trim().isNotEmpty) {
       try {
-        await widget.db.addStaff(n.text.trim(), m.text.trim());
+        await widget.db.addStaff(
+          n.text.trim(),
+          m.text.trim(),
+        );
+
         await load();
+
+        try {
+          await FirebaseService.instance.syncNow();
+        } catch (_) {}
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$e')),
+          );
+        }
       }
     }
-    n.dispose(); m.dispose();
+
+    n.dispose();
+    m.dispose();
   }
 
-  @override Widget build(BuildContext context) {
+  Future<void> editStaff(
+    Map<String, dynamic> row,
+  ) async {
+    final id = (row['id'] as num).toInt();
+
+    final n = TextEditingController(
+      text: '${row['name'] ?? ''}',
+    );
+
+    final m = TextEditingController(
+      text: '${row['mobile'] ?? ''}',
+    );
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          t('স্টাফ তথ্য Edit', 'Edit Staff'),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: n,
+              decoration: InputDecoration(
+                labelText: t('নাম', 'Name'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: m,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: t('মোবাইল', 'Mobile'),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              t('বাতিল', 'Cancel'),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              t('আপডেট', 'Update'),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      try {
+        final name = n.text.trim();
+        final mobile = m.text.trim();
+
+        if (name.isEmpty) {
+          throw Exception(
+            t(
+              'স্টাফের নাম দিন',
+              'Enter staff name',
+            ),
+          );
+        }
+
+        await widget.db.updateStaff(
+          id,
+          name,
+          mobile,
+        );
+
+        await load();
+
+        try {
+          await FirebaseService.instance.syncNow();
+        } catch (_) {}
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                t(
+                  'স্টাফ তথ্য আপডেট হয়েছে',
+                  'Staff information updated',
+                ),
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$e'),
+            ),
+          );
+        }
+      }
+    }
+
+    n.dispose();
+    m.dispose();
+  }
+
+  Future<void> deleteStaff(
+    Map<String, dynamic> row,
+  ) async {
+    final id = (row['id'] as num).toInt();
+    final name = '${row['name'] ?? ''}';
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          t('স্টাফ Delete', 'Delete Staff'),
+        ),
+        content: Text(
+          t(
+            '“$name” স্টাফকে তালিকা থেকে Delete করবেন?\n\nপুরোনো Collection/Payment History রাখা থাকবে।',
+            'Delete “$name” from the staff list?\n\nPrevious Collection/Payment History will be preserved.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              t('না', 'No'),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              t('হ্যাঁ, Delete', 'Yes, Delete'),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await widget.db.deleteStaff(id);
+
+      await load();
+
+      try {
+        await FirebaseService.instance.syncNow();
+      } catch (_) {}
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              t(
+                'স্টাফ Delete হয়েছে। পুরোনো Collection/Payment History রাখা হয়েছে।',
+                'Staff deleted. Previous Collection/Payment History has been preserved.',
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$e'),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(t('Staff Collection', 'Staff Collection')),
+      title: Text(
+        t(
+          'Staff Collection',
+          'Staff Collection',
+        ),
+      ),
       content: SizedBox(
         width: double.maxFinite,
         height: 420,
         child: rows.isEmpty
-            ? Center(child: Text(t('কোনো active staff নেই', 'No active staff')))
+            ? Center(
+                child: Text(
+                  t(
+                    'কোনো active staff নেই',
+                    'No active staff',
+                  ),
+                ),
+              )
             : ListView.builder(
                 itemCount: rows.length,
-                itemBuilder: (_, i) => ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.person)),
-                  title: Text('${rows[i]['name'] ?? ''}'),
-                  subtitle: Text('${rows[i]['mobile'] ?? ''}'),
-                ),
+                itemBuilder: (_, i) {
+                  final row = rows[i];
+
+                  return ListTile(
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.person),
+                    ),
+                    title: Text(
+                      '${row['name'] ?? ''}',
+                    ),
+                    subtitle: Text(
+                      '${row['mobile'] ?? ''}',
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: t(
+                            'Edit',
+                            'Edit',
+                          ),
+                          icon: const Icon(
+                            Icons.edit_rounded,
+                          ),
+                          onPressed: () => editStaff(row),
+                        ),
+                        IconButton(
+                          tooltip: t(
+                            'Delete',
+                            'Delete',
+                          ),
+                          icon: const Icon(
+                            Icons.delete_outline_rounded,
+                          ),
+                          onPressed: () => deleteStaff(row),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
       ),
       actions: [
-                TextButton.icon(
+        TextButton.icon(
           onPressed: collectionReport,
-          icon: const Icon(Icons.assessment_rounded),
-          label: Text(t('Collection Report', 'Collection Report')),
+          icon: const Icon(
+            Icons.assessment_rounded,
+          ),
+          label: Text(
+            t(
+              'Collection Report',
+              'Collection Report',
+            ),
+          ),
         ),
-        TextButton(onPressed: add, child: Text(t('স্টাফ যোগ', 'Add Staff'))),
-        FilledButton(onPressed: () => Navigator.pop(context), child: Text(t('বন্ধ', 'Close'))),
+        TextButton(
+          onPressed: add,
+          child: Text(
+            t(
+              'স্টাফ যোগ',
+              'Add Staff',
+            ),
+          ),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            t(
+              'বন্ধ',
+              'Close',
+            ),
+          ),
+        ),
       ],
     );
   }
