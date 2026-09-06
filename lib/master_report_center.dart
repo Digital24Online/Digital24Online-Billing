@@ -1223,10 +1223,14 @@ Widget build(BuildContext context) {
 
             const SizedBox(height: 10),
 
-            // GENERATE
+                        // GENERATE
             FilledButton.icon(
-              onPressed: busy ? null : runStaffReport,
-              icon: const Icon(Icons.assessment),
+              onPressed: busy
+                  ? null
+                  : runStaffReport,
+              icon: const Icon(
+                Icons.assessment,
+              ),
               label: Text(
                 t(
                   'রিপোর্ট তৈরি করুন',
@@ -1237,16 +1241,36 @@ Widget build(BuildContext context) {
 
             const SizedBox(height: 8),
 
-            // PDF + DOWNLOAD
+            // PDF PREVIEW
             OutlinedButton.icon(
               onPressed: busy
                   ? null
-                  : () => exportPdf(print: false),
-              icon: const Icon(Icons.picture_as_pdf),
+                  : previewPdf,
+              icon: const Icon(
+                Icons.picture_as_pdf,
+              ),
               label: Text(
                 t(
-                  'PDF / Download',
-                  'PDF / Download',
+                  'PDF দেখুন',
+                  'Preview PDF',
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // DOWNLOAD
+            OutlinedButton.icon(
+              onPressed: busy
+                  ? null
+                  : downloadPdf,
+              icon: const Icon(
+                Icons.download,
+              ),
+              label: Text(
+                t(
+                  'PDF Download',
+                  'Download PDF',
                 ),
               ),
             ),
@@ -1257,10 +1281,15 @@ Widget build(BuildContext context) {
             OutlinedButton.icon(
               onPressed: busy
                   ? null
-                  : () => exportPdf(print: true),
-              icon: const Icon(Icons.print),
+                  : printPdf,
+              icon: const Icon(
+                Icons.print,
+              ),
               label: Text(
-                t('Print', 'Print'),
+                t(
+                  'Print',
+                  'Print',
+                ),
               ),
             ),
 
