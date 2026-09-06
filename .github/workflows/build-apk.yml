@@ -38,8 +38,10 @@ jobs:
           cp android/app/google-services.json build_app/android/app/google-services.json
           test -s build_app/android/app/google-services.json
 
-      - name: Configure Android package and Kotlin
+            - name: Configure Android package, Kotlin and release signing
         working-directory: build_app
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -68,7 +70,7 @@ jobs:
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          # Correct Firebase Android package name.
+          # Correct Android package name.
           text = re.sub(
               r'namespace\s*=\s*"[^"]+"',
               'namespace = "com.digital24online"',
@@ -83,8 +85,7 @@ jobs:
               count=1
           )
 
-          # Java 11 -> Java 17.
-          # Java and Kotlin must use the same JVM target.
+          # Java 17.
           text = text.replace(
               'JavaVersion.VERSION_11',
               'JavaVersion.VERSION_17'
@@ -98,7 +99,7 @@ jobs:
               flags=re.DOTALL
           )
 
-          # Configure Kotlin JVM toolchain to Java 17.
+          # Configure Kotlin JVM toolchain.
           if 'jvmToolchain(17)' not in text:
               text = text.replace(
                   'android {',
@@ -114,8 +115,70 @@ jobs:
                   1
               )
 
+          # Load the persistent release keystore.
+          signing_import = '''import java.util.Properties
+          import java.io.FileInputStream
+          '''
+
+          if 'import java.util.Properties' not in text:
+              text = signing_import + text
+
+          keystore_block = '''
+          val keystoreProperties = Properties()
+          val keystorePropertiesFile = rootProject.file("key.properties")
+
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+          }
+          '''
+
+          if 'val keystoreProperties = Properties()' not in text:
+              marker = 'android {'
+              text = text.replace(
+                  marker,
+                  keystore_block + '\n' + marker,
+                  1
+              )
+
+          # Add permanent release signing configuration.
+          signing_block = '''
+              signingConfigs {
+                  create("release") {
+                      keyAlias = keystoreProperties.getProperty("keyAlias")
+                      keyPassword = keystoreProperties.getProperty("keyPassword")
+                      storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
+                      storePassword = keystoreProperties.getProperty("storePassword")
+                  }
+              }
+
+          '''
+
+          if 'create("release")' not in text:
+              text = text.replace(
+                  '    buildTypes {',
+                  signing_block + '    buildTypes {',
+                  1
+              )
+
+          # Force release builds to use the permanent signing key.
+          text = re.sub(
+              r'buildTypes\s*\{\s*release\s*\{.*?\n\s*\}',
+              '''buildTypes {
+                  release {
+                      signingConfig = signingConfigs.getByName("release")
+                  }''',
+              text,
+              count=1,
+              flags=re.DOTALL
+          )
+
           app.write_text(text)
           PY
+
+          echo "===== ANDROID RELEASE SIGNING CONFIGURED ====="
+          grep -n "applicationId" android/app/build.gradle.kts
+          grep -n "create(\"release\")" android/app/build.gradle.kts
+          grep -n "signingConfig = signingConfigs.getByName(\"release\")" android/app/build.gradle.kts
 
       # MainActivity package fix applied
       - name: Fix MainActivity package
@@ -199,13 +262,48 @@ jobs:
         working-directory: build_app
         run: dart run flutter_launcher_icons
 
-      - name: Restore signing key
+            - name: Restore signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        working-directory: build_app
         run: |
-          mkdir -p build_app/android/keystore
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > build_app/android/keystore/digital24.jks
-          test -s build_app/android/keystore/digital24.jks
+          set -e
+
+          mkdir -p android/keystore
+
+          printf '%s' "$KEYSTORE_BASE64" \
+            | base64 --decode \
+            > android/keystore/digital24.jks
+
+          test -s android/keystore/digital24.jks
+
+          echo "===== FINDING KEY ALIAS ====="
+
+          KEY_ALIAS="$(
+            keytool -list \
+              -keystore android/keystore/digital24.jks \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -v \
+              | awk -F': ' '/Alias name:/ {print $2; exit}'
+          )"
+
+          test -n "$KEY_ALIAS"
+
+          echo "Key alias found: $KEY_ALIAS"
+
+          cat > android/key.properties <<EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=keystore/digital24.jks
+          EOF
+
+          test -s android/key.properties
+
+          echo "===== SIGNING CONFIGURATION READY ====="
+          echo "Keystore: android/keystore/digital24.jks"
+          echo "Alias: $KEY_ALIAS"
 
       - name: Verify Android configuration
         working-directory: build_app
