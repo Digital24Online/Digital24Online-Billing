@@ -32,16 +32,14 @@ jobs:
           cp pubspec.yaml build_app/pubspec.yaml
           cp -R assets build_app/assets
 
-            - name: Copy Firebase configuration
+      - name: Copy Firebase configuration
         run: |
           mkdir -p build_app/android/app
           cp android/app/google-services.json build_app/android/app/google-services.json
           test -s build_app/android/app/google-services.json
 
-      - name: Configure Android package, Kotlin and release signing
+      - name: Configure Android package and release signing
         working-directory: build_app
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -50,18 +48,11 @@ jobs:
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
-          # Kotlin Gradle plugin
-          text = re.sub(
-              r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[^"]+"',
-              'id("org.jetbrains.kotlin.android") version "2.3.21"',
-              text
-          )
-
-          # Google Services Gradle plugin
-          if 'id("com.google.gms.google-services") version "4.5.0" apply false' not in text:
+          # Add Google Services Gradle plugin.
+          if 'id("com.google.gms.google-services") version "4.4.2" apply false' not in text:
               text = text.replace(
-                  'plugins {',
-                  'plugins {\n    id("com.google.gms.google-services") version "4.5.0" apply false',
+                  "plugins {",
+                  'plugins {\n    id("com.google.gms.google-services") version "4.4.2" apply false',
                   1
               )
 
@@ -78,6 +69,7 @@ jobs:
               count=1
           )
 
+          # Correct application ID.
           text = re.sub(
               r'applicationId\s*=\s*"[^"]+"',
               'applicationId = "com.digital24online"',
@@ -85,21 +77,21 @@ jobs:
               count=1
           )
 
-          # Java 17.
+          # Use Java 17.
           text = text.replace(
               'JavaVersion.VERSION_11',
               'JavaVersion.VERSION_17'
           )
 
-          # Remove old Kotlin jvmTarget syntax.
+          # Remove old kotlinOptions block if generated.
           text = re.sub(
-              r'\s*kotlinOptions\s*\{.*?\}',
+              r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
               '',
               text,
               flags=re.DOTALL
           )
 
-          # Configure Kotlin JVM toolchain.
+          # Add Kotlin JVM toolchain.
           if 'jvmToolchain(17)' not in text:
               text = text.replace(
                   'android {',
@@ -115,33 +107,34 @@ jobs:
                   1
               )
 
-          # Load the persistent release keystore.
-          signing_import = '''import java.util.Properties
-          import java.io.FileInputStream
-          '''
-
+          # Add signing imports.
           if 'import java.util.Properties' not in text:
-              text = signing_import + text
+              text = (
+                  'import java.util.Properties\n'
+                  'import java.io.FileInputStream\n\n'
+                  + text
+              )
 
-          keystore_block = '''
+          # Load key.properties.
+          if 'val keystoreProperties = Properties()' not in text:
+              keystore_block = '''
           val keystoreProperties = Properties()
           val keystorePropertiesFile = rootProject.file("key.properties")
 
           if (keystorePropertiesFile.exists()) {
               keystoreProperties.load(FileInputStream(keystorePropertiesFile))
           }
-          '''
 
-          if 'val keystoreProperties = Properties()' not in text:
-              marker = 'android {'
+          '''
               text = text.replace(
-                  marker,
-                  keystore_block + '\n' + marker,
+                  'android {',
+                  keystore_block + 'android {',
                   1
               )
 
-          # Add permanent release signing configuration.
-          signing_block = '''
+          # Add release signing configuration.
+          if 'create("release")' not in text:
+              signing_block = '''
               signingConfigs {
                   create("release") {
                       keyAlias = keystoreProperties.getProperty("keyAlias")
@@ -152,42 +145,35 @@ jobs:
               }
 
           '''
-
-          if 'create("release")' not in text:
               text = text.replace(
                   '    buildTypes {',
                   signing_block + '    buildTypes {',
                   1
               )
 
-          # Force release builds to use the permanent signing key.
-          text = re.sub(
-              r'buildTypes\s*\{\s*release\s*\{.*?\n\s*\}',
-              '''buildTypes {
-                  release {
-                      signingConfig = signingConfigs.getByName("release")
-                  }''',
-              text,
-              count=1,
-              flags=re.DOTALL
-          )
+          # Add release signingConfig without replacing the entire buildTypes block.
+          if 'signingConfig = signingConfigs.getByName("release")' not in text:
+              text = text.replace(
+                  'release {',
+                  'release {\n            signingConfig = signingConfigs.getByName("release")',
+                  1
+              )
 
           app.write_text(text)
           PY
 
-          echo "===== ANDROID RELEASE SIGNING CONFIGURED ====="
+          echo "===== ANDROID CONFIGURATION ====="
+          grep -n "namespace" android/app/build.gradle.kts
           grep -n "applicationId" android/app/build.gradle.kts
-          grep -n "create(\"release\")" android/app/build.gradle.kts
-          grep -n "signingConfig = signingConfigs.getByName(\"release\")" android/app/build.gradle.kts
+          grep -n 'create("release")' android/app/build.gradle.kts
+          grep -n 'signingConfig = signingConfigs.getByName("release")' android/app/build.gradle.kts
 
-      # MainActivity package fix applied
       - name: Fix MainActivity package
         working-directory: build_app
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-          import shutil
 
           root = Path("android/app/src/main/kotlin")
           candidates = list(root.rglob("MainActivity.kt"))
@@ -200,11 +186,6 @@ jobs:
           source = candidates[0]
           text = source.read_text()
 
-          # The generated Flutter project uses:
-          # com.digital24online.digital24online
-          # because --org and --project-name are both supplied.
-          # The real Firebase/application package is:
-          # com.digital24online
           text = re.sub(
               r'^package\s+[^\r\n]+',
               'package com.digital24online',
@@ -221,9 +202,9 @@ jobs:
 
           if source.resolve() != target.resolve():
               source.unlink()
+
               current = source.parent
 
-              # Remove only empty generated package directories.
               while current != root and current.exists():
                   try:
                       current.rmdir()
@@ -231,9 +212,9 @@ jobs:
                       break
                   current = current.parent
 
-          print("===== MAIN ACTIVITY FIXED =====")
-          print(f"Source was : {source}")
-          print(f"Target is  : {target}")
+          echo = "===== MAIN ACTIVITY FIXED ====="
+          print(echo)
+          print(f"Target: {target}")
           print(target.read_text())
           PY
 
@@ -243,18 +224,18 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          p = Path("android/app/src/main/AndroidManifest.xml")
-          text = p.read_text()
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
 
           text = text.replace(
               'android:label="digital24online"',
               'android:label="Digital 24 Online"'
           )
 
-          p.write_text(text)
+          manifest.write_text(text)
           PY
 
-            - name: Get dependencies
+      - name: Get dependencies
         working-directory: build_app
         run: flutter pub get
 
@@ -263,12 +244,15 @@ jobs:
         run: dart run flutter_launcher_icons
 
       - name: Restore signing key
+        working-directory: build_app
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        working-directory: build_app
         run: |
           set -e
+
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
 
           mkdir -p android/keystore
 
@@ -278,7 +262,7 @@ jobs:
 
           test -s android/keystore/digital24.jks
 
-          echo "===== FINDING KEY ALIAS ====="
+          echo "===== CHECKING KEYSTORE ====="
 
           KEY_ALIAS="$(
             keytool -list \
@@ -290,7 +274,7 @@ jobs:
 
           test -n "$KEY_ALIAS"
 
-          echo "Key alias found: $KEY_ALIAS"
+          echo "Keystore alias found."
 
           cat > android/key.properties <<EOF
           storePassword=$KEYSTORE_PASSWORD
@@ -301,9 +285,7 @@ jobs:
 
           test -s android/key.properties
 
-          echo "===== SIGNING CONFIGURATION READY ====="
-          echo "Keystore: android/keystore/digital24.jks"
-          echo "Alias: $KEY_ALIAS"
+          echo "===== SIGNING KEY READY ====="
 
       - name: Verify Android configuration
         working-directory: build_app
@@ -318,36 +300,37 @@ jobs:
           grep -n "namespace" android/app/build.gradle.kts
           grep -q 'namespace = "com.digital24online"' android/app/build.gradle.kts
 
-          echo "===== MAIN ACTIVITY FILE ====="
-          test -f android/app/src/main/kotlin/com/digital24online/MainActivity.kt
-          cat android/app/src/main/kotlin/com/digital24online/MainActivity.kt
+          echo "===== RELEASE SIGNING ====="
+          grep -n 'create("release")' android/app/build.gradle.kts
+          grep -n 'signingConfig = signingConfigs.getByName("release")' android/app/build.gradle.kts
 
-          echo "===== MAIN ACTIVITY PACKAGE ====="
+          echo "===== MAIN ACTIVITY ====="
+          test -f android/app/src/main/kotlin/com/digital24online/MainActivity.kt
+
           grep -q '^package com.digital24online$' \
             android/app/src/main/kotlin/com/digital24online/MainActivity.kt
 
-          echo "===== OLD MAIN ACTIVITY PATH CHECK ====="
-          if find android/app/src/main/kotlin/com/digital24online/digital24online \
-            -name MainActivity.kt -print -quit | grep -q .; then
-            echo "ERROR: Old MainActivity package still exists."
-            exit 1
-          fi
-
           echo "===== FIREBASE PACKAGE ====="
           grep -n '"package_name"' android/app/google-services.json
+
           grep -q '"package_name": "com.digital24online"' \
             android/app/google-services.json
 
-          echo "===== LAUNCHER ACTIVITY ====="
-          grep -A12 -B3 "MAIN" \
-            android/app/src/main/AndroidManifest.xml
+          echo "===== OLD MAIN ACTIVITY CHECK ====="
+
+          if find android/app/src/main/kotlin/com/digital24online/digital24online \
+            -name MainActivity.kt \
+            -print \
+            -quit \
+            | grep -q .; then
+            echo "ERROR: Old MainActivity package still exists."
+            exit 1
+          fi
 
           echo "===== ANDROID CONFIGURATION VERIFIED ====="
 
       - name: Build APK
         working-directory: build_app
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           flutter build apk --release
 
@@ -364,9 +347,12 @@ jobs:
           echo "===== APK SIZE ====="
           ls -lh "$APK"
 
-          echo "===== APK PACKAGE AND LAUNCHER ====="
+          echo "===== APK PACKAGE ====="
+
           AAPT="$ANDROID_HOME/build-tools/$(ls \
-            "$ANDROID_HOME/build-tools" | sort -V | tail -1)/aapt"
+            "$ANDROID_HOME/build-tools" \
+            | sort -V \
+            | tail -1)/aapt"
 
           "$AAPT" dump badging "$APK" | grep -E \
             "package:|launchable-activity:"
