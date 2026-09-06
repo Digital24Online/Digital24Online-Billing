@@ -19,6 +19,8 @@ jobs:
 
       - name: Create Android project
         run: |
+          set -e
+
           flutter create \
             --platforms=android \
             --project-name=digital24online \
@@ -27,20 +29,83 @@ jobs:
 
       - name: Copy app files
         run: |
+          set -e
+
           rm -rf build_app/lib
           cp -R lib build_app/lib
+
           cp pubspec.yaml build_app/pubspec.yaml
+
+          rm -rf build_app/assets
           cp -R assets build_app/assets
 
       - name: Copy Firebase configuration
         run: |
+          set -e
+
           mkdir -p build_app/android/app
-          cp android/app/google-services.json build_app/android/app/google-services.json
+
+          cp \
+            android/app/google-services.json \
+            build_app/android/app/google-services.json
+
           test -s build_app/android/app/google-services.json
 
-      - name: Configure Android package and release signing
+      - name: Restore release signing key
+        working-directory: build_app
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -e
+
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+
+          mkdir -p android/keystore
+
+          printf '%s' "$KEYSTORE_BASE64" \
+            | base64 --decode \
+            > android/keystore/digital24.jks
+
+          test -s android/keystore/digital24.jks
+
+          echo "===== CHECKING RELEASE KEYSTORE ====="
+
+          KEY_ALIAS="$(
+            keytool -list \
+              -keystore android/keystore/digital24.jks \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -v \
+              | awk -F': ' '/Alias name:/ {print $2; exit}'
+          )"
+
+          test -n "$KEY_ALIAS"
+
+          if [ -n "${KEY_PASSWORD:-}" ]; then
+            FINAL_KEY_PASSWORD="$KEY_PASSWORD"
+          else
+            FINAL_KEY_PASSWORD="$KEYSTORE_PASSWORD"
+          fi
+
+          cat > android/key.properties <<EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$FINAL_KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=keystore/digital24.jks
+          EOF
+
+          test -s android/key.properties
+
+          echo "Release keystore restored successfully."
+          echo "Release key alias detected."
+
+      - name: Configure Android application and release signing
         working-directory: build_app
         run: |
+          set -e
+
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -48,8 +113,8 @@ jobs:
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
-          # Add Google Services Gradle plugin.
-          if 'id("com.google.gms.google-services") version "4.4.2" apply false' not in text:
+          # Add Google Services plugin to settings.gradle.kts.
+          if 'id("com.google.gms.google-services")' not in text:
               text = text.replace(
                   "plugins {",
                   'plugins {\n    id("com.google.gms.google-services") version "4.4.2" apply false',
@@ -61,7 +126,10 @@ jobs:
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          # Correct Android package name.
+          # --------------------------------------------------
+          # Application ID / namespace
+          # --------------------------------------------------
+
           text = re.sub(
               r'namespace\s*=\s*"[^"]+"',
               'namespace = "com.digital24online"',
@@ -69,7 +137,6 @@ jobs:
               count=1
           )
 
-          # Correct application ID.
           text = re.sub(
               r'applicationId\s*=\s*"[^"]+"',
               'applicationId = "com.digital24online"',
@@ -77,13 +144,27 @@ jobs:
               count=1
           )
 
-          # Use Java 17.
+          # --------------------------------------------------
+          # Google Services plugin
+          # --------------------------------------------------
+
+          if 'id("com.google.gms.google-services")' not in text:
+              text = text.replace(
+                  "plugins {",
+                  'plugins {\n    id("com.google.gms.google-services")',
+                  1
+              )
+
+          # --------------------------------------------------
+          # Java 17
+          # --------------------------------------------------
+
           text = text.replace(
-              'JavaVersion.VERSION_11',
-              'JavaVersion.VERSION_17'
+              "JavaVersion.VERSION_11",
+              "JavaVersion.VERSION_17"
           )
 
-          # Remove old kotlinOptions block if generated.
+          # Remove generated kotlinOptions block if present.
           text = re.sub(
               r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
               '',
@@ -92,32 +173,30 @@ jobs:
           )
 
           # Add Kotlin JVM toolchain.
-          if 'jvmToolchain(17)' not in text:
+          if "jvmToolchain(17)" not in text:
               text = text.replace(
-                  'android {',
-                  'kotlin {\n    jvmToolchain(17)\n}\n\nandroid {',
+                  "android {",
+                  "kotlin {\n    jvmToolchain(17)\n}\n\nandroid {",
                   1
               )
 
-          # Apply Google Services plugin.
-          if 'id("com.google.gms.google-services")' not in text:
-              text = text.replace(
-                  'plugins {',
-                  'plugins {\n    id("com.google.gms.google-services")',
-                  1
-              )
+          # --------------------------------------------------
+          # key.properties imports
+          # --------------------------------------------------
 
-          # Add signing imports.
-          if 'import java.util.Properties' not in text:
+          if "import java.util.Properties" not in text:
               text = (
-                  'import java.util.Properties\n'
-                  'import java.io.FileInputStream\n\n'
+                  "import java.util.Properties\n"
+                  "import java.io.FileInputStream\n\n"
                   + text
               )
 
-          # Load key.properties.
-          if 'val keystoreProperties = Properties()' not in text:
-              keystore_block = '''
+          # --------------------------------------------------
+          # Load key.properties
+          # --------------------------------------------------
+
+          if "val keystoreProperties = Properties()" not in text:
+              key_block = """
           val keystoreProperties = Properties()
           val keystorePropertiesFile = rootProject.file("key.properties")
 
@@ -125,16 +204,20 @@ jobs:
               keystoreProperties.load(FileInputStream(keystorePropertiesFile))
           }
 
-          '''
+          """
+
               text = text.replace(
-                  'android {',
-                  keystore_block + 'android {',
+                  "android {",
+                  key_block + "android {",
                   1
               )
 
-          # Add release signing configuration.
+          # --------------------------------------------------
+          # Release signing configuration
+          # --------------------------------------------------
+
           if 'create("release")' not in text:
-              signing_block = '''
+              signing_block = """
               signingConfigs {
                   create("release") {
                       keyAlias = keystoreProperties.getProperty("keyAlias")
@@ -144,38 +227,70 @@ jobs:
                   }
               }
 
-          '''
+          """
+
               text = text.replace(
-                  '    buildTypes {',
-                  signing_block + '    buildTypes {',
+                  "    buildTypes {",
+                  signing_block + "    buildTypes {",
                   1
               )
 
-          # Add release signingConfig without replacing the entire buildTypes block.
+          # --------------------------------------------------
+          # Force release APK to use release keystore
+          # --------------------------------------------------
+
           if 'signingConfig = signingConfigs.getByName("release")' not in text:
-              text = text.replace(
-                  'release {',
-                  'release {\n            signingConfig = signingConfigs.getByName("release")',
-                  1
+              release_pattern = re.compile(
+                  r'(buildTypes\s*\{\s*release\s*\{)'
               )
+
+              text, count = release_pattern.subn(
+                  r'\1\n            signingConfig = signingConfigs.getByName("release")',
+                  text,
+                  count=1
+              )
+
+              if count != 1:
+                  raise RuntimeError(
+                      "Could not locate the generated release buildType."
+                  )
 
           app.write_text(text)
+
+          print("===== ANDROID SIGNING CONFIGURATION CREATED =====")
+          print("Application ID: com.digital24online")
+          print("Namespace: com.digital24online")
           PY
 
-          echo "===== ANDROID CONFIGURATION ====="
-          grep -n "namespace" android/app/build.gradle.kts
-          grep -n "applicationId" android/app/build.gradle.kts
-          grep -n 'create("release")' android/app/build.gradle.kts
-          grep -n 'signingConfig = signingConfigs.getByName("release")' android/app/build.gradle.kts
+          echo "===== VERIFYING GRADLE SIGNING CONFIG ====="
+
+          grep -n \
+            'applicationId = "com.digital24online"' \
+            android/app/build.gradle.kts
+
+          grep -n \
+            'namespace = "com.digital24online"' \
+            android/app/build.gradle.kts
+
+          grep -n \
+            'create("release")' \
+            android/app/build.gradle.kts
+
+          grep -n \
+            'signingConfig = signingConfigs.getByName("release")' \
+            android/app/build.gradle.kts
 
       - name: Fix MainActivity package
         working-directory: build_app
         run: |
+          set -e
+
           python3 - <<'PY'
           from pathlib import Path
           import re
 
           root = Path("android/app/src/main/kotlin")
+
           candidates = list(root.rglob("MainActivity.kt"))
 
           if len(candidates) != 1:
@@ -212,19 +327,28 @@ jobs:
                       break
                   current = current.parent
 
-          echo = "===== MAIN ACTIVITY FIXED ====="
-          print(echo)
-          print(f"Target: {target}")
-          print(target.read_text())
+          test -f "$target"
+
+          grep -q \
+            '^package com.digital24online$' \
+            "$target"
+
+          echo "===== MAIN ACTIVITY VERIFIED ====="
+          cat "$target"
           PY
 
       - name: Set app name
         working-directory: build_app
         run: |
+          set -e
+
           python3 - <<'PY'
           from pathlib import Path
 
-          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          manifest = Path(
+              "android/app/src/main/AndroidManifest.xml"
+          )
+
           text = manifest.read_text()
 
           text = text.replace(
@@ -237,55 +361,28 @@ jobs:
 
       - name: Get dependencies
         working-directory: build_app
-        run: flutter pub get
+        run: |
+          set -e
+          flutter pub get
 
       - name: Generate App Icon
         working-directory: build_app
-        run: dart run flutter_launcher_icons
+        run: |
+          set -e
+          dart run flutter_launcher_icons
 
-      - name: Restore signing key
+      - name: Verify Firebase configuration
         working-directory: build_app
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           set -e
 
-          test -n "$KEYSTORE_BASE64"
-          test -n "$KEYSTORE_PASSWORD"
+          test -s android/app/google-services.json
 
-          mkdir -p android/keystore
+          grep -q \
+            '"package_name": "com.digital24online"' \
+            android/app/google-services.json
 
-          printf '%s' "$KEYSTORE_BASE64" \
-            | base64 --decode \
-            > android/keystore/digital24.jks
-
-          test -s android/keystore/digital24.jks
-
-          echo "===== CHECKING KEYSTORE ====="
-
-          KEY_ALIAS="$(
-            keytool -list \
-              -keystore android/keystore/digital24.jks \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -v \
-              | awk -F': ' '/Alias name:/ {print $2; exit}'
-          )"
-
-          test -n "$KEY_ALIAS"
-
-          echo "Keystore alias found."
-
-          cat > android/key.properties <<EOF
-          storePassword=$KEYSTORE_PASSWORD
-          keyPassword=$KEYSTORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=keystore/digital24.jks
-          EOF
-
-          test -s android/key.properties
-
-          echo "===== SIGNING KEY READY ====="
+          echo "Firebase package verified."
 
       - name: Verify Android configuration
         working-directory: build_app
@@ -293,46 +390,66 @@ jobs:
           set -e
 
           echo "===== APPLICATION ID ====="
-          grep -n "applicationId" android/app/build.gradle.kts
-          grep -q 'applicationId = "com.digital24online"' android/app/build.gradle.kts
+
+          grep -q \
+            'applicationId = "com.digital24online"' \
+            android/app/build.gradle.kts
 
           echo "===== NAMESPACE ====="
-          grep -n "namespace" android/app/build.gradle.kts
-          grep -q 'namespace = "com.digital24online"' android/app/build.gradle.kts
+
+          grep -q \
+            'namespace = "com.digital24online"' \
+            android/app/build.gradle.kts
 
           echo "===== RELEASE SIGNING ====="
-          grep -n 'create("release")' android/app/build.gradle.kts
-          grep -n 'signingConfig = signingConfigs.getByName("release")' android/app/build.gradle.kts
+
+          grep -q \
+            'create("release")' \
+            android/app/build.gradle.kts
+
+          grep -q \
+            'signingConfig = signingConfigs.getByName("release")' \
+            android/app/build.gradle.kts
 
           echo "===== MAIN ACTIVITY ====="
-          test -f android/app/src/main/kotlin/com/digital24online/MainActivity.kt
 
-          grep -q '^package com.digital24online$' \
+          test -f \
             android/app/src/main/kotlin/com/digital24online/MainActivity.kt
 
-          echo "===== FIREBASE PACKAGE ====="
-          grep -n '"package_name"' android/app/google-services.json
-
-          grep -q '"package_name": "com.digital24online"' \
-            android/app/google-services.json
+          grep -q \
+            '^package com.digital24online$' \
+            android/app/src/main/kotlin/com/digital24online/MainActivity.kt
 
           echo "===== OLD MAIN ACTIVITY CHECK ====="
 
-          if find android/app/src/main/kotlin/com/digital24online/digital24online \
+          if find \
+            android/app/src/main/kotlin/com/digital24online/digital24online \
             -name MainActivity.kt \
             -print \
             -quit \
             | grep -q .; then
+
             echo "ERROR: Old MainActivity package still exists."
             exit 1
           fi
 
           echo "===== ANDROID CONFIGURATION VERIFIED ====="
 
-      - name: Build APK
+      - name: Build release APK
         working-directory: build_app
         run: |
-          flutter build apk --release
+          set -e
+
+          flutter clean
+
+          flutter pub get
+
+          # The previously installed working APK was version +3.
+          # Build this release as version +4 so Android accepts it as an update.
+          flutter build apk \
+            --release \
+            --build-number 4 \
+            --build-name 1.0.0
 
       - name: Verify APK
         working-directory: build_app
@@ -341,21 +458,39 @@ jobs:
 
           APK="build/app/outputs/flutter-apk/app-release.apk"
 
-          echo "===== APK FILE ====="
           test -f "$APK"
 
-          echo "===== APK SIZE ====="
+          echo "===== APK FILE ====="
           ls -lh "$APK"
-
-          echo "===== APK PACKAGE ====="
 
           AAPT="$ANDROID_HOME/build-tools/$(ls \
             "$ANDROID_HOME/build-tools" \
             | sort -V \
             | tail -1)/aapt"
 
-          "$AAPT" dump badging "$APK" | grep -E \
+          echo "===== APK PACKAGE ====="
+
+          "$AAPT" dump badging "$APK" \
+            | grep -E \
             "package:|launchable-activity:"
+
+          echo "===== APK VERSION ====="
+
+          "$AAPT" dump badging "$APK" \
+            | grep "package:" \
+            | grep -q \
+            "versionCode='4'"
+
+          echo "===== APK SIGNATURE ====="
+
+          APKSIGNER="$ANDROID_HOME/build-tools/$(ls \
+            "$ANDROID_HOME/build-tools" \
+            | sort -V \
+            | tail -1)/apksigner"
+
+          "$APKSIGNER" verify \
+            --verbose \
+            "$APK"
 
           echo "===== APK VERIFICATION COMPLETE ====="
 
