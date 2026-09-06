@@ -437,28 +437,116 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
     return Uint8List.fromList(await doc.save());
   }
 
-  Future<void> exportPdf({required bool print}) async {
+    Future<void> exportPdf({
+    required bool print,
+  }) async {
     if (staffId == null) {
-      _error(t('স্টাফ নির্বাচন করুন', 'Select a staff'));
+      _error(
+        t(
+          'আগে একজন স্টাফ নির্বাচন করুন',
+          'Select a staff first',
+        ),
+      );
       return;
     }
-    if (collected.isEmpty && due.isEmpty && closed.isEmpty) await runStaffReport();
-    if (collected.isEmpty && due.isEmpty && closed.isEmpty) return;
-    final bytes = await buildPdf();
-    final safeName = selectedStaffName.replaceAll(RegExp(r'[^a-zA-Z0-9_-]+'), '_');
-    final filename = 'Digital24Online_Staff_${safeName}_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-    if (print) {
-      await Printing.layoutPdf(onLayout: (_) async => bytes, name: filename);
-      return;
+
+    try {
+      if (collected.isEmpty &&
+          due.isEmpty &&
+          closed.isEmpty) {
+        await runStaffReport();
+      }
+
+      if (!mounted) return;
+
+      if (collected.isEmpty &&
+          due.isEmpty &&
+          closed.isEmpty) {
+        _error(
+          t(
+            'এই রিপোর্টে কোনো তথ্য পাওয়া যায়নি',
+            'No data found for this report',
+          ),
+        );
+        return;
+      }
+
+      setState(() => busy = true);
+
+      final bytes = await buildPdf();
+
+      final safeName = selectedStaffName
+          .replaceAll(
+            RegExp(r'[^a-zA-Z0-9_-]+'),
+            '_',
+          );
+
+      final filename =
+          'Digital24Online_Staff_${safeName}_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+
+      if (print) {
+        await Printing.layoutPdf(
+          onLayout: (_) async => bytes,
+          name: filename,
+        );
+
+        if (mounted) {
+          _error(
+            t(
+              'Print অপশন খোলা হয়েছে',
+              'Print preview opened',
+            ),
+          );
+        }
+
+        return;
+      }
+
+      final savedPath =
+          await FilePicker.platform.saveFile(
+        dialogTitle: t(
+          'Staff Report PDF সংরক্ষণ করুন',
+          'Save Staff Report PDF',
+        ),
+        fileName: filename,
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        bytes: bytes,
+      );
+
+      if (!mounted) return;
+
+      if (savedPath == null ||
+          savedPath.trim().isEmpty) {
+        _error(
+          t(
+            'PDF সংরক্ষণ করা হয়নি',
+            'PDF was not saved',
+          ),
+        );
+      } else {
+        _error(
+          t(
+            'PDF সফলভাবে সংরক্ষণ হয়েছে',
+            'PDF saved successfully',
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _error(
+          '${t(
+            'PDF/Print করতে সমস্যা: ',
+            'PDF/Print error: ',
+          )}$e',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => busy = false);
+      }
     }
-    await FilePicker.platform.saveFile(
-      dialogTitle: t('Staff Report সংরক্ষণ', 'Save Staff Report'),
-      fileName: filename,
-      type: FileType.custom,
-      allowedExtensions: ['pdf'],
-      bytes: bytes,
-    );
-  }
+    }
 
   Widget section(
   String title,
