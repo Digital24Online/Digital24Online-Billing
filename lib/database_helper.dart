@@ -978,7 +978,7 @@ class DatabaseHelper {
     );
   }
   
-  // ============================================================
+    // ============================================================
   // STAFF
   // ============================================================
 
@@ -989,8 +989,7 @@ class DatabaseHelper {
     return db.query(
       'staff',
       where: 'active = 1',
-      orderBy:
-          'name COLLATE NOCASE',
+      orderBy: 'name COLLATE NOCASE',
     );
   }
 
@@ -998,21 +997,89 @@ class DatabaseHelper {
     String name,
     String mobile,
   ) async {
+    final cleanName = name.trim();
+    final cleanMobile = mobile.trim();
+
+    if (cleanName.isEmpty) {
+      throw ArgumentError('Staff name is required');
+    }
+
     final db = await database;
+    final now = DateTime.now().toIso8601String();
 
     return db.insert(
       'staff',
       {
-        'name': name.trim(),
-        'mobile': mobile.trim(),
+        'name': cleanName,
+        'mobile': cleanMobile,
         'active': 1,
-        'created_at':
-            DateTime.now().toIso8601String(),
-        'updated_at':
-            DateTime.now().toIso8601String(),
+        'created_at': now,
+        'updated_at': now,
       },
       conflictAlgorithm:
           ConflictAlgorithm.abort,
+    );
+  }
+
+  Future<int> updateStaff(
+    int id,
+    String name,
+    String mobile,
+  ) async {
+    final cleanName = name.trim();
+    final cleanMobile = mobile.trim();
+
+    if (cleanName.isEmpty) {
+      throw ArgumentError('Staff name is required');
+    }
+
+    final db = await database;
+
+    final duplicate = await db.query(
+      'staff',
+      columns: ['id'],
+      where: 'name = ? AND id != ?',
+      whereArgs: [cleanName, id],
+      limit: 1,
+    );
+
+    if (duplicate.isNotEmpty) {
+      throw StateError(
+        'এই নামে Staff ইতিমধ্যে আছে',
+      );
+    }
+
+    return db.update(
+      'staff',
+      {
+        'name': cleanName,
+        'mobile': cleanMobile,
+        'updated_at':
+            DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Safe Delete:
+  /// Staff-এর পুরোনো payment/collection history
+  /// নষ্ট হবে না।
+  /// শুধু Staff inactive হবে।
+  Future<int> deleteStaff(
+    int id,
+  ) async {
+    final db = await database;
+
+    return db.update(
+      'staff',
+      {
+        'active': 0,
+        'updated_at':
+            DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
     );
   }
 
@@ -1026,17 +1093,17 @@ class DatabaseHelper {
       'staff',
       {
         'active': active ? 1 : 0,
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at':
+            DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [id],
     );
   }
-  
+
   // ============================================================
   // MONTHLY BILLING
   // ============================================================
-
   String _currentMonth() {
         final now = DateTime.now();
 
