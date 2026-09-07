@@ -2099,9 +2099,8 @@ bool billingLoading = false;
   if (confirmed != true) return;
 
   try {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['db'],
+        final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
       allowMultiple: false,
       withData: true,
     );
