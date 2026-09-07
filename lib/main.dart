@@ -480,6 +480,7 @@ class _LockScreenState extends State<LockScreen> {
 
 class Customer {
   final int? id;
+  final String custId;
   final String userId;
   final String name;
   final String mobile;
@@ -489,10 +490,12 @@ class Customer {
   final double bill;
   final double paid;
   final String paymentDate;
+  final int? staffId;
   bool active;
 
   Customer({
     this.id,
+    required this.custId,
     required this.userId,
     required this.name,
     required this.mobile,
@@ -502,8 +505,31 @@ class Customer {
     required this.bill,
     required this.paid,
     required this.paymentDate,
+    required this.staffId,
     required this.active,
   });
+
+  double get due =>
+      (bill - paid).clamp(0, double.infinity).toDouble();
+
+  factory Customer.fromMap(Map<String, dynamic> m) {
+    return Customer(
+      id: (m['id'] as num?)?.toInt(),
+      custId: '${m['cust_id'] ?? ''}',
+      userId: '${m['user_id'] ?? ''}',
+      name: '${m['name'] ?? ''}',
+      mobile: '${m['mobile'] ?? ''}',
+      address: '${m['address'] ?? ''}',
+      packageName: '${m['package_name'] ?? ''}',
+      billDate: (m['bill_date'] as num?)?.toInt() ?? 7,
+      bill: ((m['total_bill'] ?? 0) as num).toDouble(),
+      paid: ((m['total_paid'] ?? 0) as num).toDouble(),
+      paymentDate: '${m['payment_date'] ?? ''}',
+      staffId: (m['staff_id'] as num?)?.toInt(),
+      active: (m['status'] ?? 1) == 1,
+    );
+  }
+}
 
   double get due => (bill - paid).clamp(0, double.infinity).toDouble();
 
@@ -716,7 +742,8 @@ bool billingLoading = false;
             ? 0.0
             : ((current['paid'] ?? 0) as num).toDouble();
         list.add(Customer(
-          id: id,
+                    id: id,
+          custId: '${r['cust_id'] ?? ''}',
           userId: '${r['user_id'] ?? ''}',
           name: '${r['name'] ?? ''}',
           mobile: '${r['mobile'] ?? ''}',
@@ -725,7 +752,8 @@ bool billingLoading = false;
           billDate: (r['bill_date'] as num?)?.toInt() ?? 7,
           bill: billAmount,
           paid: paidAmount,
-          paymentDate: '${r['payment_date'] ?? ''}',
+                    paymentDate: '${r['payment_date'] ?? ''}',
+          staffId: (r['staff_id'] as num?)?.toInt(),
           active: (r['status'] ?? 1) == 1,
         ));
       }
@@ -746,7 +774,8 @@ bool billingLoading = false;
     return rows.any((r) => '${r['user_id']}'.toLowerCase() == uid.trim().toLowerCase() && r['id'] != exceptId);
       }
 
-  Future<void> addCustomer() async {
+    Future<void> addCustomer() async {
+    final custId = TextEditingController();
     final uid = TextEditingController();
     final name = TextEditingController();
     final mobile = TextEditingController();
@@ -754,104 +783,331 @@ bool billingLoading = false;
     final pkg = TextEditingController();
     final bill = TextEditingController();
     final paid = TextEditingController(text: '0');
+
     int date = 7;
+    int? assignedStaffId;
     bool saving = false;
+
+    final staffRows = await db.getStaff();
 
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
-          title: Text(t('নতুন ইউজার যোগ করুন', 'Add New Customer')),
+          title: Text(
+            t('নতুন ইউজার যোগ করুন', 'Add New Customer'),
+          ),
           content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              field(uid, t('ইউজার আইডি *', 'User ID *'), Icons.badge),
-              const SizedBox(height: 10),
-              field(name, t('ইউজারের নাম *', 'Customer name *'), Icons.person),
-              const SizedBox(height: 10),
-              field(mobile, t('মোবাইল', 'Mobile'), Icons.phone, type: TextInputType.phone),
-              const SizedBox(height: 10),
-              field(address, t('ঠিকানা', 'Address'), Icons.home),
-              const SizedBox(height: 10),
-              field(pkg, t('প্যাকেজ', 'Package'), Icons.speed),
-              const SizedBox(height: 10),
-              dateDrop(date, (v) => setD(() => date = v)),
-                            const SizedBox(height: 10),
-              field(bill, t('মাসিক বিল *', 'Monthly Bill *'), Icons.receipt, type: const TextInputType.numberWithOptions(decimal: true)),
-              const SizedBox(height: 10),
-              field(paid, t('প্রাথমিক পরিশোধ', 'Initial Payment'), Icons.payments, type: const TextInputType.numberWithOptions(decimal: true)),
-            ]),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                field(
+                  custId,
+                  t('Cust ID *', 'Cust ID *'),
+                  Icons.confirmation_number,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  uid,
+                  t('ইউজার আইডি *', 'User ID *'),
+                  Icons.badge,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  name,
+                  t('ইউজারের নাম *', 'Customer name *'),
+                  Icons.person,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  mobile,
+                  t('মোবাইল', 'Mobile'),
+                  Icons.phone,
+                  type: TextInputType.phone,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  address,
+                  t('ঠিকানা', 'Address'),
+                  Icons.home,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  pkg,
+                  t('প্যাকেজ', 'Package'),
+                  Icons.speed,
+                ),
+                const SizedBox(height: 10),
+
+                dateDrop(
+                  date,
+                  (v) => setD(() => date = v),
+                ),
+                const SizedBox(height: 10),
+
+                if (staffRows.isNotEmpty)
+                  DropdownButtonFormField<int?>(
+                    initialValue: assignedStaffId,
+                    decoration: InputDecoration(
+                      labelText: t(
+                        'দায়িত্বপ্রাপ্ত স্টাফ',
+                        'Assigned Staff',
+                      ),
+                      prefixIcon: const Icon(Icons.person_pin),
+                      border: const OutlineInputBorder(),
+                    ),
+                    items: [
+                      DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text(
+                          t(
+                            'নির্ধারিত নয়',
+                            'Not assigned',
+                          ),
+                        ),
+                      ),
+                      ...staffRows.map(
+                        (s) => DropdownMenuItem<int?>(
+                          value: (s['id'] as num).toInt(),
+                          child: Text(
+                            '${s['name'] ?? ''}',
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) =>
+                        setD(() => assignedStaffId = v),
+                  ),
+
+                if (staffRows.isNotEmpty)
+                  const SizedBox(height: 10),
+
+                field(
+                  bill,
+                  t('মাসিক বিল *', 'Monthly Bill *'),
+                  Icons.receipt,
+                  type: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  paid,
+                  t('প্রাথমিক পরিশোধ', 'Initial Payment'),
+                  Icons.payments,
+                  type: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
-            TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: Text(t('বাতিল', 'Cancel'))),
+            TextButton(
+              onPressed: saving
+                  ? null
+                  : () => Navigator.pop(ctx),
+              child: Text(
+                t('বাতিল', 'Cancel'),
+              ),
+            ),
             FilledButton.icon(
-              onPressed: saving ? null : () async {
-                final id = uid.text.trim();
-                final nm = name.text.trim();
-                final b = double.tryParse(bill.text.trim()) ?? 0;
-                final p = double.tryParse(paid.text.trim()) ?? 0;
-                if (id.isEmpty || nm.isEmpty || b <= 0 || p < 0 || p > b) {
-                  msg(t('আইডি, নাম ও সঠিক বিল/পরিশোধ দিন', 'Enter valid ID, name, bill and payment'));
-                  return;
-                }
-                setD(() => saving = true);
-                try {
-                  if (await userIdExists(id)) throw Exception(t('এই ইউজার আইডি ইতোমধ্যে আছে', 'User ID already exists'));
-                  final cid = await db.addCustomer({
-                    'user_id': id,
-                    'name': nm,
-                    'mobile': mobile.text.trim(),
-                    'address': address.text.trim(),
-                    'package_name': pkg.text.trim(),
-                    'bill_date': date,
-                    'amount': b,
-                    'total_amount': b,
-                    'paid_amount': 0,
-                    'due_amount': b,
-                    'status': 1,
-                    'active': 1,
-                  });
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final cid =
+                          custId.text.trim();
+                      final id =
+                          uid.text.trim();
+                      final nm =
+                          name.text.trim();
 
-                  // Verify the customer row immediately after the database insert.
-                  // This prevents a false "saved" message when the local write did not persist.
-                  final savedCustomer = await db.getCustomerByUserId(id);
-                  if (savedCustomer == null || (savedCustomer['id'] as num?)?.toInt() != cid) {
-                    throw Exception(t('ইউজার সংরক্ষণ যাচাই করা যায়নি', 'Customer save could not be verified'));
-                  }
+                      final b =
+                          double.tryParse(
+                                bill.text.trim(),
+                              ) ??
+                              0;
 
-                  final bid = await db.ensureBill(cid, monthKey(), date, b);
-                  if (p > 0) {
-                    await db.addPayment({
-                      'customer_id': cid,
-                      'bill_id': bid,
-                      'amount': p,
-                      'payment_date': today(),
-                      'note': 'প্রাথমিক পরিশোধ',
-                    });
-                  }
-                  
-                  // The local database write is complete and verified here.
-                  // Close immediately so a slow 2000+ customer list refresh cannot
-                  // make the Save button appear stuck. The list refresh continues
-                  // in the background.
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  if (!mounted) return;
-                  msg(t('ইউজার সফলভাবে সংরক্ষণ হয়েছে', 'Customer saved successfully'));
-                  unawaited(loadCustomers());
-                } catch (e) {
-                  if (ctx.mounted) setD(() => saving = false);
-                  msg('$e');
-                }
-              },
-              icon: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
-              label: Text(t('সংরক্ষণ', 'Save')),
+                      final p =
+                          double.tryParse(
+                                paid.text.trim(),
+                              ) ??
+                              0;
+
+                      if (cid.isEmpty ||
+                          id.isEmpty ||
+                          nm.isEmpty ||
+                          b <= 0 ||
+                          p < 0 ||
+                          p > b) {
+                        msg(
+                          t(
+                            'Cust ID, ইউজার আইডি, নাম ও সঠিক বিল/পরিশোধ দিন',
+                            'Enter Cust ID, User ID, name and valid bill/payment',
+                          ),
+                        );
+                        return;
+                      }
+
+                      setD(() => saving = true);
+
+                      try {
+                        final custRows =
+                            await db.getCustomers(
+                          search: cid,
+                        );
+
+                        final custExists =
+                            custRows.any(
+                          (r) =>
+                              '${r['cust_id'] ?? ''}'
+                                  .trim()
+                                  .toLowerCase() ==
+                              cid.toLowerCase(),
+                        );
+
+                        if (custExists) {
+                          throw Exception(
+                            t(
+                              'এই Cust ID ইতোমধ্যে আছে',
+                              'This Cust ID already exists',
+                            ),
+                          );
+                        }
+
+                        if (await userIdExists(id)) {
+                          throw Exception(
+                            t(
+                              'এই ইউজার আইডি ইতোমধ্যে আছে',
+                              'User ID already exists',
+                            ),
+                          );
+                        }
+
+                        final customerId =
+                            await db.addCustomer({
+                          'cust_id': cid,
+                          'user_id': id,
+                          'name': nm,
+                          'mobile':
+                              mobile.text.trim(),
+                          'address':
+                              address.text.trim(),
+                          'package_name':
+                              pkg.text.trim(),
+                          'bill_date': date,
+                          'amount': b,
+                          'total_amount': b,
+                          'paid_amount': 0,
+                          'due_amount': b,
+                          'staff_id':
+                              assignedStaffId,
+                          'status': 1,
+                          'active': 1,
+                        });
+
+                        final savedCustomer =
+                            await db.getCustomerByUserId(
+                          id,
+                        );
+
+                        if (savedCustomer == null ||
+                            (savedCustomer['id']
+                                    as num?)
+                                ?.toInt() !=
+                                customerId) {
+                          throw Exception(
+                            t(
+                              'ইউজার সংরক্ষণ যাচাই করা যায়নি',
+                              'Customer save could not be verified',
+                            ),
+                          );
+                        }
+
+                        final bid =
+                            await db.ensureBill(
+                          customerId,
+                          monthKey(),
+                          date,
+                          b,
+                        );
+
+                        if (p > 0) {
+                          await db.addPayment({
+                            'customer_id':
+                                customerId,
+                            'bill_id': bid,
+                            'amount': p,
+                            'payment_date':
+                                today(),
+                            'note':
+                                'প্রাথমিক পরিশোধ',
+                          });
+                        }
+
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                        }
+
+                        if (!mounted) return;
+
+                        msg(
+                          t(
+                            'ইউজার সফলভাবে সংরক্ষণ হয়েছে',
+                            'Customer saved successfully',
+                          ),
+                        );
+
+                        unawaited(loadCustomers());
+                      } catch (e) {
+                        if (ctx.mounted) {
+                          setD(
+                            () => saving = false,
+                          );
+                        }
+
+                        msg('$e');
+                      }
+                    },
+              icon: saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child:
+                          CircularProgressIndicator(
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(Icons.save),
+              label: Text(
+                t('সংরক্ষণ', 'Save'),
+              ),
             ),
           ],
         ),
       ),
     );
-        for (final c in [uid, name, mobile, address, pkg, bill, paid]) c.dispose();
-  }
+
+    for (final c in [
+      custId,
+      uid,
+      name,
+      mobile,
+      address,
+      pkg,
+      bill,
+      paid,
+    ]) {
+      c.dispose();
+    }
+    }
 
   Widget field(TextEditingController c, String label, IconData icon, {TextInputType type = TextInputType.text}) {
     return TextField(controller: c, keyboardType: type, decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon), border: const OutlineInputBorder()));
@@ -866,59 +1122,274 @@ bool billingLoading = false;
     );
   }
 
-  Future<void> editCustomer(Customer c) async {
+    Future<void> editCustomer(Customer c) async {
     if (c.id == null) return;
-    final uid = TextEditingController(text: c.userId);
-    final name = TextEditingController(text: c.name);
-    final mobile = TextEditingController(text: c.mobile);
-    final address = TextEditingController(text: c.address);
-    final pkg = TextEditingController(text: c.packageName);
+
+    final custId =
+        TextEditingController(text: c.custId);
+    final uid =
+        TextEditingController(text: c.userId);
+    final name =
+        TextEditingController(text: c.name);
+    final mobile =
+        TextEditingController(text: c.mobile);
+    final address =
+        TextEditingController(text: c.address);
+    final pkg =
+        TextEditingController(text: c.packageName);
+
     int date = c.billDate;
+    int? assignedStaffId = c.staffId;
     bool saving = false;
+
+    final staffRows = await db.getStaff();
 
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
-          title: Text(t('ইউজার তথ্য পরিবর্তন', 'Edit Customer')),
-          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            field(uid, t('ইউজার আইডি', 'User ID'), Icons.badge),
-            const SizedBox(height: 10), field(name, t('নাম', 'Name'), Icons.person),
-            const SizedBox(height: 10), field(mobile, t('মোবাইল', 'Mobile'), Icons.phone, type: TextInputType.phone),
-            const SizedBox(height: 10), field(address, t('ঠিকানা', 'Address'), Icons.home),
-            const SizedBox(height: 10), field(pkg, t('প্যাকেজ', 'Package'), Icons.speed),
-            const SizedBox(height: 10), dateDrop(date, (v) => setD(() => date = v)),
-          ])),
+          title: Text(
+            t(
+              'ইউজার তথ্য পরিবর্তন',
+              'Edit Customer',
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                field(
+                  custId,
+                  t('Cust ID', 'Cust ID'),
+                  Icons.confirmation_number,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  uid,
+                  t('ইউজার আইডি', 'User ID'),
+                  Icons.badge,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  name,
+                  t('নাম', 'Name'),
+                  Icons.person,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  mobile,
+                  t('মোবাইল', 'Mobile'),
+                  Icons.phone,
+                  type: TextInputType.phone,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  address,
+                  t('ঠিকানা', 'Address'),
+                  Icons.home,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  pkg,
+                  t('প্যাকেজ', 'Package'),
+                  Icons.speed,
+                ),
+                const SizedBox(height: 10),
+
+                dateDrop(
+                  date,
+                  (v) => setD(() => date = v),
+                ),
+
+                if (staffRows.isNotEmpty)
+                  const SizedBox(height: 10),
+
+                if (staffRows.isNotEmpty)
+                  DropdownButtonFormField<int?>(
+                    initialValue: staffRows.any(
+                      (s) =>
+                          (s['id'] as num)
+                              .toInt() ==
+                          assignedStaffId,
+                    )
+                        ? assignedStaffId
+                        : null,
+                    decoration: InputDecoration(
+                      labelText: t(
+                        'দায়িত্বপ্রাপ্ত স্টাফ',
+                        'Assigned Staff',
+                      ),
+                      prefixIcon:
+                          const Icon(Icons.person_pin),
+                      border:
+                          const OutlineInputBorder(),
+                    ),
+                    items: [
+                      DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text(
+                          t(
+                            'নির্ধারিত নয়',
+                            'Not assigned',
+                          ),
+                        ),
+                      ),
+                      ...staffRows.map(
+                        (s) => DropdownMenuItem<int?>(
+                          value:
+                              (s['id'] as num).toInt(),
+                          child: Text(
+                            '${s['name'] ?? ''}',
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) =>
+                        setD(() =>
+                            assignedStaffId = v),
+                  ),
+              ],
+            ),
+          ),
           actions: [
-            TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: Text(t('বাতিল', 'Cancel'))),
+            TextButton(
+              onPressed: saving
+                  ? null
+                  : () => Navigator.pop(ctx),
+              child: Text(
+                t('বাতিল', 'Cancel'),
+              ),
+            ),
             FilledButton.icon(
-              onPressed: saving ? null : () async {
-                if (uid.text.trim().isEmpty || name.text.trim().isEmpty) return;
-                setD(() => saving = true);
-                try {
-                  if (await userIdExists(uid.text.trim(), exceptId: c.id)) throw Exception(t('এই ইউজার আইডি অন্য একজন ব্যবহার করছে', 'User ID is already used'));
-                                    await db.updateCustomer(c.id!, {
-                    'user_id': uid.text.trim(), 'name': name.text.trim(), 'mobile': mobile.text.trim(),
-                    'address': address.text.trim(), 'package_name': pkg.text.trim(), 'bill_date': date,
-                  });
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  await loadCustomers();
-                  msg(t('তথ্য পরিবর্তন হয়েছে', 'Customer updated'));
-                } catch (e) {
-                  if (ctx.mounted) setD(() => saving = false);
-                  msg('$e');
-                }
-              },
-              icon: const Icon(Icons.save), label: Text(t('সংরক্ষণ', 'Save')),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final newCustId =
+                          custId.text.trim();
+                      final newUid =
+                          uid.text.trim();
+                      final newName =
+                          name.text.trim();
+
+                      if (newCustId.isEmpty ||
+                          newUid.isEmpty ||
+                          newName.isEmpty) {
+                        msg(
+                          t(
+                            'Cust ID, User ID ও নাম দিন',
+                            'Enter Cust ID, User ID and name',
+                          ),
+                        );
+                        return;
+                      }
+
+                      setD(() => saving = true);
+
+                      try {
+                        final custRows =
+                            await db.getCustomers(
+                          search: newCustId,
+                        );
+
+                        final custExists =
+                            custRows.any(
+                          (r) =>
+                              '${r['cust_id'] ?? ''}'
+                                      .trim()
+                                      .toLowerCase() ==
+                                  newCustId
+                                      .toLowerCase() &&
+                              r['id'] != c.id,
+                        );
+
+                        if (custExists) {
+                          throw Exception(
+                            t(
+                              'এই Cust ID অন্য একজন ব্যবহার করছে',
+                              'Cust ID is already used',
+                            ),
+                          );
+                        }
+
+                        if (await userIdExists(
+                          newUid,
+                          exceptId: c.id,
+                        )) {
+                          throw Exception(
+                            t(
+                              'এই ইউজার আইডি অন্য একজন ব্যবহার করছে',
+                              'User ID is already used',
+                            ),
+                          );
+                        }
+
+                        await db.updateCustomer(
+                          c.id!,
+                          {
+                            'cust_id': newCustId,
+                            'user_id': newUid,
+                            'name': newName,
+                            'mobile':
+                                mobile.text.trim(),
+                            'address':
+                                address.text.trim(),
+                            'package_name':
+                                pkg.text.trim(),
+                            'bill_date': date,
+                            'staff_id':
+                                assignedStaffId,
+                          },
+                        );
+
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                        }
+
+                        await loadCustomers();
+
+                        msg(
+                          t(
+                            'তথ্য পরিবর্তন হয়েছে',
+                            'Customer updated',
+                          ),
+                        );
+                      } catch (e) {
+                        if (ctx.mounted) {
+                          setD(
+                            () => saving = false,
+                          );
+                        }
+
+                        msg('$e');
+                      }
+                    },
+              icon: const Icon(Icons.save),
+              label: Text(
+                t('সংরক্ষণ', 'Save'),
+              ),
             ),
           ],
         ),
       ),
     );
-        for (final c in [uid, name, mobile, address, pkg]) c.dispose();
-  }
 
+    for (final controller in [
+      custId,
+      uid,
+      name,
+      mobile,
+      address,
+      pkg,
+    ]) {
+      controller.dispose();
+    }
+    }
   Future<void> toggleCustomer(Customer c) async {
     if (c.id == null) return;
     try {
@@ -2120,7 +2591,11 @@ bool billingLoading = false;
               onSelectChanged: (_) => showDetails(c),
               cells: [
                 DataCell(Text('${index + 1}')),
-                DataCell(Text('${c.id ?? '-'}')),
+                                 DataCell(
+                   Text(
+                     c.custId.isEmpty ? '-' : c.custId,
+                   ),
+                 ),
                 DataCell(
                   Row(
                     mainAxisSize: MainAxisSize.min,
