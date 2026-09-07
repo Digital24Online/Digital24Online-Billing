@@ -511,7 +511,7 @@ class Customer {
 
   double get due => (bill - paid).clamp(0, double.infinity).toDouble();
 
-    factory Customer.fromMap(Map<String, dynamic> m) {
+  factory Customer.fromMap(Map<String, dynamic> m) {
     return Customer(
       id: (m['id'] as num?)?.toInt(),
       custId: '${m['cust_id'] ?? ''}',
@@ -526,8 +526,7 @@ class Customer {
       paymentDate: '${m['payment_date'] ?? ''}',
       staffId: (m['staff_id'] as num?)?.toInt(),
       active: (m['status'] ?? 1) == 1,
-        );
-    }
+    );
   }
 }
 
