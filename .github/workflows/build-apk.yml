@@ -434,7 +434,7 @@ jobs:
 
           echo "===== ANDROID CONFIGURATION VERIFIED ====="
 
-      - name: Build release APK
+            - name: Build release APK
         working-directory: build_app
         run: |
           set -e
@@ -443,14 +443,18 @@ jobs:
 
           flutter pub get
 
-          # The previously installed working APK was version +3.
-          # Build this release as version +4 so Android accepts it as an update.
+          # Always create a versionCode higher than the old APK.
+          # GitHub run_number increases for every new workflow run.
+          BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
+
+          echo "Building Android APK with versionCode: $BUILD_NUMBER"
+
           flutter build apk \
             --release \
-            --build-number 4 \
+            --build-number "$BUILD_NUMBER" \
             --build-name 1.0.0
 
-      - name: Verify APK
+            - name: Verify APK
         working-directory: build_app
         run: |
           set -e
@@ -468,17 +472,23 @@ jobs:
             | tail -1)/aapt"
 
           echo "===== APK PACKAGE ====="
-
           "$AAPT" dump badging "$APK" \
             | grep -E \
             "package:|launchable-activity:"
 
           echo "===== APK VERSION ====="
 
-          "$AAPT" dump badging "$APK" \
-            | grep "package:" \
-            | grep -q \
-            "versionCode='4'"
+          BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
+
+          APK_VERSION_CODE="$(
+            "$AAPT" dump badging "$APK" \
+              | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p"
+          )"
+
+          echo "Expected versionCode: $BUILD_NUMBER"
+          echo "Actual versionCode:   $APK_VERSION_CODE"
+
+          test "$APK_VERSION_CODE" = "$BUILD_NUMBER"
 
           echo "===== APK SIGNATURE ====="
 
@@ -492,7 +502,6 @@ jobs:
             "$APK"
 
           echo "===== APK VERIFICATION COMPLETE ====="
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
