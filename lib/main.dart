@@ -526,8 +526,10 @@ class Customer {
       paymentDate: '${m['payment_date'] ?? ''}',
       staffId: (m['staff_id'] as num?)?.toInt(),
       active: (m['status'] ?? 1) == 1,
-    );
+        );
     }
+  }
+}
 
 class BillingHomePage extends StatefulWidget {
   final bool english;
