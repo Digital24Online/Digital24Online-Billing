@@ -24,16 +24,15 @@ class DatabaseHelper {
       'digital24_billing.db',
     );
 
-    return openDatabase(
+        return openDatabase(
       dbPath,
-      version: 4,
+      version: 5,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
       onCreate: _create,
       onUpgrade: _upgrade,
     );
-  }
 
   // ============================================================
   // DATABASE CREATE
@@ -50,10 +49,11 @@ class DatabaseHelper {
       )
     ''');
 
-    await db.execute('''
+        await db.execute('''
       CREATE TABLE customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         billing_id INTEGER NOT NULL DEFAULT 1,
+        cust_id TEXT NOT NULL DEFAULT '',
         user_id TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         mobile TEXT NOT NULL DEFAULT '',
@@ -61,18 +61,22 @@ class DatabaseHelper {
         package_id INTEGER,
         package_name TEXT NOT NULL DEFAULT '',
         bill_date INTEGER NOT NULL DEFAULT 7,
-
         amount REAL NOT NULL DEFAULT 0,
         total_amount REAL NOT NULL DEFAULT 0,
         paid_amount REAL NOT NULL DEFAULT 0,
         due_amount REAL NOT NULL DEFAULT 0,
         payment_date TEXT NOT NULL DEFAULT '',
+        staff_id INTEGER,
 
         status INTEGER NOT NULL DEFAULT 1,
         active INTEGER NOT NULL DEFAULT 1,
 
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+
+        FOREIGN KEY(staff_id)
+          REFERENCES staff(id)
+          ON DELETE SET NULL
       )
     ''');
 
@@ -200,7 +204,7 @@ class DatabaseHelper {
   // DATABASE UPGRADE / MIGRATION
   // ============================================================
 
-  Future<void> _upgrade(
+    Future<void> _upgrade(
     Database db,
     int oldVersion,
     int newVersion,
@@ -214,16 +218,24 @@ class DatabaseHelper {
 
     if (oldVersion < 3) {
       await _addColumnIfMissing(
-        db, 'packages', 'updated_at TEXT NOT NULL DEFAULT ""',
+        db,
+        'packages',
+        'updated_at TEXT NOT NULL DEFAULT ""',
       );
       await _addColumnIfMissing(
-        db, 'bills', 'updated_at TEXT NOT NULL DEFAULT ""',
+        db,
+        'bills',
+        'updated_at TEXT NOT NULL DEFAULT ""',
       );
       await _addColumnIfMissing(
-        db, 'staff', 'updated_at TEXT NOT NULL DEFAULT ""',
+        db,
+        'staff',
+        'updated_at TEXT NOT NULL DEFAULT ""',
       );
       await _addColumnIfMissing(
-        db, 'payments', 'updated_at TEXT NOT NULL DEFAULT ""',
+        db,
+        'payments',
+        'updated_at TEXT NOT NULL DEFAULT ""',
       );
 
       await db.execute(
@@ -241,25 +253,100 @@ class DatabaseHelper {
     }
 
     if (oldVersion < 4) {
-      await db.execute('''CREATE TABLE IF NOT EXISTS billings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        active INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS billings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      ''');
+
       await _seedDefaultBillings(db);
-      await _addColumnIfMissing(db, 'customers', 'billing_id INTEGER NOT NULL DEFAULT 1');
-      await _addColumnIfMissing(db, 'bills', 'billing_id INTEGER NOT NULL DEFAULT 1');
-      await _addColumnIfMissing(db, 'payments', 'billing_id INTEGER NOT NULL DEFAULT 1');
-      await db.execute('UPDATE customers SET billing_id = 1 WHERE billing_id IS NULL OR billing_id = 0');
-      await db.execute('UPDATE bills SET billing_id = 1 WHERE billing_id IS NULL OR billing_id = 0');
-      await db.execute('UPDATE payments SET billing_id = 1 WHERE billing_id IS NULL OR billing_id = 0');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_customers_billing ON customers(billing_id)');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_bills_billing ON bills(billing_id)');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_payments_billing ON payments(billing_id)');
+
+      await _addColumnIfMissing(
+        db,
+        'customers',
+        'billing_id INTEGER NOT NULL DEFAULT 1',
+      );
+      await _addColumnIfMissing(
+        db,
+        'bills',
+        'billing_id INTEGER NOT NULL DEFAULT 1',
+      );
+      await _addColumnIfMissing(
+        db,
+        'payments',
+        'billing_id INTEGER NOT NULL DEFAULT 1',
+      );
+
+      await db.execute(
+        'UPDATE customers SET billing_id = 1 '
+        'WHERE billing_id IS NULL OR billing_id = 0',
+      );
+      await db.execute(
+        'UPDATE bills SET billing_id = 1 '
+        'WHERE billing_id IS NULL OR billing_id = 0',
+      );
+      await db.execute(
+        'UPDATE payments SET billing_id = 1 '
+        'WHERE billing_id IS NULL OR billing_id = 0',
+      );
+
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_customers_billing '
+        'ON customers(billing_id)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_bills_billing '
+        'ON bills(billing_id)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_payments_billing '
+        'ON payments(billing_id)',
+      );
     }
-  }
+
+    if (oldVersion < 5) {
+      await _addColumnIfMissing(
+        db,
+        'customers',
+        'cust_id TEXT NOT NULL DEFAULT ""',
+      );
+
+      await _addColumnIfMissing(
+        db,
+        'customers',
+        'staff_id INTEGER',
+      );
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS deleted_customers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          billing_id INTEGER NOT NULL,
+          user_id TEXT NOT NULL,
+          deleted_at TEXT NOT NULL,
+          UNIQUE(billing_id, user_id)
+        )
+      ''');
+
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_customers_cust_id '
+        'ON customers(cust_id)',
+      );
+
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_customers_staff '
+        'ON customers(staff_id)',
+      );
+
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_deleted_customers_key '
+        'ON deleted_customers(billing_id, user_id)',
+      );
+    }
+    }
 
   Future<bool> _tableExists(
     Database db,
@@ -336,6 +423,16 @@ class DatabaseHelper {
         )
       ''');
 
+          await db.execute('''
+      CREATE TABLE deleted_customers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        billing_id INTEGER NOT NULL,
+        user_id TEXT NOT NULL,
+        deleted_at TEXT NOT NULL,
+        UNIQUE(billing_id, user_id)
+      )
+    ''');
+      
       return;
     }
 
@@ -628,15 +725,15 @@ class DatabaseHelper {
           '%${search.trim().toLowerCase()}%';
 
       where.add('''
-        (
-          LOWER(c.user_id) LIKE ?
+                  (
+          LOWER(c.cust_id) LIKE ?
+          OR LOWER(c.user_id) LIKE ?
           OR LOWER(c.name) LIKE ?
           OR c.mobile LIKE ?
           OR LOWER(c.package_name) LIKE ?
         )
-      ''');
 
-      args.addAll([q, q, q, q]);
+            args.addAll([q, q, q, q, q]);
     }
 
     final whereSql = where.isEmpty
@@ -737,7 +834,9 @@ class DatabaseHelper {
                 ?.toDouble() ??
             0;
 
-    values['billing_id'] = _activeBillingId;
+        values['billing_id'] = _activeBillingId;
+    values['cust_id'] = values['cust_id']?.toString().trim() ?? '';
+    values['staff_id'] = values['staff_id'];
     values['amount'] = bill;
     values['total_amount'] =
         (values['total_amount'] as num?)
@@ -876,24 +975,51 @@ class DatabaseHelper {
     );
   }
 
-  /// Safe customer removal for cloud-sync mode.
-  ///
-  /// Keep the row and mark it closed so cloud synchronization can propagate
-  /// the same state to every device without losing billing history.
-  Future<int> deleteCustomer(
+    Future<int> deleteCustomer(
     int id,
   ) async {
     final db = await database;
-    return db.update(
-      'customers',
-      {
-        'active': 0,
-        'status': 0,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ? AND billing_id = ?',
-      whereArgs: [id, _activeBillingId],
-    );
+
+    return db.transaction<int>((txn) async {
+      final rows = await txn.query(
+        'customers',
+        columns: ['billing_id', 'user_id'],
+        where: 'id = ? AND billing_id = ?',
+        whereArgs: [id, _activeBillingId],
+        limit: 1,
+      );
+
+      if (rows.isEmpty) {
+        return 0;
+      }
+
+      final billingId =
+          (rows.first['billing_id'] as num?)?.toInt() ??
+              _activeBillingId;
+
+      final userId =
+          '${rows.first['user_id'] ?? ''}'.trim();
+
+      if (userId.isEmpty) {
+        return 0;
+      }
+
+      await txn.insert(
+        'deleted_customers',
+        {
+          'billing_id': billingId,
+          'user_id': userId,
+          'deleted_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      return txn.delete(
+        'customers',
+        where: 'id = ? AND billing_id = ?',
+        whereArgs: [id, _activeBillingId],
+      );
+    });
   }
 
   // ============================================================
@@ -2084,41 +2210,78 @@ Future<void> exportBackupToFile() async {
     return fallback;
   }
 
-  Map<String, dynamic> _customerRow(
+    Map<String, dynamic> _customerRow(
     Map<String, dynamic> row,
   ) {
     final now = DateTime.now().toIso8601String();
 
     final amount = _doubleValue(
-      row['amount'] ?? row['bill_amount'] ?? row['total_amount'],
+      row['amount'] ??
+          row['bill_amount'] ??
+          row['total_amount'],
     );
-    final paid = _doubleValue(row['paid_amount'] ?? row['paid']);
+
+    final paid = _doubleValue(
+      row['paid_amount'] ?? row['paid'],
+    );
+
     final due = row['due_amount'] != null
         ? _doubleValue(row['due_amount'])
-        : (amount - paid).clamp(0, double.infinity).toDouble();
+        : (amount - paid)
+            .clamp(0, double.infinity)
+            .toDouble();
 
     return {
-            if (_intValue(row['id']) != null) 'id': _intValue(row['id']),
-      'user_id': _stringValue(row['user_id'] ?? row['userId']),
-      'name': _stringValue(row['name']),
-      'mobile': _stringValue(row['mobile'] ?? row['phone']),
-      'address': _stringValue(row['address']),
-      'package_id': _intValue(row['package_id'] ?? row['packageId']),
-      'package_name': _stringValue(
-        row['package_name'] ?? row['packageName'] ?? row['package'],
+      if (_intValue(row['id']) != null)
+        'id': _intValue(row['id']),
+      'cust_id': _stringValue(
+        row['cust_id'] ?? row['custId'],
       ),
-      'bill_date': _intValue(row['bill_date'] ?? row['billDate']) ?? 7,
+      'user_id': _stringValue(
+        row['user_id'] ?? row['userId'],
+      ),
+      'name': _stringValue(row['name']),
+      'mobile': _stringValue(
+        row['mobile'] ?? row['phone'],
+      ),
+      'address': _stringValue(row['address']),
+      'package_id': _intValue(
+        row['package_id'] ?? row['packageId'],
+      ),
+      'package_name': _stringValue(
+        row['package_name'] ??
+            row['packageName'] ??
+            row['package'],
+      ),
+      'bill_date': _intValue(
+            row['bill_date'] ?? row['billDate'],
+          ) ??
+          7,
       'amount': amount,
-      'total_amount': _doubleValue(row['total_amount'] ?? amount),
+      'total_amount': _doubleValue(
+        row['total_amount'] ?? amount,
+      ),
       'paid_amount': paid,
       'due_amount': due,
       'payment_date': _stringValue(
         row['payment_date'] ?? row['paymentDate'],
       ),
+      'staff_id': _intValue(
+        row['staff_id'] ?? row['staffId'],
+      ),
       'status': _boolInt(row['status'], 1),
-      'active': _boolInt(row['active'], _boolInt(row['status'], 1)),
-      'created_at': _stringValue(row['created_at'] ?? row['createdAt'], now),
-      'updated_at': _stringValue(row['updated_at'] ?? row['updatedAt'], now),
+      'active': _boolInt(
+        row['active'],
+        _boolInt(row['status'], 1),
+      ),
+      'created_at': _stringValue(
+        row['created_at'] ?? row['createdAt'],
+        now,
+      ),
+      'updated_at': _stringValue(
+        row['updated_at'] ?? row['updatedAt'],
+        now,
+      ),
     };
   }
     
