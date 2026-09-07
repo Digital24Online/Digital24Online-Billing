@@ -18,13 +18,13 @@ class DatabaseHelper {
     return _db!;
   }
 
-  Future<Database> _open() async {
+    Future<Database> _open() async {
     final dbPath = join(
       await getDatabasesPath(),
       'digital24_billing.db',
     );
 
-        return openDatabase(
+    return openDatabase(
       dbPath,
       version: 5,
       onConfigure: (db) async {
@@ -33,6 +33,7 @@ class DatabaseHelper {
       onCreate: _create,
       onUpgrade: _upgrade,
     );
+    }
 
   // ============================================================
   // DATABASE CREATE
@@ -308,7 +309,7 @@ class DatabaseHelper {
       );
     }
 
-    if (oldVersion < 5) {
+        if (oldVersion < 5) {
       await _addColumnIfMissing(
         db,
         'customers',
