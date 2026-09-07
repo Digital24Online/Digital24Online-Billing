@@ -217,7 +217,8 @@ class FirebaseService {
     await _ensureBusinessDocument();
     final db = await DatabaseHelper.instance.database;
 
-    await _mergeBillings(db);
+        await _mergeBillings(db);
+    await _processCustomerDeletionTombstones(db);
     await _mergeCustomers(db);
     await _mergePackages(db);
     await _mergeStaff(db);
@@ -406,84 +407,233 @@ class FirebaseService {
   // CUSTOMERS
   // ---------------------------------------------------------------------------
 
+    Future<void> _processCustomerDeletionTombstones(
+    Database db,
+  ) async {
+    final deleted = await db.query(
+      'deleted_customers',
+      orderBy: 'id ASC',
+    );
+
+    for (final row in deleted) {
+      final billingId =
+          _int(row['billing_id'], fallback: 1);
+      final userId =
+          _string(row['user_id']).trim();
+
+      if (userId.isEmpty) {
+        await db.delete(
+          'deleted_customers',
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+        continue;
+      }
+
+      final key =
+          '${billingId}__$userId';
+
+      await _collection(
+        'customers',
+      ).doc(_key(key)).delete();
+
+      await db.delete(
+        'deleted_customers',
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+  }
+
   Future<void> _mergeCustomers(Database db) async {
     final local = await db.query('customers');
     final cloud = await _readCollection('customers');
 
-    final cloudByKey = <String, Map<String, dynamic>>{};
+    final deletedRows = await db.query(
+      'deleted_customers',
+      columns: ['billing_id', 'user_id'],
+    );
+
+    final deletedKeys = <String>{
+      for (final row in deletedRows)
+        '${_int(row['billing_id'], fallback: 1)}__'
+            '${_string(row['user_id']).trim()}',
+    };
+
+    final cloudByKey =
+        <String, Map<String, dynamic>>{};
+
     for (final row in cloud) {
-      final key = '${_int(row['billing_id'])}__${_string(row['user_id']).trim()}';
-      if (key != '0__' && key.endsWith('__') == false) cloudByKey[key] = row;
-    }
+      final key =
+          '${_int(row['billing_id'])}__'
+          '${_string(row['user_id']).trim()}';
 
-    for (final row in local) {
-      final userId = _string(row['user_id']).trim();
-      if (userId.isEmpty) continue;
-      final key = '${_int(row['billing_id'])}__$userId';
-
-      final remote = cloudByKey[key];
-      if (remote == null || _localIsNewer(row, remote)) {
-        await _setCloud('customers', _key(key), _customerToCloud(row));
+      if (key != '0__' &&
+          !key.endsWith('__') &&
+          !deletedKeys.contains(key)) {
+        cloudByKey[key] = row;
       }
     }
 
-    final merged = await _readCollection('customers');
+    for (final row in local) {
+      final userId =
+          _string(row['user_id']).trim();
+
+      if (userId.isEmpty) continue;
+
+      final key =
+          '${_int(row['billing_id'])}__$userId';
+
+      if (deletedKeys.contains(key)) {
+        continue;
+      }
+
+      final remote = cloudByKey[key];
+
+      if (remote == null ||
+          _localIsNewer(row, remote)) {
+        await _setCloud(
+          'customers',
+          _key(key),
+          _customerToCloud(row),
+        );
+      }
+    }
+
+    final merged =
+        await _readCollection('customers');
+
     for (final row in merged) {
+      final key =
+          '${_int(row['billing_id'], fallback: 1)}__'
+          '${_string(row['user_id']).trim()}';
+
+      if (deletedKeys.contains(key)) {
+        continue;
+      }
+
       await _upsertCustomer(db, row);
     }
   }
 
-  Map<String, dynamic> _customerToCloud(Map<String, dynamic> r) => {
-        'billing_id': _int(r['billing_id'], fallback: 1),
+  Map<String, dynamic> _customerToCloud(
+    Map<String, dynamic> r,
+  ) =>
+      {
+        'billing_id': _int(
+          r['billing_id'],
+          fallback: 1,
+        ),
+        'cust_id': _string(r['cust_id']),
         'user_id': _string(r['user_id']),
         'name': _string(r['name']),
         'mobile': _string(r['mobile']),
         'address': _string(r['address']),
         'package_name': _string(r['package_name']),
-        'bill_date': _int(r['bill_date'], fallback: 7),
+        'bill_date': _int(
+          r['bill_date'],
+          fallback: 7,
+        ),
         'amount': _double(r['amount']),
-        'total_amount': _double(r['total_amount']),
-        'paid_amount': _double(r['paid_amount']),
-        'due_amount': _double(r['due_amount']),
-        'payment_date': _string(r['payment_date']),
-        'status': _int(r['status'], fallback: 1),
-        'active': _int(r['active'], fallback: 1),
-        'created_at': _string(r['created_at']),
-        'updated_at': _string(r['updated_at']),
+        'total_amount': _double(
+          r['total_amount'],
+        ),
+        'paid_amount': _double(
+          r['paid_amount'],
+        ),
+        'due_amount': _double(
+          r['due_amount'],
+        ),
+        'payment_date': _string(
+          r['payment_date'],
+        ),
+        'staff_id': _int(r['staff_id']),
+        'status': _int(
+          r['status'],
+          fallback: 1,
+        ),
+        'active': _int(
+          r['active'],
+          fallback: 1,
+        ),
+        'created_at': _string(
+          r['created_at'],
+        ),
+        'updated_at': _string(
+          r['updated_at'],
+        ),
         'id_local': _int(r['id']),
-        'cloud_updated_at': FieldValue.serverTimestamp(),
+        'cloud_updated_at':
+            FieldValue.serverTimestamp(),
       };
 
   Future<void> _upsertCustomer(
     Database db,
     Map<String, dynamic> r,
   ) async {
-    final userId = _string(r['user_id']).trim();
+    final userId =
+        _string(r['user_id']).trim();
+
     if (userId.isEmpty) return;
 
     final values = {
-      'billing_id': _int(r['billing_id'], fallback: 1),
+      'billing_id': _int(
+        r['billing_id'],
+        fallback: 1,
+      ),
+      'cust_id': _string(r['cust_id']),
       'user_id': userId,
       'name': _string(r['name']),
       'mobile': _string(r['mobile']),
       'address': _string(r['address']),
-      'package_name': _string(r['package_name']),
-      'bill_date': _int(r['bill_date'], fallback: 7),
+      'package_name': _string(
+        r['package_name'],
+      ),
+      'bill_date': _int(
+        r['bill_date'],
+        fallback: 7,
+      ),
       'amount': _double(r['amount']),
-      'total_amount': _double(r['total_amount']),
-      'paid_amount': _double(r['paid_amount']),
-      'due_amount': _double(r['due_amount']),
-      'payment_date': _string(r['payment_date']),
-      'status': _int(r['status'], fallback: 1),
-      'active': _int(r['active'], fallback: 1),
-      'created_at': _string(r['created_at']),
-      'updated_at': _string(r['updated_at']),
+      'total_amount': _double(
+        r['total_amount'],
+      ),
+      'paid_amount': _double(
+        r['paid_amount'],
+      ),
+      'due_amount': _double(
+        r['due_amount'],
+      ),
+      'payment_date': _string(
+        r['payment_date'],
+      ),
+      'staff_id': _int(r['staff_id']),
+      'status': _int(
+        r['status'],
+        fallback: 1,
+      ),
+      'active': _int(
+        r['active'],
+        fallback: 1,
+      ),
+      'created_at': _string(
+        r['created_at'],
+      ),
+      'updated_at': _string(
+        r['updated_at'],
+      ),
     };
 
     final found = await db.query(
       'customers',
-      where: 'billing_id = ? AND user_id = ?',
-      whereArgs: [_int(r['billing_id'], fallback: 1), userId],
+      where:
+          'billing_id = ? AND user_id = ?',
+      whereArgs: [
+        _int(
+          r['billing_id'],
+          fallback: 1,
+        ),
+        userId,
+      ],
       limit: 1,
     );
 
@@ -491,9 +641,13 @@ class FirebaseService {
       await db.insert(
         'customers',
         values,
-        conflictAlgorithm: ConflictAlgorithm.ignore,
+        conflictAlgorithm:
+            ConflictAlgorithm.ignore,
       );
-    } else if (_remoteIsNewer(found.first, r)) {
+    } else if (_remoteIsNewer(
+      found.first,
+      r,
+    )) {
       await db.update(
         'customers',
         values,
