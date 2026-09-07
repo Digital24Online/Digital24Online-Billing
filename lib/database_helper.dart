@@ -720,22 +720,22 @@ class DatabaseHelper {
       args.add(billDate);
     }
 
-    if (search.trim().isNotEmpty) {
+        if (search.trim().isNotEmpty) {
       final q =
           '%${search.trim().toLowerCase()}%';
 
       where.add('''
-                  (
+        (
           LOWER(c.cust_id) LIKE ?
           OR LOWER(c.user_id) LIKE ?
           OR LOWER(c.name) LIKE ?
           OR c.mobile LIKE ?
           OR LOWER(c.package_name) LIKE ?
         )
+      ''');
 
-            args.addAll([q, q, q, q, q]);
-    }
-
+      args.addAll([q, q, q, q, q]);
+        }
     final whereSql = where.isEmpty
         ? ''
         : 'WHERE ${where.join(' AND ')}';
