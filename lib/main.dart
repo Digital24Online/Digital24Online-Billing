@@ -509,28 +509,6 @@ class Customer {
     required this.active,
   });
 
-  double get due =>
-      (bill - paid).clamp(0, double.infinity).toDouble();
-
-  factory Customer.fromMap(Map<String, dynamic> m) {
-    return Customer(
-      id: (m['id'] as num?)?.toInt(),
-      custId: '${m['cust_id'] ?? ''}',
-      userId: '${m['user_id'] ?? ''}',
-      name: '${m['name'] ?? ''}',
-      mobile: '${m['mobile'] ?? ''}',
-      address: '${m['address'] ?? ''}',
-      packageName: '${m['package_name'] ?? ''}',
-      billDate: (m['bill_date'] as num?)?.toInt() ?? 7,
-      bill: ((m['total_bill'] ?? 0) as num).toDouble(),
-      paid: ((m['total_paid'] ?? 0) as num).toDouble(),
-      paymentDate: '${m['payment_date'] ?? ''}',
-      staffId: (m['staff_id'] as num?)?.toInt(),
-      active: (m['status'] ?? 1) == 1,
-    );
-  }
-}
-
   double get due => (bill - paid).clamp(0, double.infinity).toDouble();
 
   factory Customer.fromMap(Map<String, dynamic> m) {
