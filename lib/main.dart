@@ -1682,43 +1682,267 @@ bool billingLoading = false;
     }
   }
   
-  Future<void> printReceipt(Customer c, Map<String, dynamic> p) async {
+    Future<void> printReceipt(
+    Customer c,
+    Map<String, dynamic> p,
+  ) async {
     final doc = pw.Document();
-    final amount = ((p['amount'] ?? 0) as num).toDouble();
-    final receipt = '${p['receipt_no'] ?? ''}';
-    final date = '${p['payment_date'] ?? ''}';
-    final month = '${p['billing_month'] ?? monthKey()}';
-    doc.addPage(pw.Page(
-      pageFormat: PdfPageFormat.a5,
-      margin: const pw.EdgeInsets.all(28),
-      build: (_) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-        pw.Center(child: pw.Text('DIGITAL 24 ONLINE', style: pw.TextStyle(fontSize: 21, fontWeight: pw.FontWeight.bold))),
-        pw.Center(child: pw.Text('Internet Service Provider')),
-        pw.Divider(),
-        pw.Center(child: pw.Text('PAYMENT RECEIPT', style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold))),
-        pw.SizedBox(height: 14),
-        pw.Text('Receipt No: $receipt'), pw.Text('Date: $date'), pw.Text('Bill Month: $month'),
-        pw.SizedBox(height: 10),
-        pw.Text('Customer ID: ${c.userId}'), pw.Text('Name: ${c.name}'), pw.Text('Phone: ${c.mobile}'), pw.Text('Package: ${c.packageName}'), pw.Text('Bill Date: ${c.billDate}'),
-        pw.SizedBox(height: 14),
-        pw.Table(border: pw.TableBorder.all(), columnWidths: {0: const pw.FlexColumnWidth(2), 1: const pw.FlexColumnWidth(1)}, children: [
-          pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Description')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Amount'))]),
-          pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Paid Amount')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('BDT ${money(amount)}'))]),
-          pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Payment Note')), pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('${p['note'] ?? ''}'))]),
-        ]),
+
+    final amount =
+        ((p['amount'] ?? 0) as num)
+            .toDouble();
+
+    final receipt =
+        '${p['receipt_no'] ?? ''}';
+
+    final date =
+        '${p['payment_date'] ?? ''}';
+
+    final month =
+        '${p['billing_month'] ?? monthKey()}';
+
+    final logoData =
+        await rootBundle.load(
+      'assets/logo.png',
+    );
+
+    final logo =
+        pw.MemoryImage(
+      logoData.buffer.asUint8List(),
+    );
+
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a5,
+        margin:
+            const pw.EdgeInsets.all(28),
+        build: (_) => pw.Stack(
+          children: [
+            pw.Positioned.fill(
+              child: pw.Center(
+                child: pw.Opacity(
+                  opacity: 0.06,
+                  child: pw.Image(
+                    logo,
+                    width: 250,
+                    height: 250,
+                    fit: pw.BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+
+            pw.Column(
+              crossAxisAlignment:
+                  pw.CrossAxisAlignment.start,
+              children: [
+                pw.Center(
+                  child: pw.Container(
+                    width: 90,
+                    height: 55,
+                    child: pw.Image(
+                      logo,
+                      fit: pw.BoxFit.contain,
+                    ),
+                  ),
+                ),
+
+                pw.SizedBox(height: 4),
+
+                pw.Center(
+                  child: pw.Text(
+                    'DIGITAL 24 ONLINE',
+                    style: pw.TextStyle(
+                      fontSize: 21,
+                      fontWeight:
+                          pw.FontWeight.bold,
+                    ),
+                  ),
+                ),
+
+                pw.Center(
+                  child: pw.Text(
+                    'Internet Service Provider',
+                  ),
+                ),
+
+                pw.Center(
+                  child: pw.Text(
+                    'Seroil Colony, 4 No. Road, '
+                    'Ghoramara, Chandrima Rajshahi-6100',
+                    textAlign:
+                        pw.TextAlign.center,
+                    style:
+                        const pw.TextStyle(
+                      fontSize: 8,
+                    ),
+                  ),
+                ),
+
+                pw.Divider(),
+
+                pw.Center(
+                  child: pw.Text(
+                    'PAYMENT RECEIPT',
+                    style: pw.TextStyle(
+                      fontSize: 17,
+                      fontWeight:
+                          pw.FontWeight.bold,
+                    ),
+                  ),
+                ),
+
+                pw.SizedBox(height: 14),
+
+                pw.Text(
+                  'Receipt No: $receipt',
+                ),
+                pw.Text(
+                  'Date: $date',
+                ),
+                pw.Text(
+                  'Bill Month: $month',
+                ),
+
+                pw.SizedBox(height: 10),
+
+                pw.Text(
+                  'Cust ID: '
+                  '${c.custId.isEmpty ? '-' : c.custId}',
+                ),
+                pw.Text(
+                  'User ID: ${c.userId}',
+                ),
+                pw.Text(
+                  'Name: ${c.name}',
+                ),
+                pw.Text(
+                  'Phone: ${c.mobile}',
+                ),
+                pw.Text(
+                  'Package: ${c.packageName}',
+                ),
+                pw.Text(
+                  'Bill Date: ${c.billDate}',
+                ),
+
+                pw.SizedBox(height: 14),
+
+                pw.Table(
+                  border:
+                      pw.TableBorder.all(),
+                  columnWidths: {
+                    0: const pw.FlexColumnWidth(
+                      2,
+                    ),
+                    1: const pw.FlexColumnWidth(
+                      1,
+                    ),
+                  },
+                  children: [
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding:
+                              const pw.EdgeInsets.all(
+                            8,
+                          ),
+                          child: pw.Text(
+                            'Description',
+                          ),
+                        ),
+                        pw.Padding(
+                          padding:
+                              const pw.EdgeInsets.all(
+                            8,
+                          ),
+                          child: pw.Text(
+                            'Amount',
+                          ),
+                        ),
+                      ],
+                    ),
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding:
+                              const pw.EdgeInsets.all(
+                            8,
+                          ),
+                          child: pw.Text(
+                            'Paid Amount',
+                          ),
+                        ),
+                        pw.Padding(
+                          padding:
+                              const pw.EdgeInsets.all(
+                            8,
+                          ),
+                          child: pw.Text(
+                            'BDT ${money(amount)}',
+                          ),
+                        ),
+                      ],
+                    ),
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding:
+                              const pw.EdgeInsets.all(
+                            8,
+                          ),
+                          child: pw.Text(
+                            'Payment Note',
+                          ),
+                        ),
+                        pw.Padding(
+                          padding:
+                              const pw.EdgeInsets.all(
+                            8,
+                          ),
+                          child: pw.Text(
+                            '${p['note'] ?? ''}',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
                 pw.SizedBox(height: 24),
-        pw.Text('Thank you for your payment.'),
-        pw.SizedBox(height: 30),
-        pw.Text('Digital 24 Online Billing'),
-        pw.Text('Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100'),
-      ],
-    )));
-    final bytes = Uint8List.fromList(await doc.save());
+
+                pw.Text(
+                  'Thank you for your payment.',
+                ),
+
+                pw.SizedBox(height: 30),
+
+                pw.Text(
+                  'Digital 24 Online Billing',
+                ),
+
+                pw.Text(
+                  'Seroil Colony, 4 No. Road, '
+                  'Ghoramara, Chandrima Rajshahi-6100',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final bytes =
+        Uint8List.fromList(
+      await doc.save(),
+    );
+
     await _showPdfActions(
       bytes,
-      'Digital24Online_Receipt_${receipt.isEmpty ? DateFormat('yyyyMMdd_HHmmss').format(DateTime.now()) : receipt}.pdf',
+      'Digital24Online_Receipt_'
+      '${receipt.isEmpty ? DateFormat('yyyyMMdd_HHmmss').format(DateTime.now()) : receipt}.pdf',
     );
-  }
+    }
   
   Future<void> printMonthlyReport(String month) async {
     final rows = await db.getBills(month);
