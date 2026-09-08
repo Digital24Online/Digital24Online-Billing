@@ -405,7 +405,7 @@ jobs:
 
           echo "===== ANDROID CONFIGURATION VERIFIED ====="
 
-      - name: Build release APK
+            - name: Build release APK
         working-directory: build_app
         run: |
           set -e
@@ -422,7 +422,7 @@ jobs:
             --build-number "$BUILD_NUMBER" \
             --build-name 1.0.0
 
-            - name: Verify APK
+      - name: Verify APK
         working-directory: build_app
         run: |
           set -e
@@ -485,12 +485,6 @@ jobs:
             "Alias name:|SHA256:"
 
           echo "===== APK VERIFICATION COMPLETE ====="
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Digital24Online-APK
-          path: build_app/build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
