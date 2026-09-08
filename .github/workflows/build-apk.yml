@@ -422,7 +422,7 @@ jobs:
             --build-number "$BUILD_NUMBER" \
             --build-name 1.0.0
 
-      - name: Verify APK
+            - name: Verify APK
         working-directory: build_app
         run: |
           set -e
@@ -439,13 +439,16 @@ jobs:
             | sort -V \
             | tail -1)/aapt"
 
-          echo "===== APK PACKAGE ====="
+          APKSIGNER="$ANDROID_HOME/build-tools/$(ls \
+            "$ANDROID_HOME/build-tools" \
+            | sort -V \
+            | tail -1)/apksigner"
+
+          echo "===== APK PACKAGE / VERSION ====="
 
           "$AAPT" dump badging "$APK" \
             | grep -E \
             "package:|launchable-activity:"
-
-          echo "===== APK VERSION ====="
 
           BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
 
@@ -461,16 +464,33 @@ jobs:
 
           echo "===== APK SIGNATURE ====="
 
-          APKSIGNER="$ANDROID_HOME/build-tools/$(ls \
-            "$ANDROID_HOME/build-tools" \
-            | sort -V \
-            | tail -1)/apksigner"
-
           "$APKSIGNER" verify \
             --verbose \
             "$APK"
 
+          echo "===== APK CERTIFICATE SHA-256 ====="
+
+          "$APKSIGNER" verify \
+            --verbose \
+            --print-certs \
+            "$APK"
+
+          echo "===== KEYSTORE CERTIFICATE SHA-256 ====="
+
+          keytool -list \
+            -v \
+            -keystore android/keystore/digital24.jks \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+            | grep -E \
+            "Alias name:|SHA256:"
+
           echo "===== APK VERIFICATION COMPLETE ====="
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Digital24Online-APK
+          path: build_app/build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
