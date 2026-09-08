@@ -447,13 +447,11 @@ jobs:
           # The installed app is currently versionCode 46.
           # 1000 + GitHub run number guarantees a higher versionCode
           # for this project and keeps future releases increasing.
-          BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
+                    BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
 
-echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
-
-echo "===== BUILD VERSION ====="
-echo "versionName: 1.0.0"
-echo "versionCode: $BUILD_NUMBER"
+          echo "===== BUILD VERSION ====="
+          echo "versionName: 1.0.0"
+          echo "versionCode: $BUILD_NUMBER"
 
 flutter build apk \
   --release \
