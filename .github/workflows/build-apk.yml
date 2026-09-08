@@ -20,7 +20,6 @@ jobs:
       - name: Create Android project
         run: |
           set -e
-
           flutter create \
             --platforms=android \
             --project-name=digital24online \
@@ -42,7 +41,6 @@ jobs:
       - name: Copy Firebase configuration
         run: |
           set -e
-
           mkdir -p build_app/android/app
 
           cp \
@@ -64,7 +62,6 @@ jobs:
           test -n "$KEYSTORE_PASSWORD"
 
           mkdir -p android/keystore
-
           printf '%s' "$KEYSTORE_BASE64" \
             | base64 --decode \
             > android/keystore/digital24.jks
@@ -97,7 +94,6 @@ jobs:
           EOF
 
           test -s android/key.properties
-
           echo "Release keystore restored successfully."
           echo "Release key alias detected."
 
@@ -176,7 +172,6 @@ jobs:
               key_block = """
           val keystoreProperties = Properties()
           val keystorePropertiesFile = rootProject.file("key.properties")
-
           if (keystorePropertiesFile.exists()) {
               keystoreProperties.load(FileInputStream(keystorePropertiesFile))
           }
@@ -199,7 +194,6 @@ jobs:
                       storePassword = keystoreProperties.getProperty("storePassword")
                   }
               }
-
           """
 
               text = text.replace(
@@ -285,7 +279,6 @@ jobs:
 
           if source.resolve() != target.resolve():
               source.unlink()
-
               current = source.parent
 
               while current != root and current.exists():
@@ -295,7 +288,6 @@ jobs:
                       break
 
                   current = current.parent
-
           PY
 
           test -f "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
@@ -353,26 +345,23 @@ jobs:
             android/app/google-services.json
 
           echo "Firebase package verified."
-          
-                        - name: Verify Android configuration
+
+      - name: Verify Android configuration
         working-directory: build_app
         run: |
           set -e
 
           echo "===== APPLICATION ID ====="
-
           grep -q \
             'applicationId = "com.digital24online"' \
             android/app/build.gradle.kts
 
           echo "===== NAMESPACE ====="
-
           grep -q \
             'namespace = "com.digital24online"' \
             android/app/build.gradle.kts
 
           echo "===== RELEASE SIGNING ====="
-
           grep -q \
             'create("release")' \
             android/app/build.gradle.kts
@@ -382,7 +371,6 @@ jobs:
             android/app/build.gradle.kts
 
           echo "===== MAIN ACTIVITY ====="
-
           test -f \
             android/app/src/main/kotlin/com/digital24online/MainActivity.kt
 
@@ -391,7 +379,6 @@ jobs:
             android/app/src/main/kotlin/com/digital24online/MainActivity.kt
 
           echo "===== OLD MAIN ACTIVITY CHECK ====="
-
           if find \
             android/app/src/main/kotlin/com/digital24online/digital24online \
             -name MainActivity.kt \
@@ -405,12 +392,11 @@ jobs:
 
           echo "===== ANDROID CONFIGURATION VERIFIED ====="
 
-                echo "===== ANDROID CONFIGURATION VERIFIED ====="
-
       - name: Build release APK
         working-directory: build_app
         run: |
           set -e
+
           flutter clean
           flutter pub get
 
@@ -421,7 +407,7 @@ jobs:
           flutter build apk \
             --release \
             --build-number "$BUILD_NUMBER" \
-            --build-name 1.0.0 
+            --build-name 1.0.0
 
       - name: Verify APK
         working-directory: build_app
