@@ -453,10 +453,10 @@ jobs:
           echo "versionName: 1.0.0"
           echo "versionCode: $BUILD_NUMBER"
 
-flutter build apk \
-  --release \
-  --build-number "$BUILD_NUMBER" \
-  --build-name 1.0.0
+          flutter build apk \
+          --release \
+          --build-number "$BUILD_NUMBER" \
+          --build-name 1.0.0
 
       - name: Verify APK
         working-directory: build_app
