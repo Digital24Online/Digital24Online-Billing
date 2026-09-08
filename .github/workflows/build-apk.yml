@@ -483,17 +483,19 @@ jobs:
 
           echo "===== APK VERSION ====="
 
-                     echo "===== APK VERSION VERIFICATION ====="
+                               echo "===== APK VERSION VERIFICATION ====="
 
-           ACTUAL_VERSION_CODE="$(
-             "$AAPT" dump badging "$APK" \
-               | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p"
-           )"
+          EXPECTED_VERSION_CODE=$((1000 + ${{ github.run_number }}))
 
-           echo "Expected versionCode: $BUILD_NUMBER"
-           echo "Actual versionCode:   $ACTUAL_VERSION_CODE"
+          ACTUAL_VERSION_CODE="$(
+            "$AAPT" dump badging "$APK" \
+              | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p"
+          )"
 
-           test "$ACTUAL_VERSION_CODE" = "$BUILD_NUMBER"
+          echo "Expected versionCode: $EXPECTED_VERSION_CODE"
+          echo "Actual versionCode:   $ACTUAL_VERSION_CODE"
+
+          test "$ACTUAL_VERSION_CODE" = "$EXPECTED_VERSION_CODE"
 
           echo "===== APK SIGNATURE ====="
 
