@@ -354,7 +354,7 @@ jobs:
 
           echo "Firebase package verified."
 
-      - name: Verify Android configuration
+                  - name: Verify Android configuration
         working-directory: build_app
         run: |
           set -e
@@ -405,7 +405,7 @@ jobs:
 
           echo "===== ANDROID CONFIGURATION VERIFIED ====="
 
-            - name: Build release APK
+      - name: Build release APK
         working-directory: build_app
         run: |
           set -e
