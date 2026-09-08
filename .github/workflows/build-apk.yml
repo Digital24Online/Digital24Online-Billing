@@ -405,11 +405,12 @@ jobs:
 
           echo "===== ANDROID CONFIGURATION VERIFIED ====="
 
+                echo "===== ANDROID CONFIGURATION VERIFIED ====="
+
       - name: Build release APK
         working-directory: build_app
         run: |
           set -e
-
           flutter clean
           flutter pub get
 
@@ -420,7 +421,7 @@ jobs:
           flutter build apk \
             --release \
             --build-number "$BUILD_NUMBER" \
-            --build-name 1.0.0
+            --build-name 1.0.0 
 
       - name: Verify APK
         working-directory: build_app
