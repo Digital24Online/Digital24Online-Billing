@@ -113,7 +113,6 @@ jobs:
           settings = Path("android/settings.gradle.kts")
           text = settings.read_text()
 
-          # Add Google Services plugin to settings.gradle.kts.
           if 'id("com.google.gms.google-services")' not in text:
               text = text.replace(
                   "plugins {",
@@ -125,10 +124,6 @@ jobs:
 
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
-
-          # --------------------------------------------------
-          # Application ID / namespace
-          # --------------------------------------------------
 
           text = re.sub(
               r'namespace\s*=\s*"[^"]+"',
@@ -144,10 +139,6 @@ jobs:
               count=1
           )
 
-          # --------------------------------------------------
-          # Google Services plugin
-          # --------------------------------------------------
-
           if 'id("com.google.gms.google-services")' not in text:
               text = text.replace(
                   "plugins {",
@@ -155,16 +146,11 @@ jobs:
                   1
               )
 
-          # --------------------------------------------------
-          # Java 17
-          # --------------------------------------------------
-
           text = text.replace(
               "JavaVersion.VERSION_11",
               "JavaVersion.VERSION_17"
           )
 
-          # Remove generated kotlinOptions block if present.
           text = re.sub(
               r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
               '',
@@ -172,7 +158,6 @@ jobs:
               flags=re.DOTALL
           )
 
-          # Add Kotlin JVM toolchain.
           if "jvmToolchain(17)" not in text:
               text = text.replace(
                   "android {",
@@ -180,20 +165,12 @@ jobs:
                   1
               )
 
-          # --------------------------------------------------
-          # key.properties imports
-          # --------------------------------------------------
-
           if "import java.util.Properties" not in text:
               text = (
                   "import java.util.Properties\n"
                   "import java.io.FileInputStream\n\n"
                   + text
               )
-
-          # --------------------------------------------------
-          # Load key.properties
-          # --------------------------------------------------
 
           if "val keystoreProperties = Properties()" not in text:
               key_block = """
@@ -211,10 +188,6 @@ jobs:
                   key_block + "android {",
                   1
               )
-
-          # --------------------------------------------------
-          # Release signing configuration
-          # --------------------------------------------------
 
           if 'create("release")' not in text:
               signing_block = """
@@ -234,10 +207,6 @@ jobs:
                   signing_block + "    buildTypes {",
                   1
               )
-
-          # --------------------------------------------------
-          # Force release APK to use release keystore
-          # --------------------------------------------------
 
           if 'signingConfig = signingConfigs.getByName("release")' not in text:
               release_pattern = re.compile(
@@ -330,10 +299,12 @@ jobs:
           PY
 
           test -f "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
+
           grep -q '^package com.digital24online$' \
             "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
 
           echo "===== MAIN ACTIVITY VERIFIED ====="
+
           cat "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
 
       - name: Set app name
@@ -434,16 +405,14 @@ jobs:
 
           echo "===== ANDROID CONFIGURATION VERIFIED ====="
 
-                  - name: Build release APK
+      - name: Build release APK
         working-directory: build_app
         run: |
           set -e
 
           flutter clean
-
           flutter pub get
 
-          # Always use a new versionCode for every new workflow run.
           BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
 
           echo "Building Android APK with versionCode: $BUILD_NUMBER"
@@ -471,6 +440,7 @@ jobs:
             | tail -1)/aapt"
 
           echo "===== APK PACKAGE ====="
+
           "$AAPT" dump badging "$APK" \
             | grep -E \
             "package:|launchable-activity:"
