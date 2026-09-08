@@ -353,7 +353,7 @@ jobs:
             android/app/google-services.json
 
           echo "Firebase package verified."
-
+          
                         - name: Verify Android configuration
         working-directory: build_app
         run: |
