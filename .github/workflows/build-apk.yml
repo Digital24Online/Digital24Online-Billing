@@ -443,11 +443,19 @@ jobs:
 
           flutter pub get
 
-          # The previously installed working APK was version +3.
-          # Build this release as version +4 so Android accepts it as an update.
+                    # Always generate an update-safe versionCode.
+          # The installed app is currently versionCode 46.
+          # 1000 + GitHub run number guarantees a higher versionCode
+          # for this project and keeps future releases increasing.
+          BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
+
+          echo "===== BUILD VERSION ====="
+          echo "versionName: 1.0.0"
+          echo "versionCode: $BUILD_NUMBER"
+
           flutter build apk \
             --release \
-            --build-number 4 \
+            --build-number "$BUILD_NUMBER" \
             --build-name 1.0.0
 
       - name: Verify APK
@@ -475,10 +483,17 @@ jobs:
 
           echo "===== APK VERSION ====="
 
-          "$AAPT" dump badging "$APK" \
-            | grep "package:" \
-            | grep -q \
-            "versionCode='4'"
+                     echo "===== APK VERSION VERIFICATION ====="
+
+           ACTUAL_VERSION_CODE="$(
+             "$AAPT" dump badging "$APK" \
+               | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p"
+           )"
+
+           echo "Expected versionCode: $BUILD_NUMBER"
+           echo "Actual versionCode:   $ACTUAL_VERSION_CODE"
+
+           test "$ACTUAL_VERSION_CODE" = "$BUILD_NUMBER"
 
           echo "===== APK SIGNATURE ====="
 
