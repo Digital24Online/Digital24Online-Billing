@@ -449,14 +449,16 @@ jobs:
           # for this project and keeps future releases increasing.
           BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
 
-          echo "===== BUILD VERSION ====="
-          echo "versionName: 1.0.0"
-          echo "versionCode: $BUILD_NUMBER"
+echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
 
-          flutter build apk \
-            --release \
-            --build-number "$BUILD_NUMBER" \
-            --build-name 1.0.0
+echo "===== BUILD VERSION ====="
+echo "versionName: 1.0.0"
+echo "versionCode: $BUILD_NUMBER"
+
+flutter build apk \
+  --release \
+  --build-number "$BUILD_NUMBER" \
+  --build-name 1.0.0
 
       - name: Verify APK
         working-directory: build_app
