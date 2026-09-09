@@ -497,7 +497,7 @@ jobs:
 
           test "$ACTUAL_VERSION_CODE" = "$EXPECTED_VERSION_CODE"
 
-                    echo "===== APK SIGNATURE ====="
+                              echo "===== APK SIGNATURE ====="
 
           APKSIGNER="$ANDROID_HOME/build-tools/$(ls \
             "$ANDROID_HOME/build-tools" \
@@ -512,7 +512,9 @@ jobs:
 
           "$APKSIGNER" verify \
             --print-certs \
-            "$APK"
+            "$APK" > apk_certificate.txt
+
+          cat apk_certificate.txt
 
           echo "===== APK CERTIFICATE CHECK COMPLETE ====="
 
