@@ -497,7 +497,7 @@ jobs:
 
           test "$ACTUAL_VERSION_CODE" = "$EXPECTED_VERSION_CODE"
 
-                              echo "===== APK SIGNATURE ====="
+                                        echo "===== APK SIGNATURE ====="
 
           APKSIGNER="$ANDROID_HOME/build-tools/$(ls \
             "$ANDROID_HOME/build-tools" \
@@ -508,15 +508,9 @@ jobs:
             --verbose \
             "$APK"
 
-          echo "===== APK CERTIFICATE SHA-256 ====="
-
-          "$APKSIGNER" verify \
-            --print-certs \
-            "$APK" > apk_certificate.txt
-
           echo "===== APK VERIFICATION COMPLETE ====="
 
-                  - name: Upload APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Digital24Online-APK
