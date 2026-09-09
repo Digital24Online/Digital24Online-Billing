@@ -514,10 +514,6 @@ jobs:
             --print-certs \
             "$APK" > apk_certificate.txt
 
-          cat apk_certificate.txt
-
-          echo "===== APK CERTIFICATE CHECK COMPLETE ====="
-
           echo "===== APK VERIFICATION COMPLETE ====="
 
                   - name: Upload APK
