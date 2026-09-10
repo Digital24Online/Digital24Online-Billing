@@ -882,92 +882,203 @@ class FirebaseService {
   }
 
   // ---------------------------------------------------------------------------
-  // STAFF
-  // ---------------------------------------------------------------------------
+// STAFF
+// ---------------------------------------------------------------------------
 
-  Future<void> _mergeStaff(Database db) async {
-    final local = await db.query('staff');
-    final cloud = await _readCollection('staff');
+Future<void> _mergeStaff(Database db) async {
+  final local = await db.query('staff');
+  final cloud = await _readCollection('staff');
 
-    final byName = <String, Map<String, dynamic>>{};
-    for (final row in cloud) {
-      final name = _string(row['name']).trim();
-      if (name.isNotEmpty) byName[name] = row;
+  final cloudById = <String, Map<String, dynamic>>{};
+  final cloudByName = <String, Map<String, dynamic>>{};
+
+  for (final row in cloud) {
+    final docId = _string(row['_doc_id']).trim();
+    final name = _string(row['name']).trim();
+
+    if (docId.isNotEmpty) {
+      cloudById[docId] = row;
     }
 
-    for (final row in local) {
-      final name = _string(row['name']).trim();
-      if (name.isEmpty) continue;
-
-      final remote = byName[name];
-      final documentId = remote == null
-          ? _key(name)
-          : _string(remote['_doc_id']).trim().isNotEmpty
-              ? _string(remote['_doc_id']).trim()
-              : _key(name);
-
-      if (remote == null || _localIsNewer(row, remote)) {
-        await _setCloud(
-          'staff',
-          documentId,
-          _staffToCloud(row),
-        );
-      }
-    }
-
-    final merged = await _readCollection('staff');
-    for (final row in merged) {
-      await _upsertStaff(db, row);
+    if (name.isNotEmpty) {
+      cloudByName[name] = row;
     }
   }
 
-  Map<String, dynamic> _staffToCloud(Map<String, dynamic> r) => {
-        'name': _string(r['name']),
-        'mobile': _string(r['mobile']),
-        'active': _int(r['active'], fallback: 1),
-        'created_at': _string(r['created_at']),
-        'updated_at': _string(r['updated_at']),
-        'id_local': _int(r['id']),
-        'cloud_updated_at': FieldValue.serverTimestamp(),
-      };
+  // ------------------------------------------------------------
+  // LOCAL -> CLOUD
+  // ------------------------------------------------------------
+  for (final row in local) {
+    final name = _string(row['name']).trim();
 
-  Future<void> _upsertStaff(
-    Database db,
-    Map<String, dynamic> r,
-  ) async {
-    final name = _string(r['name']).trim();
-    if (name.isEmpty) return;
+    if (name.isEmpty) continue;
 
-    final values = {
-      'name': name,
+    String cloudId = _string(row['cloud_id']).trim();
+    Map<String, dynamic>? remote;
+
+    // 1. Stable cloud_id থাকলে সেটিই সর্বোচ্চ priority।
+    if (cloudId.isNotEmpty) {
+      remote = cloudById[cloudId];
+    }
+
+    // 2. পুরোনো Staff হলে cloud_id এখনো না-ও থাকতে পারে।
+    //    পুরোনো name-based Cloud record খুঁজে সেটির document ID গ্রহণ।
+    if (cloudId.isEmpty) {
+      remote = cloudByName[name];
+
+      if (remote != null) {
+        cloudId = _string(remote['_doc_id']).trim();
+      }
+    }
+
+    // 3. কোনো পুরোনো Cloud record না থাকলে নতুন stable
+    //    Firestore document ID তৈরি।
+    if (cloudId.isEmpty) {
+      cloudId = _collection('staff').doc().id;
+    }
+
+    // Local database-এ stable cloud_id সংরক্ষণ।
+    if (_string(row['cloud_id']).trim() != cloudId) {
+      await db.update(
+        'staff',
+        {
+          'cloud_id': cloudId,
+        },
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+
+    // Stable Cloud ID-তে local Staff পাঠানো হবে।
+    if (remote == null || _localIsNewer(row, remote)) {
+      await _setCloud(
+        'staff',
+        cloudId,
+        _staffToCloud(
+          row,
+          cloudId,
+        ),
+      );
+    }
+  }
+
+  // ------------------------------------------------------------
+  // CLOUD -> LOCAL
+  // ------------------------------------------------------------
+  final merged = await _readCollection('staff');
+
+  for (final row in merged) {
+    await _upsertStaff(
+      db,
+      row,
+    );
+  }
+}
+
+Map<String, dynamic> _staffToCloud(
+  Map<String, dynamic> r,
+  String cloudId,
+) =>
+    {
+      'cloud_id': cloudId,
+      'name': _string(r['name']),
       'mobile': _string(r['mobile']),
-      'active': _int(r['active'], fallback: 1),
+      'active': _int(
+        r['active'],
+        fallback: 1,
+      ),
       'created_at': _string(r['created_at']),
       'updated_at': _string(r['updated_at']),
+      'cloud_updated_at': FieldValue.serverTimestamp(),
     };
 
-    final found = await db.query(
-      'staff',
-      where: 'name = ?',
-      whereArgs: [name],
-      limit: 1,
-    );
+Future<void> _upsertStaff(
+  Database db,
+  Map<String, dynamic> r,
+) async {
+  final name = _string(r['name']).trim();
 
-    if (found.isEmpty) {
-       await db.insert(
-        'staff',
-        values,
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    } else if (_remoteIsNewer(found.first, r)) {
+  if (name.isEmpty) return;
+
+  final remoteCloudId = _string(
+    r['cloud_id'],
+  ).trim();
+
+  final documentId = _string(
+    r['_doc_id'],
+  ).trim();
+
+  final cloudId = remoteCloudId.isNotEmpty
+      ? remoteCloudId
+      : documentId;
+
+  if (cloudId.isEmpty) return;
+
+  final values = {
+    'name': name,
+    'mobile': _string(r['mobile']),
+    'active': _int(
+      r['active'],
+      fallback: 1,
+    ),
+    'cloud_id': cloudId,
+    'created_at': _string(r['created_at']),
+    'updated_at': _string(r['updated_at']),
+  };
+
+  // প্রথমে Stable Cloud ID দিয়ে Staff খোঁজা।
+  final byCloudId = await db.query(
+    'staff',
+    where: 'cloud_id = ?',
+    whereArgs: [cloudId],
+    limit: 1,
+  );
+
+  if (byCloudId.isNotEmpty) {
+    final local = byCloudId.first;
+
+    if (_remoteIsNewer(local, r)) {
       await db.update(
         'staff',
         values,
         where: 'id = ?',
-        whereArgs: [found.first['id']],
+        whereArgs: [local['id']],
       );
     }
+
+    return;
   }
+
+  // পুরোনো local Staff-এর cloud_id খালি থাকলে
+  // name দিয়ে matching করে existing local Staff-কে
+  // একই Stable Cloud ID দেওয়া হবে।
+  final byName = await db.query(
+    'staff',
+    where: 'name = ?',
+    whereArgs: [name],
+    limit: 1,
+  );
+
+  if (byName.isNotEmpty) {
+    final local = byName.first;
+
+    await db.update(
+      'staff',
+      values,
+      where: 'id = ?',
+      whereArgs: [local['id']],
+    );
+
+    return;
+  }
+
+  // একেবারে নতুন Cloud Staff হলে নতুন local Staff তৈরি।
+  await db.insert(
+    'staff',
+    values,
+    conflictAlgorithm: ConflictAlgorithm.ignore,
+  );
+}
 
   // ---------------------------------------------------------------------------
   // BILLS
