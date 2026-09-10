@@ -321,8 +321,6 @@ jobs:
 
           echo "===== RELEASE SIGNING CONFIG VERIFIED ====="
 
-          echo "===== GRADLE SIGNING CONFIG VERIFIED ====="
-
       - name: Fix MainActivity package
         working-directory: build_app
         run: |
