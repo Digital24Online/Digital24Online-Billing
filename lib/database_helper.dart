@@ -25,15 +25,14 @@ class DatabaseHelper {
     );
 
     return openDatabase(
-      dbPath,
-      version: 6,
-      onConfigure: (db) async {
-        await db.execute('PRAGMA foreign_keys = ON');
-      },
-      onCreate: _create,
-      onUpgrade: _upgrade,
-    );
-    }
+  dbPath,
+  version: 7,
+  onConfigure: (db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+  },
+  onCreate: _create,
+  onUpgrade: _upgrade,
+);
 
   // ============================================================
   // DATABASE CREATE
@@ -82,16 +81,17 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
-      CREATE TABLE packages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        speed TEXT NOT NULL DEFAULT '',
-        price REAL NOT NULL DEFAULT 0,
-        active INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    ''');
+  CREATE TABLE packages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    speed TEXT NOT NULL DEFAULT '',
+    price REAL NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    cloud_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )
+''');
 
     await db.execute('''
       CREATE TABLE bills (
@@ -366,16 +366,28 @@ class DatabaseHelper {
     }
 
     // ============================================================
-    // VERSION 6
-    // Stable Cloud ID for Staff
-    // ============================================================
-    if (oldVersion < 6) {
-      await _addColumnIfMissing(
-        db,
-        'staff',
-        'cloud_id TEXT NOT NULL DEFAULT ""',
-      );
-    }
+// VERSION 6
+// Stable Cloud ID for Staff
+// ============================================================
+if (oldVersion < 6) {
+  await _addColumnIfMissing(
+    db,
+    'staff',
+    'cloud_id TEXT NOT NULL DEFAULT ""',
+  );
+}
+
+// ============================================================
+// VERSION 7
+// Stable Cloud ID for Packages
+// ============================================================
+if (oldVersion < 7) {
+  await _addColumnIfMissing(
+    db,
+    'packages',
+    'cloud_id TEXT NOT NULL DEFAULT ""',
+  );
+}
     }
 
   Future<bool> _tableExists(
@@ -579,19 +591,19 @@ class DatabaseHelper {
     Database db,
   ) async {
     if (!await _tableExists(db, 'packages')) {
-      await db.execute('''
-        CREATE TABLE packages (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL UNIQUE,
-          speed TEXT NOT NULL DEFAULT '',
-          price REAL NOT NULL DEFAULT 0,
-          active INTEGER NOT NULL DEFAULT 1,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        )
-      ''');
+  await db.execute('''
+    CREATE TABLE packages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      speed TEXT NOT NULL DEFAULT '',
+      price REAL NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      cloud_id TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  ''');
     }
-
     if (!await _tableExists(db, 'bills')) {
       await db.execute('''
         CREATE TABLE bills (
