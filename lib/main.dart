@@ -637,16 +637,57 @@ bool billingLoading = false;
                 Expanded(child: TextField(controller: controller, decoration: InputDecoration(labelText: '${t('Billing', 'Billing')} $id'))),
                 const SizedBox(width: 8),
                 FilledButton(
-                  onPressed: () async {
+                                    onPressed: () async {
                     final name = controller.text.trim();
-                    if (name.isEmpty) { msg(t('Billing নাম খালি রাখা যাবে না', 'Billing name cannot be empty')); return; }
+
+                    if (name.isEmpty) {
+                      msg(
+                        t(
+                          'Billing নাম খালি রাখা যাবে না',
+                          'Billing name cannot be empty',
+                        ),
+                      );
+                      return;
+                    }
+
                     try {
+                      // First save locally so Offline Mode continues to work.
                       await db.updateBilling(id, name);
-                                   final updated = await db.getBillings();
+
+                      // Immediately push the Billing Name to Cloud when
+                      // a Cloud account is signed in.
+                      if (FirebaseService.instance.isSignedIn) {
+                        try {
+                          await FirebaseService.instance.syncNow();
+                        } catch (_) {
+                          // Local save remains successful even if Cloud is
+                          // temporarily unavailable. Auto Sync will retry.
+                        }
+                      }
+
+                      final updated = await db.getBillings();
+
                       if (!mounted) return;
-                      setState(() => billings = updated);
-                      msg(t('Billing নাম Save হয়েছে', 'Billing name saved'));
-                    } catch (e) { msg(t('Save করা যায়নি: ', 'Could not save: ') + '$e'); }
+
+                      setState(() {
+                        billings = updated;
+                      });
+
+                      msg(
+                        t(
+                          'Billing নাম Save হয়েছে',
+                          'Billing name saved',
+                        ),
+                      );
+                    } catch (e) {
+                      msg(
+                        t(
+                          'Save করা যায়নি: ',
+                          'Could not save: ',
+                        ) +
+                            '$e',
+                      );
+                    }
                   },
                   child: Text(t('Save', 'Save')),
                 ),
