@@ -155,15 +155,17 @@ class FirebaseService {
   // PUBLIC SYNC API
   // ---------------------------------------------------------------------------
 
-      Future<void> restoreAfterLogin() async {
+        Future<void> restoreAfterLogin() async {
     if (!isSignedIn) return;
+
     try {
       await _ensureBusinessDocument();
 
       final db = await DatabaseHelper.instance.database;
       final freshInstall = await _isFreshInstall(db);
 
-      // Remove only locally seeded defaults before restoring the Cloud Master.
+      // On a genuinely fresh installation, remove only the local
+      // default master data before restoring the Cloud master.
       if (freshInstall && await _hasOnlyDefaultPackages(db)) {
         await db.delete('packages');
       }
@@ -173,19 +175,46 @@ class FirebaseService {
       }
 
       if (freshInstall) {
-        // Restore the Cloud Master first.
+        // Restore existing Cloud master data first.
         await _pullCloudToLocal(db);
 
-        // If the Cloud account has no packages, create the standard defaults.
+        // If Cloud has no packages, create the standard packages locally
+        // and publish them to Cloud.
         if (await _count(db, 'packages') == 0) {
           await _seedDefaultPackages(db);
           await _mergePackages(db);
         }
 
-        // If the Cloud account has no billing workspace, keep the local defaults
-        // and publish them to Cloud.
+        // If Cloud has no Billing workspace, recreate only the two
+        // standard local Billing rows and publish them to Cloud.
+        //
+        // Do NOT call DatabaseHelper._seedDefaultBillings() here.
+        // That method is private to DatabaseHelper.
         if (await _count(db, 'billings') == 0) {
-          await _seedDefaultBillings(db);
+          final now = DateTime.now().toIso8601String();
+
+          await db.insert(
+            'billings',
+            {
+              'name': 'Billing 1',
+              'active': 1,
+              'created_at': now,
+              'updated_at': now,
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+
+          await db.insert(
+            'billings',
+            {
+              'name': 'Billing 2',
+              'active': 1,
+              'created_at': now,
+              'updated_at': now,
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+
           await _mergeBillings(db);
         }
 
@@ -195,12 +224,12 @@ class FirebaseService {
         return;
       }
 
+      // Existing installation: perform normal two-way sync.
       await syncNow();
     } catch (_) {
-      // Offline use must continue even when cloud recovery is unavailable.
+      // Offline use must continue even when Cloud recovery is unavailable.
     }
-      }
-
+        }
   Future<void> syncNow() async {
     final running = _syncInProgress;
     if (running != null) return running;
