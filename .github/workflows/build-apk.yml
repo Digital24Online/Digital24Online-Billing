@@ -111,7 +111,7 @@ jobs:
             | grep -E \
               'Alias name:|Owner:|Issuer:|Serial number:|Valid from:|SHA256:'
 
-            - name: Configure Android application and release signing
+                  - name: Configure Android application and release signing
         working-directory: build_app
         run: |
           set -e
