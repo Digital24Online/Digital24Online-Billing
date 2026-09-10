@@ -473,7 +473,7 @@ class FirebaseService {
   // CUSTOMERS
   // ---------------------------------------------------------------------------
 
-      Future<void> _processCustomerDeletionTombstones(
+      _processCustomerDeletionTombstones(
     Database db,
   ) async {
     final deleted = await db.query(
@@ -481,41 +481,7 @@ class FirebaseService {
       orderBy: 'id ASC',
     );
 
-    for (final row in deleted) {
-      final billingId =
-          _int(row['billing_id'], fallback: 1);
-
-      final userId =
-          _string(row['user_id']).trim();
-
-      final deletedAt =
-          DateTime.tryParse(
-            _string(row['deleted_at']),
-          );
-
-      if (userId.isEmpty || deletedAt == null) {
-        // Invalid tombstones are removed so they cannot block
-        // future synchronization indefinitely.
-        await db.delete(
-          'deleted_customers',
-          where: 'id = ?',
-          whereArgs: [row['id']],
-        );
-        continue;
-      }
-
-      final key =
-          '${billingId}__$userId';
-
-      final customerRef = _collection(
-        'customers',
-      ).doc(_key(key));
-
-      final snapshot = await customerRef.get();
-
-      if (!snapshot.exists) {
-        // The Cloud customer is already gone.
-        // KEEP the tombstone so an old offline device cannot
+    for (device cannot
         // recreate the deleted customer on a later sync.
         continue;
       }
@@ -542,7 +508,7 @@ class FirebaseService {
         whereArgs: [row['id']],
       );
     }
-      }
+         }
         continue;
       }
 
