@@ -99,7 +99,17 @@ jobs:
           test -s android/key.properties
 
           echo "Release keystore restored successfully."
-          echo "Release key alias detected."
+          echo "Release key alias detected: $KEY_ALIAS"
+
+          echo "===== RELEASE KEY CERTIFICATE ====="
+
+          keytool -list \
+            -keystore android/keystore/digital24.jks \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -v \
+            | grep -E \
+              'Alias name:|Owner:|Issuer:|Serial number:|Valid from:|SHA256:'
 
       - name: Configure Android application and release signing
         working-directory: build_app
@@ -111,23 +121,23 @@ jobs:
           import re
 
           settings = Path("android/settings.gradle.kts")
-          text = settings.read_text()
+          settings_text = settings.read_text()
 
-          # Add Google Services plugin to settings.gradle.kts.
-          if 'id("com.google.gms.google-services")' not in text:
-              text = text.replace(
+          # Google Services plugin declaration.
+          if 'id("com.google.gms.google-services")' not in settings_text:
+              settings_text = settings_text.replace(
                   "plugins {",
                   'plugins {\n    id("com.google.gms.google-services") version "4.4.2" apply false',
                   1
               )
 
-          settings.write_text(text)
+          settings.write_text(settings_text)
 
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
           # --------------------------------------------------
-          # Application ID / namespace
+          # Application ID / Namespace
           # --------------------------------------------------
 
           text = re.sub(
@@ -164,7 +174,7 @@ jobs:
               "JavaVersion.VERSION_17"
           )
 
-          # Remove generated kotlinOptions block if present.
+          # Remove old kotlinOptions block if generated.
           text = re.sub(
               r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
               '',
@@ -213,72 +223,185 @@ jobs:
               )
 
           # --------------------------------------------------
-          # Release signing configuration
+          # Remove any existing signingConfigs block.
+          # The generated Flutter project normally does not
+          # contain one, but this guarantees a clean state.
           # --------------------------------------------------
 
-          if 'create("release")' not in text:
-              signing_block = """
-              signingConfigs {
-                  create("release") {
-                      keyAlias = keystoreProperties.getProperty("keyAlias")
-                      keyPassword = keystoreProperties.getProperty("keyPassword")
-                      storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
-                      storePassword = keystoreProperties.getProperty("storePassword")
-                  }
+          def remove_block(source, keyword):
+              pos = source.find(keyword)
+
+              if pos == -1:
+                  return source
+
+              brace = source.find("{", pos)
+
+              if brace == -1:
+                  raise RuntimeError(
+                      f"Opening brace not found for {keyword}"
+                  )
+
+              depth = 0
+              end = None
+
+              for i in range(brace, len(source)):
+                  if source[i] == "{":
+                      depth += 1
+                  elif source[i] == "}":
+                      depth -= 1
+
+                      if depth == 0:
+                          end = i + 1
+                          break
+
+              if end is None:
+                  raise RuntimeError(
+                      f"Could not find end of {keyword}"
+                  )
+
+              return source[:pos] + source[end:]
+
+          text = remove_block(text, "signingConfigs")
+
+          # --------------------------------------------------
+          # Remove ALL existing signingConfig assignments.
+          # This is important because generated Flutter
+          # projects may use the debug key for release.
+          # --------------------------------------------------
+
+          text = re.sub(
+              r'^[ \t]*signingConfig\s*=\s*signingConfigs\.getByName\("[^"]+"\)[ \t]*\n?',
+              '',
+              text,
+              flags=re.MULTILINE
+          )
+
+          # --------------------------------------------------
+          # Add dedicated Digital 24 release signing config.
+          # --------------------------------------------------
+
+          signing_block = """
+          signingConfigs {
+              create("digital24Release") {
+                  keyAlias = keystoreProperties.getProperty("keyAlias")
+                  keyPassword = keystoreProperties.getProperty("keyPassword")
+                  storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
+                  storePassword = keystoreProperties.getProperty("storePassword")
               }
+          }
 
           """
 
-              text = text.replace(
-                  "    buildTypes {",
-                  signing_block + "    buildTypes {",
-                  1
+          build_types_pos = text.find("    buildTypes {")
+
+          if build_types_pos == -1:
+              raise RuntimeError(
+                  "Generated buildTypes block was not found."
               )
+
+          text = (
+              text[:build_types_pos]
+              + signing_block
+              + text[build_types_pos:]
+          )
 
           # --------------------------------------------------
-          # Force release APK to use release keystore
+          # Locate release { ... } inside buildTypes.
           # --------------------------------------------------
 
-          if 'signingConfig = signingConfigs.getByName("release")' not in text:
-              release_pattern = re.compile(
-                  r'(buildTypes\s*\{\s*release\s*\{)'
+          build_types_pos = text.find("    buildTypes {")
+
+          release_pos = text.find(
+              "release {",
+              build_types_pos
+          )
+
+          if release_pos == -1:
+              raise RuntimeError(
+                  "Generated release buildType was not found."
               )
 
-              text, count = release_pattern.subn(
-                  r'\1\n            signingConfig = signingConfigs.getByName("release")',
-                  text,
-                  count=1
+          release_brace = text.find(
+              "{",
+              release_pos
+          )
+
+          if release_brace == -1:
+              raise RuntimeError(
+                  "Release opening brace was not found."
               )
 
-              if count != 1:
-                  raise RuntimeError(
-                      "Could not locate the generated release buildType."
-                  )
+          depth = 0
+          release_end = None
+
+          for i in range(release_brace, len(text)):
+              if text[i] == "{":
+                  depth += 1
+              elif text[i] == "}":
+                  depth -= 1
+
+                  if depth == 0:
+                      release_end = i
+                      break
+
+          if release_end is None:
+              raise RuntimeError(
+                  "Release closing brace was not found."
+              )
+
+          release_body = text[
+              release_brace + 1:
+              release_end
+          ]
+
+          # Remove any old signingConfig line inside release.
+          release_body = re.sub(
+              r'^[ \t]*signingConfig\s*=.*\n?',
+              '',
+              release_body,
+              flags=re.MULTILINE
+          )
+
+          # Force the release build to use the Digital 24 key.
+          release_body = (
+              "\n"
+              "        signingConfig = signingConfigs.getByName(\"digital24Release\")"
+              + release_body
+          )
+
+          text = (
+              text[:release_brace + 1]
+              + release_body
+              + text[release_end:]
+          )
 
           app.write_text(text)
 
           print("===== ANDROID SIGNING CONFIGURATION CREATED =====")
           print("Application ID: com.digital24online")
           print("Namespace: com.digital24online")
+          print("Signing config: digital24Release")
           PY
 
           echo "===== VERIFYING GRADLE SIGNING CONFIG ====="
 
-          grep -n \
+          grep -q \
             'applicationId = "com.digital24online"' \
             android/app/build.gradle.kts
 
-          grep -n \
+          grep -q \
             'namespace = "com.digital24online"' \
             android/app/build.gradle.kts
 
-          grep -n \
-            'create("release")' \
+          grep -q \
+            'create("digital24Release")' \
             android/app/build.gradle.kts
 
-          grep -n \
-            'signingConfig = signingConfigs.getByName("release")' \
+          grep -q \
+            'signingConfig = signingConfigs.getByName("digital24Release")' \
             android/app/build.gradle.kts
+
+          echo "===== GRADLE SIGNING CONFIG VERIFIED ====="
 
       - name: Fix MainActivity package
         working-directory: build_app
@@ -330,11 +453,14 @@ jobs:
           PY
 
           test -f "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
+
           grep -q '^package com.digital24online$' \
             "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
 
           echo "===== MAIN ACTIVITY VERIFIED ====="
-          cat "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
+
+          cat \
+            "android/app/src/main/kotlin/com/digital24online/MainActivity.kt"
 
       - name: Set app name
         working-directory: build_app
@@ -403,11 +529,11 @@ jobs:
           echo "===== RELEASE SIGNING ====="
 
           grep -q \
-            'create("release")' \
+            'create("digital24Release")' \
             android/app/build.gradle.kts
 
           grep -q \
-            'signingConfig = signingConfigs.getByName("release")' \
+            'signingConfig = signingConfigs.getByName("digital24Release")' \
             android/app/build.gradle.kts
 
           echo "===== MAIN ACTIVITY ====="
@@ -443,20 +569,19 @@ jobs:
 
           flutter pub get
 
-                    # Always generate an update-safe versionCode.
-          # The installed app is currently versionCode 46.
-          # 1000 + GitHub run number guarantees a higher versionCode
-          # for this project and keeps future releases increasing.
-                    BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
+          # Always generate an update-safe versionCode.
+          # The previously installed app used versionCode 46.
+          # GitHub run number keeps future builds increasing.
+          BUILD_NUMBER=$((1000 + ${{ github.run_number }}))
 
           echo "===== BUILD VERSION ====="
           echo "versionName: 1.0.0"
           echo "versionCode: $BUILD_NUMBER"
 
           flutter build apk \
-          --release \
-          --build-number "$BUILD_NUMBER" \
-          --build-name 1.0.0
+            --release \
+            --build-number "$BUILD_NUMBER" \
+            --build-name 1.0.0
 
       - name: Verify APK
         working-directory: build_app
@@ -468,12 +593,16 @@ jobs:
           test -f "$APK"
 
           echo "===== APK FILE ====="
+
           ls -lh "$APK"
 
-          AAPT="$ANDROID_HOME/build-tools/$(ls \
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls \
             "$ANDROID_HOME/build-tools" \
             | sort -V \
-            | tail -1)/aapt"
+            | tail -1)"
+
+          AAPT="$BUILD_TOOLS/aapt"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
 
           echo "===== APK PACKAGE ====="
 
@@ -481,9 +610,7 @@ jobs:
             | grep -E \
             "package:|launchable-activity:"
 
-          echo "===== APK VERSION ====="
-
-                               echo "===== APK VERSION VERIFICATION ====="
+          echo "===== APK VERSION VERIFICATION ====="
 
           EXPECTED_VERSION_CODE=$((1000 + ${{ github.run_number }}))
 
@@ -497,18 +624,52 @@ jobs:
 
           test "$ACTUAL_VERSION_CODE" = "$EXPECTED_VERSION_CODE"
 
-                                        echo "===== APK SIGNATURE ====="
-
-          APKSIGNER="$ANDROID_HOME/build-tools/$(ls \
-            "$ANDROID_HOME/build-tools" \
-            | sort -V \
-            | tail -1)/apksigner"
+          echo "===== APK SIGNATURE VERIFICATION ====="
 
           "$APKSIGNER" verify \
             --verbose \
+            --print-certs \
             "$APK"
 
-          echo "===== APK VERIFICATION COMPLETE ====="
+          echo "===== CHECKING ACTUAL APK CERTIFICATE ====="
+
+          EXPECTED_SHA256="1C:D4:4E:20:9F:79:35:C0:82:C6:E2:C6:EA:2A:B0:4D:B8:D7:5D:BD:39:FD:76:86:63:05:44:0F:33:FC:13:44"
+
+          ACTUAL_SHA256="$(
+            "$APKSIGNER" verify \
+              --print-certs \
+              "$APK" 2>&1 \
+              | sed -n \
+                's/.*Signer #1 certificate SHA-256 digest: //p' \
+              | head -n 1 \
+              | tr '[:lower:]' '[:upper:]'
+          )"
+
+          echo "Expected SHA-256:"
+          echo "$EXPECTED_SHA256"
+
+          echo "Actual SHA-256:"
+          echo "$ACTUAL_SHA256"
+
+          test -n "$ACTUAL_SHA256"
+
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo ""
+            echo "ERROR: APK CERTIFICATE DOES NOT MATCH"
+            echo "EXPECTED DIGITAL 24 RELEASE CERTIFICATE."
+            echo ""
+            echo "The APK will NOT be uploaded."
+            exit 1
+          fi
+
+          echo ""
+          echo "=============================================="
+          echo "DIGITAL 24 RELEASE CERTIFICATE VERIFIED"
+          echo "=============================================="
+
+          echo "APK is correctly release-signed."
+          echo "VersionCode is correct."
+          echo "APK verification completed successfully."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
