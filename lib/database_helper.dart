@@ -26,7 +26,7 @@ class DatabaseHelper {
 
     return openDatabase(
       dbPath,
-      version: 5,
+      version: 6,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -118,6 +118,7 @@ class DatabaseHelper {
         name TEXT NOT NULL UNIQUE,
         mobile TEXT NOT NULL DEFAULT '',
         active INTEGER NOT NULL DEFAULT 1,
+        cloud_id TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -223,16 +224,19 @@ class DatabaseHelper {
         'packages',
         'updated_at TEXT NOT NULL DEFAULT ""',
       );
+
       await _addColumnIfMissing(
         db,
         'bills',
         'updated_at TEXT NOT NULL DEFAULT ""',
       );
+
       await _addColumnIfMissing(
         db,
         'staff',
         'updated_at TEXT NOT NULL DEFAULT ""',
       );
+
       await _addColumnIfMissing(
         db,
         'payments',
@@ -240,16 +244,23 @@ class DatabaseHelper {
       );
 
       await db.execute(
-        'UPDATE packages SET updated_at = created_at WHERE updated_at = ""',
+        'UPDATE packages SET updated_at = created_at '
+        'WHERE updated_at = ""',
       );
+
       await db.execute(
-        'UPDATE bills SET updated_at = created_at WHERE updated_at = ""',
+        'UPDATE bills SET updated_at = created_at '
+        'WHERE updated_at = ""',
       );
+
       await db.execute(
-        'UPDATE staff SET updated_at = created_at WHERE updated_at = ""',
+        'UPDATE staff SET updated_at = created_at '
+        'WHERE updated_at = ""',
       );
+
       await db.execute(
-        'UPDATE payments SET updated_at = created_at WHERE updated_at = ""',
+        'UPDATE payments SET updated_at = created_at '
+        'WHERE updated_at = ""',
       );
     }
 
@@ -271,11 +282,13 @@ class DatabaseHelper {
         'customers',
         'billing_id INTEGER NOT NULL DEFAULT 1',
       );
+
       await _addColumnIfMissing(
         db,
         'bills',
         'billing_id INTEGER NOT NULL DEFAULT 1',
       );
+
       await _addColumnIfMissing(
         db,
         'payments',
@@ -286,10 +299,12 @@ class DatabaseHelper {
         'UPDATE customers SET billing_id = 1 '
         'WHERE billing_id IS NULL OR billing_id = 0',
       );
+
       await db.execute(
         'UPDATE bills SET billing_id = 1 '
         'WHERE billing_id IS NULL OR billing_id = 0',
       );
+
       await db.execute(
         'UPDATE payments SET billing_id = 1 '
         'WHERE billing_id IS NULL OR billing_id = 0',
@@ -299,17 +314,19 @@ class DatabaseHelper {
         'CREATE INDEX IF NOT EXISTS idx_customers_billing '
         'ON customers(billing_id)',
       );
+
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_bills_billing '
         'ON bills(billing_id)',
       );
+
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_payments_billing '
         'ON payments(billing_id)',
       );
     }
 
-        if (oldVersion < 5) {
+    if (oldVersion < 5) {
       await _addColumnIfMissing(
         db,
         'customers',
@@ -345,6 +362,18 @@ class DatabaseHelper {
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_deleted_customers_key '
         'ON deleted_customers(billing_id, user_id)',
+      );
+    }
+
+    // ============================================================
+    // VERSION 6
+    // Stable Cloud ID for Staff
+    // ============================================================
+    if (oldVersion < 6) {
+      await _addColumnIfMissing(
+        db,
+        'staff',
+        'cloud_id TEXT NOT NULL DEFAULT ""',
       );
     }
     }
@@ -588,6 +617,7 @@ class DatabaseHelper {
           name TEXT NOT NULL UNIQUE,
           mobile TEXT NOT NULL DEFAULT '',
           active INTEGER NOT NULL DEFAULT 1,
+          cloud_id TEXT NOT NULL DEFAULT '',
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         )
@@ -608,7 +638,6 @@ class DatabaseHelper {
           note TEXT NOT NULL DEFAULT '',
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
-
           FOREIGN KEY(customer_id)
             REFERENCES customers(id)
             ON DELETE CASCADE,
@@ -624,7 +653,6 @@ class DatabaseHelper {
       ''');
     }
   }
-
   Future<void> _createIndexes(Database db) async {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_customers_bill_date '
