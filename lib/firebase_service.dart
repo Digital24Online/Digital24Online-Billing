@@ -155,30 +155,38 @@ class FirebaseService {
   // PUBLIC SYNC API
   // ---------------------------------------------------------------------------
 
-  Future<void> restoreAfterLogin() async {
+      Future<void> restoreAfterLogin() async {
     if (!isSignedIn) return;
-
     try {
       await _ensureBusinessDocument();
 
       final db = await DatabaseHelper.instance.database;
       final freshInstall = await _isFreshInstall(db);
 
-      // Never let the six locally seeded packages overwrite a real cloud
-      // package configuration on a fresh installation.
+      // Remove only locally seeded defaults before restoring the Cloud Master.
       if (freshInstall && await _hasOnlyDefaultPackages(db)) {
         await db.delete('packages');
       }
 
+      if (freshInstall && await _hasOnlyDefaultBillings(db)) {
+        await db.delete('billings');
+      }
+
       if (freshInstall) {
-        // On a genuinely empty installation, restore cloud master data first.
+        // Restore the Cloud Master first.
         await _pullCloudToLocal(db);
 
-        // If the cloud account is empty, create the standard packages locally
-        // and then publish them.
+        // If the Cloud account has no packages, create the standard defaults.
         if (await _count(db, 'packages') == 0) {
           await _seedDefaultPackages(db);
           await _mergePackages(db);
+        }
+
+        // If the Cloud account has no billing workspace, keep the local defaults
+        // and publish them to Cloud.
+        if (await _count(db, 'billings') == 0) {
+          await _seedDefaultBillings(db);
+          await _mergeBillings(db);
         }
 
         await _repairLocalRelations(db);
@@ -191,7 +199,7 @@ class FirebaseService {
     } catch (_) {
       // Offline use must continue even when cloud recovery is unavailable.
     }
-  }
+      }
 
   Future<void> syncNow() async {
     final running = _syncInProgress;
@@ -257,32 +265,61 @@ class FirebaseService {
     return _int(result.isEmpty ? 0 : result.first['total']);
   }
 
-  Future<bool> _hasOnlyDefaultPackages(Database db) async {
+    Future<bool> _hasOnlyDefaultPackages(Database db) async {
     final rows = await db.query(
       'packages',
-      columns: ['name', 'speed', 'price'],
-      orderBy: 'name ASC',
+      columns: ['name', 'active'],
+      orderBy: 'id ASC',
     );
 
-    final expected = <String, double>{
-      '35 Mbps': 500,
-      '45 Mbps': 600,
-      '60 Mbps': 800,
-      '75 Mbps': 1000,
-      '85 Mbps': 1200,
-      '100 Mbps': 1500,
+    final expected = <String>{
+      '35 Mbps',
+      '45 Mbps',
+      '60 Mbps',
+      '75 Mbps',
+      '85 Mbps',
+      '100 Mbps',
     };
 
-    if (rows.length != expected.length) return false;
+    if (rows.length != expected.length) {
+      return false;
+    }
 
     for (final row in rows) {
       final name = _string(row['name']).trim();
-      final speed = _string(row['speed']).trim();
-      final price = _double(row['price']);
+      final active = _int(row['active'], fallback: 1);
 
-      if (!expected.containsKey(name)) return false;
-      if (speed != name) return false;
-      if (price != expected[name]) return false;
+      if (!expected.contains(name) || active != 1) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  Future<bool> _hasOnlyDefaultBillings(Database db) async {
+    final rows = await db.query(
+      'billings',
+      columns: ['name', 'active'],
+      orderBy: 'id ASC',
+    );
+
+    final expected = <String>{
+      'Billing 1',
+      'Billing 2',
+    };
+
+    if (rows.length != expected.length) {
+      return false;
+    }
+
+    for (final row in rows) {
+      final name = _string(row['name']).trim();
+      final active = _int(row['active'], fallback: 1);
+
+      if (!expected.contains(name) || active != 1) {
+        return false;
+      }
     }
 
     return true;
