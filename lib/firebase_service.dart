@@ -1423,7 +1423,7 @@ class FirebaseService {
     }
   }
 
-  Future<void> _recalculateAllCustomerTotals(Database db) async {
+    Future<void> _recalculateAllCustomerTotals(Database db) async {
     final customers = await db.query(
       'customers',
       columns: ['id', 'amount'],
@@ -1448,14 +1448,18 @@ class FirebaseService {
         bill.isEmpty ? 0 : bill.first['total'],
         fallback: _double(customer['amount']),
       );
+
       final totalPaid = _double(
         paid.isEmpty ? 0 : paid.first['total'],
       );
 
       final due = totalBill - totalPaid;
       final latestPaymentDate = await _latestPaymentDate(db, id);
-      final now = DateTime.now().toIso8601String();
 
+      // Recalculated totals are derived values.
+      // Do NOT change customers.updated_at here.
+      // Otherwise a normal sync would make old customer master data
+      // look newer than another device's real customer edit.
       await db.update(
         'customers',
         {
@@ -1463,13 +1467,12 @@ class FirebaseService {
           'paid_amount': totalPaid,
           'due_amount': due > 0 ? due : 0,
           'payment_date': latestPaymentDate,
-          'updated_at': now,
         },
         where: 'id = ?',
         whereArgs: [id],
       );
     }
-  }
+    }
   
     Future<void> _pushRecalculatedCustomers(Database db) async {
     final rows = await db.query(
