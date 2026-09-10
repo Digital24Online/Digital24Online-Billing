@@ -444,14 +444,13 @@ jobs:
             'namespace = "com.digital24online"' \
             android/app/build.gradle.kts
 
-          echo "===== RELEASE SIGNING ====="
-
+                    echo "===== RELEASE SIGNING ====="
           grep -q \
-            'create("digital24Release")' \
+            'create("release")' \
             android/app/build.gradle.kts
 
           grep -q \
-            'signingConfig = signingConfigs.getByName("digital24Release")' \
+            'signingConfig = signingConfigs.getByName("release")' \
             android/app/build.gradle.kts
 
           echo "===== MAIN ACTIVITY ====="
