@@ -40,14 +40,15 @@ class DatabaseHelper {
 
   Future<void> _create(Database db, int version) async {
     await db.execute('''
-            CREATE TABLE billings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        active INTEGER NOT NULL DEFAULT 1,
-        cloud_id TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
+  CREATE TABLE billings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    active INTEGER NOT NULL DEFAULT 1,
+    cloud_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )
+''');
 
         await db.execute('''
       CREATE TABLE customers (
