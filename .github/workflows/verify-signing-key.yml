@@ -1,0 +1,48 @@
+name: Verify Signing Key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify repository signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          set -e
+
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+
+          mkdir -p verify
+
+          printf '%s' "$KEYSTORE_BASE64" \
+            | base64 --decode \
+            > verify/digital24.jks
+
+          test -s verify/digital24.jks
+
+          echo "===== SIGNING CERTIFICATE ====="
+
+          keytool -list \
+            -v \
+            -keystore verify/digital24.jks \
+            -storepass "$KEYSTORE_PASSWORD" \
+            | awk '
+              /Alias name:/ ||
+              /Owner:/ ||
+              /Issuer:/ ||
+              /Serial number:/ ||
+              /Valid from:/ ||
+              /SHA256:/ {
+                print
+              }
+            '
+
+          echo "===== SIGNING KEY VERIFICATION COMPLETE ====="
+
+          rm -f verify/digital24.jks
