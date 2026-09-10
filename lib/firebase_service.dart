@@ -1037,7 +1037,7 @@ class FirebaseService {
   // PAYMENTS
   // ---------------------------------------------------------------------------
 
-  Future<void> _mergePayments(Database db) async {
+    Future<void> _mergePayments(Database db) async {
     final local = await db.query('payments');
     final cloud = await _readCollection('payments');
 
@@ -1051,45 +1051,57 @@ class FirebaseService {
     };
 
     final cloudByReceipt = <String, Map<String, dynamic>>{};
+
     for (final row in cloud) {
       final receipt = _string(row['receipt_no']).trim();
-      if (receipt.isNotEmpty) cloudByReceipt[receipt] = row;
+
+      if (receipt.isNotEmpty) {
+        cloudByReceipt[receipt] = row;
+      }
     }
 
     for (final row in local) {
       final receipt = _string(row['receipt_no']).trim();
-      final customerUserId = userById[_int(row['customer_id'])] ?? '';
+      final customerUserId =
+          userById[_int(row['customer_id'])] ?? '';
 
-      if (receipt.isEmpty || customerUserId.isEmpty) continue;
+      if (receipt.isEmpty || customerUserId.isEmpty) {
+        continue;
+      }
 
       final remote = cloudByReceipt[receipt];
 
-      if (remote == null) {
-        final uploaded = await _tryUploadPaymentAtomically(
-          db,
-          row,
-          customerUserId,
-        );
+      // A receipt number is the permanent identity of a payment.
+      // If this receipt already exists in Cloud, never overwrite it
+      // from another device. This prevents Payment History and the
+      // server-side bill balance from becoming inconsistent.
+      if (remote != null) {
+        continue;
+      }
 
-        // If the cloud bill rejects an overpayment, retain the local record
-        // instead of silently deleting money data. It will be visible locally
-        // until an operator resolves the conflict.
-        if (!uploaded) continue;
-      } else if (_localIsNewer(row, remote)) {
-        await _setCloud(
-          'payments',
-          _key(receipt),
-          await _paymentToCloud(db, row, customerUserId),
-        );
+      final uploaded = await _tryUploadPaymentAtomically(
+        db,
+        row,
+        customerUserId,
+      );
+
+      // If the Cloud bill rejects the payment because of a conflict
+      // or overpayment, keep the local payment record intact.
+      // It must not be silently deleted.
+      if (!uploaded) {
+        continue;
       }
     }
 
+    // Cloud remains the source of truth for payment records.
+    // Pull all Cloud payments back into this device so every
+    // authorized phone eventually has the same payment history.
     final merged = await _readCollection('payments');
+
     for (final row in merged) {
       await _upsertPayment(db, row);
     }
-  }
-
+    }
   Future<bool> _tryUploadPaymentAtomically(
     Database db,
     Map<String, dynamic> row,
