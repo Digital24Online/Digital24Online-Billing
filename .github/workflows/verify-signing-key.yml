@@ -41,8 +41,16 @@ jobs:
               /SHA256:/ {
                 print
               }
-            '
+            ' > verify/signing_certificate.txt
+
+          cat verify/signing_certificate.txt
 
           echo "===== SIGNING KEY VERIFICATION COMPLETE ====="
 
           rm -f verify/digital24.jks
+
+      - name: Upload certificate result
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-certificate-result
+          path: verify/signing_certificate.txt
