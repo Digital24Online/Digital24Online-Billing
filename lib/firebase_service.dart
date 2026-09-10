@@ -511,7 +511,7 @@ class FirebaseService {
     }
   }
 
-  Future<void> _mergeCustomers(Database db) async {
+    Future<void> _mergeCustomers(Database db) async {
     final local = await db.query('customers');
     final cloud = await _readCollection('customers');
 
@@ -526,29 +526,37 @@ class FirebaseService {
             '${_string(row['user_id']).trim()}',
     };
 
-    final cloudByKey =
-        <String, Map<String, dynamic>>{};
+    final cloudByKey = <String, Map<String, dynamic>>{};
 
     for (final row in cloud) {
       final key =
-          '${_int(row['billing_id'])}__'
+          '${_int(row['billing_id'], fallback: 1)}__'
           '${_string(row['user_id']).trim()}';
 
-      if (key != '0__' &&
+      if (key != '1__' &&
+          key != '0__' &&
           !key.endsWith('__') &&
           !deletedKeys.contains(key)) {
         cloudByKey[key] = row;
       }
     }
 
+    // Local -> Cloud
+    //
+    // Customer master information is synchronized using the customer's
+    // own updated_at. Calculated totals are NOT used to make an old
+    // device look newer.
     for (final row in local) {
-      final userId =
-          _string(row['user_id']).trim();
+      final userId = _string(row['user_id']).trim();
 
       if (userId.isEmpty) continue;
 
-      final key =
-          '${_int(row['billing_id'])}__$userId';
+      final billingId = _int(
+        row['billing_id'],
+        fallback: 1,
+      );
+
+      final key = '${billingId}__$userId';
 
       if (deletedKeys.contains(key)) {
         continue;
@@ -556,8 +564,18 @@ class FirebaseService {
 
       final remote = cloudByKey[key];
 
-      if (remote == null ||
-          _localIsNewer(row, remote)) {
+      if (remote == null) {
+        await _setCloud(
+          'customers',
+          _key(key),
+          _customerToCloud(row),
+        );
+        continue;
+      }
+
+      // Only a genuine newer Customer master record may replace
+      // the Cloud master record.
+      if (_localIsNewer(row, remote)) {
         await _setCloud(
           'customers',
           _key(key),
@@ -566,13 +584,23 @@ class FirebaseService {
       }
     }
 
-    final merged =
-        await _readCollection('customers');
+    // Cloud -> Local
+    //
+    // Pull the final Cloud state back so all authorized devices
+    // converge to the same Customer master data.
+    final merged = await _readCollection('customers');
 
     for (final row in merged) {
-      final key =
-          '${_int(row['billing_id'], fallback: 1)}__'
-          '${_string(row['user_id']).trim()}';
+      final billingId = _int(
+        row['billing_id'],
+        fallback: 1,
+      );
+
+      final userId = _string(row['user_id']).trim();
+
+      if (userId.isEmpty) continue;
+
+      final key = '${billingId}__$userId';
 
       if (deletedKeys.contains(key)) {
         continue;
@@ -580,7 +608,7 @@ class FirebaseService {
 
       await _upsertCustomer(db, row);
     }
-  }
+    }
 
   Map<String, dynamic> _customerToCloud(
     Map<String, dynamic> r,
