@@ -93,7 +93,7 @@ jobs:
           storePassword=$KEYSTORE_PASSWORD
           keyPassword=$FINAL_KEY_PASSWORD
           keyAlias=$KEY_ALIAS
-          storeFile=keystore/digital24.jks
+          storeFile=../keystore/digital24.jks
           EOF
 
           test -s android/key.properties
