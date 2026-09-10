@@ -552,12 +552,12 @@ jobs:
 
           EXPECTED_SHA256="1C:D4:4E:20:9F:79:35:C0:82:C6:E2:C6:EA:2A:B0:4D:B8:D7:5D:BD:39:FD:76:86:63:05:44:0F:33:FC:13:44"
 
-          ACTUAL_SHA256="$(
+                    ACTUAL_SHA256="$(
             "$APKSIGNER" verify \
               --print-certs \
               "$APK" 2>&1 \
               | sed -n \
-                's/.*Signer #1 certificate SHA-256 digest: //p' \
+                's/.*certificate SHA-256 digest: //p' \
               | head -n 1 \
               | tr '[:lower:]' '[:upper:]'
           )"
