@@ -473,7 +473,7 @@ class FirebaseService {
   // CUSTOMERS
   // ---------------------------------------------------------------------------
 
-      _processCustomerDeletionTombstones(
+        Future<void> _processCustomerDeletionTombstones(
     Database db,
   ) async {
     final deleted = await db.query(
@@ -481,52 +481,72 @@ class FirebaseService {
       orderBy: 'id ASC',
     );
 
-    for (device cannot
-        // recreate the deleted customer on a later sync.
-        continue;
-      }
-
-      final remote =
-          snapshot.data() ?? <String, dynamic>{};
-
-      final remoteUpdatedAt =
-          _remoteTimestamp(remote);
-
-      if (!remoteUpdatedAt.isAfter(deletedAt)) {
-        // This is the old customer that was deleted.
-        // Remove it again and KEEP the tombstone.
-        await customerRef.delete();
-        continue;
-      }
-
-      // Cloud contains a genuinely newer record created/edited
-      // after the deletion timestamp. Treat that as a legitimate
-      // newer customer record and remove the old tombstone.
-      await db.delete(
-        'deleted_customers',
-        where: 'id = ?',
-        whereArgs: [row['id']],
+    for (final row in deleted) {
+      final billingId = _int(
+        row['billing_id'],
+        fallback: 1,
       );
-    }
-         }
+
+      final userId = _string(
+        row['user_id'],
+      ).trim();
+
+      final deletedAt = DateTime.tryParse(
+        _string(row['deleted_at']),
+      );
+
+      if (billingId <= 0 ||
+          userId.isEmpty ||
+          deletedAt == null) {
         continue;
       }
 
       final key =
           '${billingId}__$userId';
 
-      await _collection(
+      final customerRef = _collection(
         'customers',
-      ).doc(_key(key)).delete();
+      ).doc(_key(key));
 
+      final snapshot = await customerRef.get();
+
+      // Cloud-এ Customer আর নেই।
+      // Tombstone অবশ্যই রেখে দিতে হবে, যাতে কোনো
+      // পুরোনো Offline device আবার Customer-টি
+      // Cloud-এ resurrect করতে না পারে।
+      if (!snapshot.exists) {
+        continue;
+      }
+
+      final remote =
+          snapshot.data() ??
+          <String, dynamic>{};
+
+      final remoteUpdatedAt =
+          _remoteTimestamp(remote);
+
+      // Cloud record যদি deletion-এর সময়ের
+      // সমান বা পুরোনো হয়, তাহলে এটি সেই পুরোনো
+      // Customer record।
+      //
+      // এটিকে আবার delete করব এবং tombstone রাখব।
+      if (!remoteUpdatedAt.isAfter(deletedAt)) {
+        await customerRef.delete();
+        continue;
+      }
+
+      // Cloud-এ deletion-এর পরে সত্যিকারের নতুন
+      // Customer record তৈরি/পরিবর্তন হয়েছে।
+      //
+      // এটিকে legitimate newer record হিসেবে গ্রহণ
+      // করে পুরোনো tombstone সরিয়ে দেওয়া হবে।
       await db.delete(
         'deleted_customers',
         where: 'id = ?',
         whereArgs: [row['id']],
       );
     }
-  }
-
+        }
     Future<void> _mergeCustomers(Database db) async {
     final local = await db.query('customers');
     final cloud = await _readCollection('customers');
