@@ -111,7 +111,7 @@ jobs:
             | grep -E \
               'Alias name:|Owner:|Issuer:|Serial number:|Valid from:|SHA256:'
 
-      - name: Configure Android application and release signing
+            - name: Configure Android application and release signing
         working-directory: build_app
         run: |
           set -e
@@ -120,26 +120,30 @@ jobs:
           from pathlib import Path
           import re
 
-          settings = Path("android/settings.gradle.kts")
-          settings_text = settings.read_text()
+          # --------------------------------------------------
+          # settings.gradle.kts
+          # --------------------------------------------------
 
-          # Google Services plugin declaration.
-          if 'id("com.google.gms.google-services")' not in settings_text:
-              settings_text = settings_text.replace(
+          settings = Path("android/settings.gradle.kts")
+          text = settings.read_text()
+
+          if 'id("com.google.gms.google-services")' not in text:
+              text = text.replace(
                   "plugins {",
                   'plugins {\n    id("com.google.gms.google-services") version "4.4.2" apply false',
                   1
               )
 
-          settings.write_text(settings_text)
+          settings.write_text(text)
+
+          # --------------------------------------------------
+          # app/build.gradle.kts
+          # --------------------------------------------------
 
           app = Path("android/app/build.gradle.kts")
           text = app.read_text()
 
-          # --------------------------------------------------
-          # Application ID / Namespace
-          # --------------------------------------------------
-
+          # Application ID
           text = re.sub(
               r'namespace\s*=\s*"[^"]+"',
               'namespace = "com.digital24online"',
@@ -174,7 +178,6 @@ jobs:
               "JavaVersion.VERSION_17"
           )
 
-          # Remove old kotlinOptions block if generated.
           text = re.sub(
               r'\n\s*kotlinOptions\s*\{.*?\n\s*\}',
               '',
@@ -182,7 +185,6 @@ jobs:
               flags=re.DOTALL
           )
 
-          # Add Kotlin JVM toolchain.
           if "jvmToolchain(17)" not in text:
               text = text.replace(
                   "android {",
@@ -223,183 +225,101 @@ jobs:
               )
 
           # --------------------------------------------------
-          # Remove any existing signingConfigs block.
-          # The generated Flutter project normally does not
-          # contain one, but this guarantees a clean state.
-          # --------------------------------------------------
-
-          def remove_block(source, keyword):
-              pos = source.find(keyword)
-
-              if pos == -1:
-                  return source
-
-              brace = source.find("{", pos)
-
-              if brace == -1:
-                  raise RuntimeError(
-                      f"Opening brace not found for {keyword}"
-                  )
-
-              depth = 0
-              end = None
-
-              for i in range(brace, len(source)):
-                  if source[i] == "{":
-                      depth += 1
-                  elif source[i] == "}":
-                      depth -= 1
-
-                      if depth == 0:
-                          end = i + 1
-                          break
-
-              if end is None:
-                  raise RuntimeError(
-                      f"Could not find end of {keyword}"
-                  )
-
-              return source[:pos] + source[end:]
-
-          text = remove_block(text, "signingConfigs")
-
-          # --------------------------------------------------
-          # Remove ALL existing signingConfig assignments.
-          # This is important because generated Flutter
-          # projects may use the debug key for release.
+          # Remove any existing signingConfig line.
+          # This prevents debug signing from remaining active.
           # --------------------------------------------------
 
           text = re.sub(
-              r'^[ \t]*signingConfig\s*=\s*signingConfigs\.getByName\("[^"]+"\)[ \t]*\n?',
+              r'^[ \t]*signingConfig\s*=.*\n?',
               '',
               text,
               flags=re.MULTILINE
           )
 
           # --------------------------------------------------
-          # Add dedicated Digital 24 release signing config.
+          # Create Digital 24 release signing configuration.
           # --------------------------------------------------
 
-          signing_block = """
-          signingConfigs {
-              create("digital24Release") {
-                  keyAlias = keystoreProperties.getProperty("keyAlias")
-                  keyPassword = keystoreProperties.getProperty("keyPassword")
-                  storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
-                  storePassword = keystoreProperties.getProperty("storePassword")
+          if 'create("release")' not in text:
+              signing_block = """
+              signingConfigs {
+                  create("release") {
+                      keyAlias = keystoreProperties.getProperty("keyAlias")
+                      keyPassword = keystoreProperties.getProperty("keyPassword")
+                      storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
+                      storePassword = keystoreProperties.getProperty("storePassword")
+                  }
               }
-          }
 
           """
 
-          build_types_pos = text.find("    buildTypes {")
-
-          if build_types_pos == -1:
-              raise RuntimeError(
-                  "Generated buildTypes block was not found."
+              text = text.replace(
+                  "    buildTypes {",
+                  signing_block + "    buildTypes {",
+                  1
               )
-
-          text = (
-              text[:build_types_pos]
-              + signing_block
-              + text[build_types_pos:]
-          )
 
           # --------------------------------------------------
-          # Locate release { ... } inside buildTypes.
+          # Force release APK to use the restored release key.
+          # No brace-counting is used here.
           # --------------------------------------------------
 
-          build_types_pos = text.find("    buildTypes {")
+          release_marker = "        release {"
 
-          release_pos = text.find(
-              "release {",
-              build_types_pos
-          )
+          if release_marker not in text:
+              release_marker = "    release {"
 
-          if release_pos == -1:
+          if release_marker not in text:
               raise RuntimeError(
-                  "Generated release buildType was not found."
+                  "Could not locate the generated release buildType."
               )
 
-          release_brace = text.find(
-              "{",
-              release_pos
+          signing_line = (
+              '            signingConfig = '
+              'signingConfigs.getByName("release")'
           )
 
-          if release_brace == -1:
-              raise RuntimeError(
-                  "Release opening brace was not found."
+          if signing_line not in text:
+              text = text.replace(
+                  release_marker,
+                  release_marker + "\n" + signing_line,
+                  1
               )
-
-          depth = 0
-          release_end = None
-
-          for i in range(release_brace, len(text)):
-              if text[i] == "{":
-                  depth += 1
-              elif text[i] == "}":
-                  depth -= 1
-
-                  if depth == 0:
-                      release_end = i
-                      break
-
-          if release_end is None:
-              raise RuntimeError(
-                  "Release closing brace was not found."
-              )
-
-          release_body = text[
-              release_brace + 1:
-              release_end
-          ]
-
-          # Remove any old signingConfig line inside release.
-          release_body = re.sub(
-              r'^[ \t]*signingConfig\s*=.*\n?',
-              '',
-              release_body,
-              flags=re.MULTILINE
-          )
-
-          # Force the release build to use the Digital 24 key.
-          release_body = (
-              "\n"
-              "        signingConfig = signingConfigs.getByName(\"digital24Release\")"
-              + release_body
-          )
-
-          text = (
-              text[:release_brace + 1]
-              + release_body
-              + text[release_end:]
-          )
 
           app.write_text(text)
 
           print("===== ANDROID SIGNING CONFIGURATION CREATED =====")
           print("Application ID: com.digital24online")
           print("Namespace: com.digital24online")
-          print("Signing config: digital24Release")
+          print("Signing config: release")
           PY
 
           echo "===== VERIFYING GRADLE SIGNING CONFIG ====="
 
-          grep -q \
+          grep -n \
             'applicationId = "com.digital24online"' \
             android/app/build.gradle.kts
 
-          grep -q \
+          grep -n \
             'namespace = "com.digital24online"' \
             android/app/build.gradle.kts
 
-          grep -q \
-            'create("digital24Release")' \
+          grep -n \
+            'create("release")' \
             android/app/build.gradle.kts
 
-          grep -q \
-            'signingConfig = signingConfigs.getByName("digital24Release")' \
+          grep -n \
+            'signingConfig = signingConfigs.getByName("release")' \
             android/app/build.gradle.kts
+
+          if grep -n \
+            'signingConfig = signingConfigs.getByName("debug")' \
+            android/app/build.gradle.kts; then
+            echo "ERROR: Debug signing configuration detected."
+            exit 1
+          fi
+
+          echo "===== RELEASE SIGNING CONFIG VERIFIED ====="
 
           echo "===== GRADLE SIGNING CONFIG VERIFIED ====="
 
