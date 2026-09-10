@@ -1459,20 +1459,42 @@ class FirebaseService {
     }
   }
   
-  Future<void> _pushRecalculatedCustomers(Database db) async {
-    final rows = await db.query('customers');
+    Future<void> _pushRecalculatedCustomers(Database db) async {
+    final rows = await db.query(
+      'customers',
+      columns: [
+        'billing_id',
+        'user_id',
+        'total_amount',
+        'paid_amount',
+        'due_amount',
+        'payment_date',
+      ],
+    );
 
     for (final row in rows) {
       final userId = _string(row['user_id']).trim();
       if (userId.isEmpty) continue;
 
+      // Only derived billing totals are synchronized here.
+      // Customer master information such as name, mobile, package,
+      // bill date, status, etc. must never be overwritten by a
+      // recalculation running on another device.
       await _setCloud(
         'customers',
-        _key('${_int(row['billing_id'], fallback: 1)}__$userId'),
-        _customerToCloud(row),
+        _key(
+          '${_int(row['billing_id'], fallback: 1)}__$userId',
+        ),
+        {
+          'total_amount': _double(row['total_amount']),
+          'paid_amount': _double(row['paid_amount']),
+          'due_amount': _double(row['due_amount']),
+          'payment_date': _string(row['payment_date']),
+          'cloud_updated_at': FieldValue.serverTimestamp(),
+        },
       );
     }
-  }
+    }
 
   Future<String> _latestPaymentDate(
     Database db,
