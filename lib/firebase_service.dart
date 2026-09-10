@@ -473,7 +473,7 @@ class FirebaseService {
   // CUSTOMERS
   // ---------------------------------------------------------------------------
 
-    Future<void> _processCustomerDeletionTombstones(
+      Future<void> _processCustomerDeletionTombstones(
     Database db,
   ) async {
     final deleted = await db.query(
@@ -484,15 +484,65 @@ class FirebaseService {
     for (final row in deleted) {
       final billingId =
           _int(row['billing_id'], fallback: 1);
+
       final userId =
           _string(row['user_id']).trim();
 
-      if (userId.isEmpty) {
+      final deletedAt =
+          DateTime.tryParse(
+            _string(row['deleted_at']),
+          );
+
+      if (userId.isEmpty || deletedAt == null) {
+        // Invalid tombstones are removed so they cannot block
+        // future synchronization indefinitely.
         await db.delete(
           'deleted_customers',
           where: 'id = ?',
           whereArgs: [row['id']],
         );
+        continue;
+      }
+
+      final key =
+          '${billingId}__$userId';
+
+      final customerRef = _collection(
+        'customers',
+      ).doc(_key(key));
+
+      final snapshot = await customerRef.get();
+
+      if (!snapshot.exists) {
+        // The Cloud customer is already gone.
+        // KEEP the tombstone so an old offline device cannot
+        // recreate the deleted customer on a later sync.
+        continue;
+      }
+
+      final remote =
+          snapshot.data() ?? <String, dynamic>{};
+
+      final remoteUpdatedAt =
+          _remoteTimestamp(remote);
+
+      if (!remoteUpdatedAt.isAfter(deletedAt)) {
+        // This is the old customer that was deleted.
+        // Remove it again and KEEP the tombstone.
+        await customerRef.delete();
+        continue;
+      }
+
+      // Cloud contains a genuinely newer record created/edited
+      // after the deletion timestamp. Treat that as a legitimate
+      // newer customer record and remove the old tombstone.
+      await db.delete(
+        'deleted_customers',
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+      }
         continue;
       }
 
