@@ -768,84 +768,258 @@ class FirebaseService {
   }
 
   // ---------------------------------------------------------------------------
-  // PACKAGES
-  // ---------------------------------------------------------------------------
+// PACKAGES
+// ---------------------------------------------------------------------------
 
-  Future<void> _mergePackages(Database db) async {
-    final local = await db.query('packages');
-    final cloud = await _readCollection('packages');
+Future<void> _mergePackages(Database db) async {
+  final local = await db.query('packages');
+  final cloud = await _readCollection('packages');
 
-    final byName = <String, Map<String, dynamic>>{};
-    for (final row in cloud) {
-      final name = _string(row['name']).trim();
-      if (name.isNotEmpty) byName[name] = row;
+  final cloudById = <String, Map<String, dynamic>>{};
+  final cloudByName = <String, Map<String, dynamic>>{};
+
+  for (final row in cloud) {
+    final docId = _string(row['_doc_id']).trim();
+    final cloudId = _string(row['cloud_id']).trim();
+    final name = _string(row['name']).trim();
+
+    final stableId =
+        cloudId.isNotEmpty ? cloudId : docId;
+
+    if (stableId.isNotEmpty) {
+      cloudById[stableId] = row;
     }
 
-    for (final row in local) {
-      final name = _string(row['name']).trim();
-      if (name.isEmpty) continue;
-
-      final remote = byName[name];
-      if (remote == null || _localIsNewer(row, remote)) {
-        await _setCloud('packages', _key(name), _packageToCloud(row));
-      }
-    }
-
-    final merged = await _readCollection('packages');
-    for (final row in merged) {
-      await _upsertPackage(db, row);
+    if (name.isNotEmpty) {
+      cloudByName[name] = row;
     }
   }
 
-  Map<String, dynamic> _packageToCloud(Map<String, dynamic> r) => {
-        'name': _string(r['name']),
-        'speed': _string(r['speed']),
-        'price': _double(r['price']),
-        'active': _int(r['active'], fallback: 1),
-        'created_at': _string(r['created_at']),
-        'updated_at': _string(r['updated_at']),
-        'id_local': _int(r['id']),
-        'cloud_updated_at': FieldValue.serverTimestamp(),
-      };
+  // ------------------------------------------------------------
+  // LOCAL -> CLOUD
+  // ------------------------------------------------------------
+  for (final row in local) {
+    final name = _string(row['name']).trim();
 
-  Future<void> _upsertPackage(
-    Database db,
-    Map<String, dynamic> r,
-  ) async {
-    final name = _string(r['name']).trim();
-    if (name.isEmpty) return;
+    if (name.isEmpty) continue;
 
-    final values = {
-      'name': name,
+    String cloudId =
+        _string(row['cloud_id']).trim();
+
+    Map<String, dynamic>? remote;
+
+    // 1. Local-এ stable cloud_id থাকলে
+    //    সেটিই সর্বোচ্চ priority।
+    if (cloudId.isNotEmpty) {
+      remote = cloudById[cloudId];
+    }
+
+    // 2. পুরোনো Package হলে name দিয়ে
+    //    পুরোনো Cloud record খুঁজে তার document ID গ্রহণ।
+    if (cloudId.isEmpty) {
+      remote = cloudByName[name];
+
+      if (remote != null) {
+        cloudId = _string(
+          remote['_doc_id'],
+        ).trim();
+
+        if (cloudId.isEmpty) {
+          cloudId = _string(
+            remote['cloud_id'],
+          ).trim();
+        }
+      }
+    }
+
+    // 3. কোনো পুরোনো Cloud record না থাকলে
+    //    নতুন stable Firestore document ID তৈরি।
+    if (cloudId.isEmpty) {
+      cloudId = _collection('packages')
+          .doc()
+          .id;
+    }
+
+    // 4. Local SQLite-এ stable cloud_id সংরক্ষণ।
+    if (_string(row['cloud_id']).trim() !=
+        cloudId) {
+      await db.update(
+        'packages',
+        {
+          'cloud_id': cloudId,
+        },
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+
+    // 5. Stable Cloud ID ব্যবহার করে
+    //    Local Package Cloud-এ পাঠানো।
+    if (remote == null ||
+        _localIsNewer(row, remote)) {
+      await _setCloud(
+        'packages',
+        cloudId,
+        _packageToCloud(
+          row,
+          cloudId,
+        ),
+      );
+    }
+  }
+
+  // ------------------------------------------------------------
+  // CLOUD -> LOCAL
+  // ------------------------------------------------------------
+  final merged =
+      await _readCollection('packages');
+
+  for (final row in merged) {
+    await _upsertPackage(
+      db,
+      row,
+    );
+  }
+}
+
+Map<String, dynamic> _packageToCloud(
+  Map<String, dynamic> r,
+  String cloudId,
+) =>
+    {
+      'cloud_id': cloudId,
+      'name': _string(r['name']),
       'speed': _string(r['speed']),
       'price': _double(r['price']),
-      'active': _int(r['active'], fallback: 1),
-      'created_at': _string(r['created_at']),
-      'updated_at': _string(r['updated_at']),
+      'active': _int(
+        r['active'],
+        fallback: 1,
+      ),
+      'created_at': _string(
+        r['created_at'],
+      ),
+      'updated_at': _string(
+        r['updated_at'],
+      ),
+      'id_local': _int(r['id']),
+      'cloud_updated_at':
+          FieldValue.serverTimestamp(),
     };
 
-    final found = await db.query(
-      'packages',
-      where: 'name = ?',
-      whereArgs: [name],
-      limit: 1,
-    );
+Future<void> _upsertPackage(
+  Database db,
+  Map<String, dynamic> r,
+) async {
+  final name =
+      _string(r['name']).trim();
 
-    if (found.isEmpty) {
-      await db.insert(
-        'packages',
-        values,
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    } else if (_remoteIsNewer(found.first, r)) {
+  if (name.isEmpty) return;
+
+  String cloudId =
+      _string(r['cloud_id']).trim();
+
+  if (cloudId.isEmpty) {
+    cloudId =
+        _string(r['_doc_id']).trim();
+  }
+
+  if (cloudId.isEmpty) return;
+
+  final values = {
+    'name': name,
+    'speed': _string(r['speed']),
+    'price': _double(r['price']),
+    'active': _int(
+      r['active'],
+      fallback: 1,
+    ),
+    'cloud_id': cloudId,
+    'created_at': _string(
+      r['created_at'],
+    ),
+    'updated_at': _string(
+      r['updated_at'],
+    ),
+  };
+
+  // প্রথমে stable cloud_id দিয়ে খোঁজা হবে।
+  final foundByCloudId =
+      await db.query(
+    'packages',
+    where: 'cloud_id = ?',
+    whereArgs: [cloudId],
+    limit: 1,
+  );
+
+  if (foundByCloudId.isNotEmpty) {
+    final existing =
+        foundByCloudId.first;
+
+    if (_remoteIsNewer(
+      existing,
+      r,
+    )) {
       await db.update(
         'packages',
         values,
         where: 'id = ?',
-        whereArgs: [found.first['id']],
+        whereArgs: [
+          existing['id'],
+        ],
       );
     }
+
+    return;
   }
+
+  // পুরোনো Local Package হলে name দিয়ে
+  // matching করে stable cloud_id বসানো হবে।
+  final foundByName =
+      await db.query(
+    'packages',
+    where: 'name = ?',
+    whereArgs: [name],
+    limit: 1,
+  );
+
+  if (foundByName.isNotEmpty) {
+    final existing =
+        foundByName.first;
+
+    final currentCloudId =
+        _string(
+      existing['cloud_id'],
+    ).trim();
+
+    final shouldUpdate =
+        currentCloudId.isEmpty ||
+        _remoteIsNewer(
+          existing,
+          r,
+        );
+
+    if (shouldUpdate) {
+      await db.update(
+        'packages',
+        values,
+        where: 'id = ?',
+        whereArgs: [
+          existing['id'],
+        ],
+      );
+    }
+
+    return;
+  }
+
+  // Cloud থেকে সম্পূর্ণ নতুন Package।
+  await db.insert(
+    'packages',
+    values,
+    conflictAlgorithm:
+        ConflictAlgorithm.ignore,
+  );
+}
 
   // ---------------------------------------------------------------------------
 // STAFF
