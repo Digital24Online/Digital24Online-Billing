@@ -2479,11 +2479,14 @@ Future<void> exportBackupToFile() async {
     // Opening the restored file also verifies that SQLite can use it.
     await database;
 
-    if (!await _hasCurrentSchema(currentDbPath)) {
-  throw Exception(
-    'Restore-এর পরে Database Schema যাচাই করা যায়নি।',
-  );
+        if (!await _hasCurrentSchema(currentDbPath)) {
+      throw Exception(
+        'Restore-এর পরে Database Schema যাচাই করা যায়নি।',
+      );
     }
+
+    // Restore-এর পরে Customer totals আবার হিসাব করা।
+    await _recalculateLocalCustomerTotals();
 
     if (safetyCreated) {
       final safetyFile = File(safetyPath);
