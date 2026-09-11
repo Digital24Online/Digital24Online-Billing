@@ -2182,9 +2182,11 @@ bool billingLoading = false;
       );
     }
 
-    await db.restoreDatabase(bytes);
+        await db.restoreDatabase(bytes);
 
-    await loadCustomers();
+    // Restore-এর পরে Billing list এবং selected Billing
+    // নতুন Database অনুযায়ী সম্পূর্ণ reload হবে।
+    await loadBillingContext();
 
     msg(
       t(
