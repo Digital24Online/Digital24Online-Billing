@@ -1940,45 +1940,75 @@ Future<void> _upsertStaff(
   }
 
   Future<int?> _findOrCreateBillForPayment(
-    Database db,
-    int customerId,
-    Map<String, dynamic> payment,
-  ) async {
-    final month = await _paymentBillingMonth(db, payment);
-    if (month.isEmpty) return null;
+  Database db,
+  int customerId,
+  Map<String, dynamic> payment,
+) async {
+  final month = await _paymentBillingMonth(db, payment);
+  if (month.isEmpty) return null;
 
-    final existing = await db.query(
-      'bills',
-      where: 'customer_id = ? AND billing_month = ?',
-      whereArgs: [customerId, month],
-      limit: 1,
-    );
+  final billingId = _int(
+    payment['billing_id'],
+    fallback: 1,
+  );
 
-    if (existing.isNotEmpty) return _int(existing.first['id']);
+  if (billingId <= 0) return null;
 
-    final customer = await db.query(
-      'customers',
-      where: 'id = ?',
-      whereArgs: [customerId],
-      limit: 1,
-    );
-    if (customer.isEmpty) return null;
+  final existing = await db.query(
+    'bills',
+    where:
+        'billing_id = ? AND customer_id = ? AND billing_month = ?',
+    whereArgs: [
+      billingId,
+      customerId,
+      month,
+    ],
+    limit: 1,
+  );
 
-    final now = DateTime.now().toIso8601String();
+  if (existing.isNotEmpty) {
+    return _int(existing.first['id']);
+  }
 
-    return db.insert(
-      'bills',
-      {
-        'billing_id': _int(payment['billing_id'], fallback: 1),
-        'customer_id': customerId,
-        'billing_month': month,
-        'bill_date': _int(customer.first['bill_date'], fallback: 7),
-        'amount': _double(customer.first['amount']),
-        'created_at': now,
-        'updated_at': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+  final customer = await db.query(
+    'customers',
+    where: 'id = ?',
+    whereArgs: [customerId],
+    limit: 1,
+  );
+
+  if (customer.isEmpty) return null;
+
+  final customerBillingId = _int(
+    customer.first['billing_id'],
+    fallback: 1,
+  );
+
+  // Payment এবং Customer একই Billing-এর হতে হবে।
+  if (customerBillingId != billingId) {
+    return null;
+  }
+
+  final now = DateTime.now().toIso8601String();
+
+  return db.insert(
+    'bills',
+    {
+      'billing_id': billingId,
+      'customer_id': customerId,
+      'billing_month': month,
+      'bill_date': _int(
+        customer.first['bill_date'],
+        fallback: 7,
+      ),
+      'amount': _double(
+        customer.first['amount'],
+      ),
+      'created_at': now,
+      'updated_at': now,
+    },
+    conflictAlgorithm: ConflictAlgorithm.ignore,
+  );
   }
 
   Future<int?> _findStaffId(Database db, String name) async {
