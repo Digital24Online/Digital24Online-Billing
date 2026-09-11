@@ -402,6 +402,9 @@ if (oldVersion < 8) {
     'cloud_id TEXT NOT NULL DEFAULT ""',
   );
 }
+
+  }
+
   Future<bool> _tableExists(
     Database db,
     String table,
