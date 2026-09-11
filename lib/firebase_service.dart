@@ -416,57 +416,295 @@ class FirebaseService {
     }
   }
 
-  // ---------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------
   // BILLING WORKSPACES
   // ---------------------------------------------------------------------------
-
   Future<void> _mergeBillings(Database db) async {
     final local = await db.query('billings');
     final cloud = await _readCollection('billings');
-    final byId = <int, Map<String, dynamic>>{};
+
+    final cloudById = <String, Map<String, dynamic>>{};
+    final cloudByBillingId = <int, Map<String, dynamic>>{};
+    final cloudByName = <String, Map<String, dynamic>>{};
+
     for (final row in cloud) {
-      final id = _int(row['billing_id']);
-      if (id > 0) byId[id] = row;
-    }
-    for (final row in local) {
-      final id = _int(row['id']);
-      if (id <= 0) continue;
-      final remote = byId[id];
-      if (remote == null || _localIsNewer(row, remote)) {
-        await _setCloud('billings', '$id', _billingToCloud(row));
+      final docId = _string(row['_doc_id']).trim();
+      final cloudId = _string(row['cloud_id']).trim();
+      final billingId = _int(row['billing_id']);
+      final name = _string(row['name']).trim();
+
+      final stableId =
+          cloudId.isNotEmpty ? cloudId : docId;
+
+      if (stableId.isNotEmpty) {
+        cloudById[stableId] = row;
+      }
+
+      if (billingId > 0) {
+        cloudByBillingId[billingId] = row;
+      }
+
+      if (name.isNotEmpty) {
+        cloudByName[name] = row;
       }
     }
-    final merged = await _readCollection('billings');
+
+    // ------------------------------------------------------------
+    // LOCAL -> CLOUD
+    // ------------------------------------------------------------
+    for (final row in local) {
+      final localId = _int(row['id']);
+      final name = _string(row['name']).trim();
+
+      if (localId <= 0 || name.isEmpty) {
+        continue;
+      }
+
+      String cloudId =
+          _string(row['cloud_id']).trim();
+
+      Map<String, dynamic>? remote;
+
+      // 1. Local stable Cloud ID থাকলে
+      //    সেটিই প্রথম priority।
+      if (cloudId.isNotEmpty) {
+        remote = cloudById[cloudId];
+      }
+
+      // 2. পুরোনো Billing হলে প্রথমে local ID দিয়ে
+      //    পুরোনো Cloud record খোঁজা হবে।
+      if (cloudId.isEmpty) {
+        remote = cloudByBillingId[localId];
+
+        if (remote != null) {
+          cloudId = _string(
+            remote['_doc_id'],
+          ).trim();
+
+          if (cloudId.isEmpty) {
+            cloudId = _string(
+              remote['cloud_id'],
+            ).trim();
+          }
+        }
+      }
+
+      // 3. ID দিয়ে না পাওয়া গেলে নাম দিয়ে পুরোনো
+      //    Cloud Billing খোঁজা হবে।
+      if (cloudId.isEmpty) {
+        remote = cloudByName[name];
+
+        if (remote != null) {
+          cloudId = _string(
+            remote['_doc_id'],
+          ).trim();
+
+          if (cloudId.isEmpty) {
+            cloudId = _string(
+              remote['cloud_id'],
+            ).trim();
+          }
+        }
+      }
+
+      // 4. একেবারে নতুন Billing হলে নতুন stable
+      //    Firestore document ID তৈরি হবে।
+      if (cloudId.isEmpty) {
+        cloudId = _collection('billings')
+            .doc()
+            .id;
+      }
+
+      // 5. Local SQLite-এ stable Cloud ID সংরক্ষণ।
+      if (_string(row['cloud_id']).trim() !=
+          cloudId) {
+        await db.update(
+          'billings',
+          {
+            'cloud_id': cloudId,
+          },
+          where: 'id = ?',
+          whereArgs: [localId],
+        );
+      }
+
+      // 6. Stable Cloud document-এ Local data পাঠানো।
+      if (remote == null ||
+          _localIsNewer(row, remote)) {
+        await _setCloud(
+          'billings',
+          cloudId,
+          _billingToCloud(
+            row,
+            cloudId,
+          ),
+        );
+      }
+    }
+
+    // ------------------------------------------------------------
+    // CLOUD -> LOCAL
+    // ------------------------------------------------------------
+    final merged =
+        await _readCollection('billings');
+
     for (final row in merged) {
-      await _upsertBilling(db, row);
+      await _upsertBilling(
+        db,
+        row,
+      );
     }
   }
 
-  Map<String, dynamic> _billingToCloud(Map<String, dynamic> r) => {
-    'billing_id': _int(r['id']),
-    'name': _string(r['name']),
-    'active': _int(r['active'], fallback: 1),
-    'created_at': _string(r['created_at']),
-    'updated_at': _string(r['updated_at']),
-    'cloud_updated_at': FieldValue.serverTimestamp(),
-  };
+  Map<String, dynamic> _billingToCloud(
+    Map<String, dynamic> r,
+    String cloudId,
+  ) =>
+      {
+        'cloud_id': cloudId,
+        'billing_id': _int(
+          r['id'],
+        ),
+        'name': _string(
+          r['name'],
+        ),
+        'active': _int(
+          r['active'],
+          fallback: 1,
+        ),
+        'created_at': _string(
+          r['created_at'],
+        ),
+        'updated_at': _string(
+          r['updated_at'],
+        ),
+        'cloud_updated_at':
+            FieldValue.serverTimestamp(),
+      };
 
-  Future<void> _upsertBilling(Database db, Map<String, dynamic> r) async {
-    final id = _int(r['billing_id']);
-    final name = _string(r['name']).trim();
-    if (id <= 0 || name.isEmpty) return;
+  Future<void> _upsertBilling(
+    Database db,
+    Map<String, dynamic> r,
+  ) async {
+    final billingId =
+        _int(r['billing_id']);
+
+    final name =
+        _string(r['name']).trim();
+
+    if (billingId <= 0 ||
+        name.isEmpty) {
+      return;
+    }
+
+    String cloudId =
+        _string(r['cloud_id']).trim();
+
+    if (cloudId.isEmpty) {
+      cloudId =
+          _string(r['_doc_id']).trim();
+    }
+
+    if (cloudId.isEmpty) {
+      return;
+    }
+
     final values = {
       'name': name,
-      'active': _int(r['active'], fallback: 1),
-      'created_at': _string(r['created_at']),
-      'updated_at': _string(r['updated_at']),
+      'active': _int(
+        r['active'],
+        fallback: 1,
+      ),
+      'cloud_id': cloudId,
+      'created_at': _string(
+        r['created_at'],
+      ),
+      'updated_at': _string(
+        r['updated_at'],
+      ),
     };
-    final found = await db.query('billings', where: 'id = ?', whereArgs: [id], limit: 1);
-    if (found.isEmpty) {
-      await db.insert('billings', {'id': id, ...values}, conflictAlgorithm: ConflictAlgorithm.ignore);
-    } else if (_remoteIsNewer(found.first, r)) {
-      await db.update('billings', values, where: 'id = ?', whereArgs: [id]);
+
+    // প্রথমে Local Billing ID দিয়ে খোঁজা।
+    // এতে Customer/Bill/Payment-এর existing
+    // local relationship অক্ষত থাকে।
+    final foundById =
+        await db.query(
+      'billings',
+      where: 'id = ?',
+      whereArgs: [billingId],
+      limit: 1,
+    );
+
+    if (foundById.isNotEmpty) {
+      final existing =
+          foundById.first;
+
+      if (_remoteIsNewer(
+        existing,
+        r,
+      )) {
+        await db.update(
+          'billings',
+          values,
+          where: 'id = ?',
+          whereArgs: [billingId],
+        );
+      } else if (_string(
+            existing['cloud_id'],
+          ).trim().isEmpty) {
+        await db.update(
+          'billings',
+          {
+            'cloud_id': cloudId,
+          },
+          where: 'id = ?',
+          whereArgs: [billingId],
+        );
+      }
+
+      return;
     }
+
+    // Local ID না থাকলে একই Cloud ID দিয়ে খোঁজা।
+    final foundByCloudId =
+        await db.query(
+      'billings',
+      where: 'cloud_id = ?',
+      whereArgs: [cloudId],
+      limit: 1,
+    );
+
+    if (foundByCloudId.isNotEmpty) {
+      final existing =
+          foundByCloudId.first;
+
+      if (_remoteIsNewer(
+        existing,
+        r,
+      )) {
+        await db.update(
+          'billings',
+          values,
+          where: 'id = ?',
+          whereArgs: [
+            existing['id'],
+          ],
+        );
+      }
+
+      return;
+    }
+
+    // নতুন Cloud Billing local database-এ যোগ।
+    await db.insert(
+      'billings',
+      {
+        'id': billingId,
+        ...values,
+      },
+      conflictAlgorithm:
+          ConflictAlgorithm.ignore,
+    );
   }
 
   // ---------------------------------------------------------------------------
