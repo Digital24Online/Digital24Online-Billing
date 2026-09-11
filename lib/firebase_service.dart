@@ -2000,43 +2000,205 @@ Future<void> _upsertStaff(
   // ---------------------------------------------------------------------------
 
   Future<void> _repairLocalRelations(Database db) async {
-    final customers = await db.query(
-      'customers',
-      columns: ['id', 'package_id', 'package_name'],
+  // ------------------------------------------------------------
+  // 1. CUSTOMER -> PACKAGE
+  // ------------------------------------------------------------
+  final customers = await db.query(
+    'customers',
+    columns: [
+      'id',
+      'billing_id',
+      'package_id',
+      'package_name',
+    ],
+  );
+
+  for (final row in customers) {
+    final customerId = _int(row['id']);
+    final packageName = _string(
+      row['package_name'],
+    ).trim();
+
+    if (customerId <= 0 || packageName.isEmpty) {
+      continue;
+    }
+
+    final package = await db.query(
+      'packages',
+      columns: ['id'],
+      where: 'name = ?',
+      whereArgs: [packageName],
+      limit: 1,
     );
 
-    for (final row in customers) {
-      final id = _int(row['id']);
-      final packageName = _string(row['package_name']).trim();
+    if (package.isEmpty) {
+      continue;
+    }
 
-      if (id <= 0 || packageName.isEmpty) continue;
+    final packageId = _int(
+      package.first['id'],
+    );
 
-      final package = await db.query(
-        'packages',
-        columns: ['id'],
-        where: 'name = ?',
-        whereArgs: [packageName],
+    if (_int(row['package_id']) != packageId) {
+      await db.update(
+        'customers',
+        {
+          'package_id': packageId,
+        },
+        where: 'id = ?',
+        whereArgs: [customerId],
+      );
+    }
+  }
+
+  // ------------------------------------------------------------
+  // 2. BILL -> CUSTOMER/BILLING
+  // ------------------------------------------------------------
+  final bills = await db.query(
+    'bills',
+    columns: [
+      'id',
+      'billing_id',
+      'customer_id',
+    ],
+  );
+
+  for (final bill in bills) {
+    final billId = _int(bill['id']);
+    final customerId = _int(
+      bill['customer_id'],
+    );
+
+    if (billId <= 0 || customerId <= 0) {
+      continue;
+    }
+
+    final customer = await db.query(
+      'customers',
+      columns: ['billing_id'],
+      where: 'id = ?',
+      whereArgs: [customerId],
+      limit: 1,
+    );
+
+    if (customer.isEmpty) {
+      continue;
+    }
+
+    final customerBillingId = _int(
+      customer.first['billing_id'],
+      fallback: 1,
+    );
+
+    if (customerBillingId <= 0) {
+      continue;
+    }
+
+    if (_int(bill['billing_id']) !=
+        customerBillingId) {
+      await db.update(
+        'bills',
+        {
+          'billing_id': customerBillingId,
+        },
+        where: 'id = ?',
+        whereArgs: [billId],
+      );
+    }
+  }
+
+  // ------------------------------------------------------------
+  // 3. PAYMENT -> CUSTOMER/BILL/BILLING
+  // ------------------------------------------------------------
+  final payments = await db.query(
+    'payments',
+    columns: [
+      'id',
+      'billing_id',
+      'customer_id',
+      'bill_id',
+    ],
+  );
+
+  for (final payment in payments) {
+    final paymentId = _int(
+      payment['id'],
+    );
+    final customerId = _int(
+      payment['customer_id'],
+    );
+    final billId = _int(
+      payment['bill_id'],
+    );
+
+    if (paymentId <= 0 ||
+        customerId <= 0) {
+      continue;
+    }
+
+    final customer = await db.query(
+      'customers',
+      columns: ['billing_id'],
+      where: 'id = ?',
+      whereArgs: [customerId],
+      limit: 1,
+    );
+
+    if (customer.isEmpty) {
+      continue;
+    }
+
+    final customerBillingId = _int(
+      customer.first['billing_id'],
+      fallback: 1,
+    );
+
+    if (customerBillingId <= 0) {
+      continue;
+    }
+
+    final values = <String, dynamic>{};
+
+    // Payment-এর Billing ID Customer-এর
+    // Billing ID-এর সাথে মিলিয়ে নেওয়া।
+    if (_int(payment['billing_id']) !=
+        customerBillingId) {
+      values['billing_id'] = customerBillingId;
+    }
+
+    // Payment-এর Bill ID সত্যিই একই Customer-এর
+    // Bill-এর দিকে নির্দেশ করছে কি না যাচাই।
+    if (billId > 0) {
+      final bill = await db.query(
+        'bills',
+        columns: [
+          'id',
+          'customer_id',
+          'billing_id',
+        ],
+        where: 'id = ?',
+        whereArgs: [billId],
         limit: 1,
       );
 
-      if (package.isEmpty) continue;
-
-      final packageId = _int(package.first['id']);
-
-      if (_int(row['package_id']) != packageId) {
-        final now = DateTime.now().toIso8601String();
-
-        await db.update(
-          'customers',
-          {
-            'package_id': packageId,
-            'updated_at': now,
-          },
-          where: 'id = ?',
-          whereArgs: [id],
-        );
+      if (bill.isEmpty ||
+          _int(bill.first['customer_id']) !=
+              customerId ||
+          _int(bill.first['billing_id']) !=
+              customerBillingId) {
+        values['bill_id'] = 0;
       }
     }
+
+    if (values.isNotEmpty) {
+      await db.update(
+        'payments',
+        values,
+        where: 'id = ?',
+        whereArgs: [paymentId],
+      );
+    }
+  }
   }
 
     Future<void> _recalculateAllCustomerTotals(Database db) async {
