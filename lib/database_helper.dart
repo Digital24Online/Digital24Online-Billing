@@ -2237,7 +2237,7 @@ Future<int> addPayment(
     }
   }
 
-  Future<bool> _hasRequiredTables(String path) async {
+  Future<bool> _hasCurrentSchema(String path) async {
   Database? testDb;
 
   try {
@@ -2247,8 +2247,18 @@ Future<int> addPayment(
     );
 
     const required = <String, List<String>>{
+      'billings': [
+        'id',
+        'name',
+        'active',
+        'cloud_id',
+        'created_at',
+        'updated_at',
+      ],
       'customers': [
         'id',
+        'billing_id',
+        'cust_id',
         'user_id',
         'name',
         'mobile',
@@ -2261,6 +2271,7 @@ Future<int> addPayment(
         'paid_amount',
         'due_amount',
         'payment_date',
+        'staff_id',
         'status',
         'active',
         'created_at',
@@ -2272,11 +2283,13 @@ Future<int> addPayment(
         'speed',
         'price',
         'active',
+        'cloud_id',
         'created_at',
         'updated_at',
       ],
       'bills': [
         'id',
+        'billing_id',
         'customer_id',
         'billing_month',
         'bill_date',
@@ -2289,11 +2302,13 @@ Future<int> addPayment(
         'name',
         'mobile',
         'active',
+        'cloud_id',
         'created_at',
         'updated_at',
       ],
       'payments': [
         'id',
+        'billing_id',
         'customer_id',
         'bill_id',
         'user_id',
@@ -2304,6 +2319,12 @@ Future<int> addPayment(
         'note',
         'created_at',
         'updated_at',
+      ],
+      'deleted_customers': [
+        'id',
+        'billing_id',
+        'user_id',
+        'deleted_at',
       ],
     };
 
@@ -2326,7 +2347,6 @@ Future<int> addPayment(
       }
     }
 
-    // SQLite database integrity check.
     final integrity = await testDb.rawQuery(
       'PRAGMA integrity_check',
     );
@@ -2338,11 +2358,7 @@ Future<int> addPayment(
     final result =
         integrity.first.values.first?.toString().toLowerCase();
 
-    if (result != 'ok') {
-      return false;
-    }
-
-    return true;
+    return result == 'ok';
   } catch (_) {
     return false;
   } finally {
@@ -2463,8 +2479,10 @@ Future<void> exportBackupToFile() async {
     // Opening the restored file also verifies that SQLite can use it.
     await database;
 
-    if (!await _hasRequiredTables(currentDbPath)) {
-      throw Exception('Restore যাচাই করা যায়নি।');
+    if (!await _hasCurrentSchema(currentDbPath)) {
+  throw Exception(
+    'Restore-এর পরে Database Schema যাচাই করা যায়নি।',
+  );
     }
 
     if (safetyCreated) {
