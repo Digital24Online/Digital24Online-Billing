@@ -2238,58 +2238,116 @@ Future<int> addPayment(
   }
 
   Future<bool> _hasRequiredTables(String path) async {
-    Database? testDb;
-    try {
-      testDb = await openDatabase(
-        path,
-        readOnly: true,
+  Database? testDb;
+
+  try {
+    testDb = await openDatabase(
+      path,
+      readOnly: true,
+    );
+
+    const required = <String, List<String>>{
+      'customers': [
+        'id',
+        'user_id',
+        'name',
+        'mobile',
+        'address',
+        'package_id',
+        'package_name',
+        'bill_date',
+        'amount',
+        'total_amount',
+        'paid_amount',
+        'due_amount',
+        'payment_date',
+        'status',
+        'active',
+        'created_at',
+        'updated_at',
+      ],
+      'packages': [
+        'id',
+        'name',
+        'speed',
+        'price',
+        'active',
+        'created_at',
+        'updated_at',
+      ],
+      'bills': [
+        'id',
+        'customer_id',
+        'billing_month',
+        'bill_date',
+        'amount',
+        'created_at',
+        'updated_at',
+      ],
+      'staff': [
+        'id',
+        'name',
+        'mobile',
+        'active',
+        'created_at',
+        'updated_at',
+      ],
+      'payments': [
+        'id',
+        'customer_id',
+        'bill_id',
+        'user_id',
+        'amount',
+        'payment_date',
+        'receipt_no',
+        'staff_id',
+        'note',
+        'created_at',
+        'updated_at',
+      ],
+    };
+
+    for (final entry in required.entries) {
+      final rows = await testDb.rawQuery(
+        'PRAGMA table_info(${entry.key})',
       );
 
-      const required = <String, List<String>>{
-        'customers': [
-          'id', 'user_id', 'name', 'mobile', 'address', 'package_id',
-          'package_name', 'bill_date', 'amount', 'total_amount',
-          'paid_amount', 'due_amount', 'payment_date', 'status', 'active',
-          'created_at', 'updated_at',
-        ],
-        'packages': [
-          'id', 'name', 'speed', 'price', 'active', 'created_at', 'updated_at',
-        ],
-        'bills': [
-          'id', 'customer_id', 'billing_month', 'bill_date', 'amount',
-          'created_at', 'updated_at',
-        ],
-        'staff': [
-          'id', 'name', 'mobile', 'active', 'created_at', 'updated_at',
-        ],
-        'payments': [
-          'id', 'customer_id', 'bill_id', 'user_id', 'amount',
-          'payment_date', 'receipt_no', 'staff_id', 'note',
-          'created_at', 'updated_at',
-        ],
-      };
-
-      for (final entry in required.entries) {
-        final rows = await testDb.rawQuery(
-          'PRAGMA table_info(${entry.key})',
-        );
-
-        final columns = rows
-            .map((row) => row['name']?.toString())
-            .whereType<String>()
-            .toSet();
-
-        if (!entry.value.every(columns.contains)) {
-          return false;
-        }
+      if (rows.isEmpty) {
+        return false;
       }
-      
-      return true;
-    } catch (_) {
-      return false;
-    } finally {
-      await testDb?.close();
+
+      final columns = rows
+          .map((row) => row['name']?.toString())
+          .whereType<String>()
+          .toSet();
+
+      if (!entry.value.every(columns.contains)) {
+        return false;
+      }
     }
+
+    // SQLite database integrity check.
+    final integrity = await testDb.rawQuery(
+      'PRAGMA integrity_check',
+    );
+
+    if (integrity.isEmpty) {
+      return false;
+    }
+
+    final result =
+        integrity.first.values.first?.toString().toLowerCase();
+
+    if (result != 'ok') {
+      return false;
+    }
+
+    return true;
+  } catch (_) {
+    return false;
+  } finally {
+    await testDb?.close();
+  }
   }
 
 
