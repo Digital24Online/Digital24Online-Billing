@@ -38,9 +38,8 @@ class DatabaseHelper {
   // DATABASE CREATE
   // ============================================================
 
-  Future<void> _create(Database db, int version) async {
+    Future<void> _create(Database db, int version) async {
     await db.execute('''
-      await db.execute('''
       CREATE TABLE billings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
@@ -50,7 +49,6 @@ class DatabaseHelper {
         updated_at TEXT NOT NULL
       )
     ''');
-
     await db.execute('''
       CREATE TABLE customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
