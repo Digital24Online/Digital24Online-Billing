@@ -260,29 +260,7 @@ class DatabaseHelper {
       'CREATE INDEX idx_bills_customer '
       'ON bills(customer_id)',
     );
-
-        Future<void> _seedDefaultBillings(Database db) async {
-    final now = DateTime.now().toIso8601String();
-
-    for (final name in [
-      'Billing 1',
-      'Billing 2',
-    ]) {
-      await db.insert(
-        'billings',
-        {
-          'name': name,
-          'active': 1,
-          'cloud_id': '',
-          'created_at': now,
-          'updated_at': now,
-        },
-        conflictAlgorithm:
-            ConflictAlgorithm.ignore,
-      );
-    }
-        }
-      
+  
     await _seedDefaultBillings(db);
     await _seedDefaultPackages(db);
   }
