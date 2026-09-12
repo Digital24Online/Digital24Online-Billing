@@ -2501,10 +2501,10 @@ Future<void> exportBackupToFile() async {
       flush: true,
     );
 
-    if (!await _hasRequiredTables(temporaryPath)) {
-      throw Exception(
-        'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
-      );
+    if (!await _hasCurrentSchema(temporaryPath)) {
+  throw Exception(
+    'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
+  );
     }
 
     final currentFile = File(currentDbPath);
