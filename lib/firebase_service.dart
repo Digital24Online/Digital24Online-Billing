@@ -2117,7 +2117,7 @@ Future<void> _upsertStaff(
     ).trim();
   }
 
-  Future<void> _mergePaymentConflicts(
+    Future<void> _mergePaymentConflicts(
     Database db,
   ) async {
     final local = await db.query(
@@ -2174,6 +2174,12 @@ Future<void> _upsertStaff(
               fallback: 1,
             ),
             'customer_user_id': userId,
+            'customer_id': _int(
+              row['customer_id'],
+            ),
+            'bill_id': _int(
+              row['bill_id'],
+            ),
             'amount': _double(
               row['amount'],
             ),
@@ -2218,7 +2224,7 @@ Future<void> _upsertStaff(
         row,
       );
     }
-  }
+    }
 
   Future<void> _upsertPaymentConflict(
     Database db,
