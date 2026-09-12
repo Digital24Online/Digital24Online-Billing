@@ -808,10 +808,11 @@ if (oldVersion < 9) {
       ''');
     }
 
-        if (!await _tableExists(db, 'payments')) {
+            if (!await _tableExists(db, 'payments')) {
       await db.execute('''
         CREATE TABLE payments (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          billing_id INTEGER NOT NULL DEFAULT 1,
           customer_id INTEGER NOT NULL,
           bill_id INTEGER,
           user_id TEXT NOT NULL DEFAULT '',
@@ -822,9 +823,11 @@ if (oldVersion < 9) {
           note TEXT NOT NULL DEFAULT '',
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
+
           FOREIGN KEY(customer_id)
             REFERENCES customers(id)
             ON DELETE CASCADE,
+
           FOREIGN KEY(bill_id)
             REFERENCES bills(id)
             ON DELETE SET NULL,
@@ -834,7 +837,7 @@ if (oldVersion < 9) {
             ON DELETE SET NULL
         )
       ''');
-    }
+            }
 
     if (!await _tableExists(db, 'payment_conflicts')) {
       await db.execute('''
