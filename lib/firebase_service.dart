@@ -1944,22 +1944,73 @@ Future<void> _upsertStaff(
   int customerId,
   Map<String, dynamic> payment,
 ) async {
-  final month = await _paymentBillingMonth(db, payment);
-  if (month.isEmpty) return null;
+  final month = await _paymentBillingMonth(
+    db,
+    payment,
+  );
 
-  final billingId = _int(
+  if (month.isEmpty) {
+    return null;
+  }
+
+  final paymentBillingId = _int(
     payment['billing_id'],
     fallback: 1,
   );
 
-  if (billingId <= 0) return null;
+  if (paymentBillingId <= 0) {
+    return null;
+  }
 
+  // ------------------------------------------------------------
+  // Customer যাচাই
+  // ------------------------------------------------------------
+  final customer = await db.query(
+    'customers',
+    columns: [
+      'billing_id',
+      'bill_date',
+      'amount',
+    ],
+    where: 'id = ?',
+    whereArgs: [customerId],
+    limit: 1,
+  );
+
+  if (customer.isEmpty) {
+    return null;
+  }
+
+  final customerBillingId = _int(
+    customer.first['billing_id'],
+    fallback: 1,
+  );
+
+  // Payment এবং Customer একই Billing-এর
+  // হতে হবে।
+  if (customerBillingId != paymentBillingId) {
+    return null;
+  }
+
+  // ------------------------------------------------------------
+  // Existing Bill
+  //
+  // Database-এর বর্তমান schema অনুযায়ী:
+  // UNIQUE(customer_id, billing_month)
+  // তাই Billing ID দিয়ে নয়,
+  // Customer + Month দিয়ে Bill খোঁজা হবে।
+  // ------------------------------------------------------------
   final existing = await db.query(
     'bills',
+    columns: [
+      'id',
+      'billing_id',
+      'customer_id',
+      'billing_month',
+    ],
     where:
-        'billing_id = ? AND customer_id = ? AND billing_month = ?',
+        'customer_id = ? AND billing_month = ?',
     whereArgs: [
-      billingId,
       customerId,
       month,
     ],
@@ -1967,34 +2018,31 @@ Future<void> _upsertStaff(
   );
 
   if (existing.isNotEmpty) {
-    return _int(existing.first['id']);
+    final existingBillingId = _int(
+      existing.first['billing_id'],
+      fallback: 1,
+    );
+
+    // Existing Bill অন্য Billing-এর হলে
+    // সেটি এই Payment-এর জন্য ব্যবহার করা যাবে না।
+    if (existingBillingId != customerBillingId) {
+      return null;
+    }
+
+    return _int(
+      existing.first['id'],
+    );
   }
 
-  final customer = await db.query(
-    'customers',
-    where: 'id = ?',
-    whereArgs: [customerId],
-    limit: 1,
-  );
-
-  if (customer.isEmpty) return null;
-
-  final customerBillingId = _int(
-    customer.first['billing_id'],
-    fallback: 1,
-  );
-
-  // Payment এবং Customer একই Billing-এর হতে হবে।
-  if (customerBillingId != billingId) {
-    return null;
-  }
-
+  // ------------------------------------------------------------
+  // নতুন Bill তৈরি
+  // ------------------------------------------------------------
   final now = DateTime.now().toIso8601String();
 
-  return db.insert(
+  final billId = await db.insert(
     'bills',
     {
-      'billing_id': billingId,
+      'billing_id': customerBillingId,
       'customer_id': customerId,
       'billing_month': month,
       'bill_date': _int(
@@ -2007,8 +2055,49 @@ Future<void> _upsertStaff(
       'created_at': now,
       'updated_at': now,
     },
-    conflictAlgorithm: ConflictAlgorithm.ignore,
+    conflictAlgorithm:
+        ConflictAlgorithm.ignore,
   );
+
+  if (billId <= 0) {
+    // Concurrent operation-এর কারণে Bill ইতিমধ্যে
+    // তৈরি হয়ে গেলে আবার খুঁজে নেওয়া হবে।
+    final retry = await db.query(
+      'bills',
+      columns: [
+        'id',
+        'billing_id',
+        'customer_id',
+        'billing_month',
+      ],
+      where:
+          'customer_id = ? AND billing_month = ?',
+      whereArgs: [
+        customerId,
+        month,
+      ],
+      limit: 1,
+    );
+
+    if (retry.isEmpty) {
+      return null;
+    }
+
+    final retryBillingId = _int(
+      retry.first['billing_id'],
+      fallback: 1,
+    );
+
+    if (retryBillingId != customerBillingId) {
+      return null;
+    }
+
+    return _int(
+      retry.first['id'],
+    );
+  }
+
+  return billId;
   }
 
   Future<int?> _findStaffId(Database db, String name) async {
