@@ -87,7 +87,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
     });
   }
 
-    Future<void> runStaffReport() async {
+      Future<void> runStaffReport() async {
     if (staffId == null) {
       _error(
         t(
@@ -143,19 +143,6 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
 
       final activeBillingId =
           widget.db.activeBillingId;
-
-      final args = <dynamic>[
-        activeBillingId,
-        month,
-        activeBillingId,
-        staffId,
-        start,
-        end,
-      ];
-
-      if (billDate != null) {
-        args.add(billDate);
-      }
 
       final rows =
           await database.rawQuery(
@@ -221,8 +208,6 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           ON p.customer_id=c.id
 
         WHERE c.billing_id=?
-          AND c.staff_id=?
-
           $billDateCondition
 
         GROUP BY
@@ -253,7 +238,6 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           activeBillingId,
           month,
           activeBillingId,
-          staffId,
           if (billDate != null) billDate,
         ].where((v) => v != null).toList(),
       );
@@ -376,7 +360,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         )}$e',
       );
     }
-    }
+      }
 
   String get selectedBillingName {
     return '';
