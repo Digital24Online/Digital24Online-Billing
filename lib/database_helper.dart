@@ -18,36 +18,6 @@ class DatabaseHelper {
     return _db!;
   }
 
-    // ============================================================
-  // ACTIVE BILLING WORKSPACE
-  // ============================================================
-
-  int _activeBillingId = 1;
-
-  int get activeBillingId => _activeBillingId;
-
-  Future<List<Map<String, dynamic>>> getBillings() async {
-    final db = await database;
-
-    var rows = await db.query(
-      'billings',
-      where: 'active = 1',
-      orderBy: 'id ASC',
-    );
-
-    if (rows.isEmpty) {
-      await _seedDefaultBillings(db);
-
-      rows = await db.query(
-        'billings',
-        where: 'active = 1',
-        orderBy: 'id ASC',
-      );
-    }
-
-    return rows;
-  }
-
   Future<void> setActiveBilling(int id) async {
     final rows = await getBillings();
 
