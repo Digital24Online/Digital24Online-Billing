@@ -246,12 +246,13 @@ class FirebaseService {
     }
   }
 
-    Future<void> _syncNowInternal() async {
+      Future<void> _syncNowInternal() async {
     if (!isSignedIn) {
       throw StateError('Please sign in first.');
     }
 
     await _ensureBusinessDocument();
+
     final db = await DatabaseHelper.instance.database;
 
     await _mergeBillings(db);
@@ -261,30 +262,19 @@ class FirebaseService {
     await _mergeStaff(db);
     await _mergeBills(db);
 
-    // Payment conflicts are synchronized separately from real payments.
-    // Conflict records must never affect customer paid/due totals.
+    // Genuine payment conflicts must be synchronized
+    // before normal payments are merged.
     await _mergePaymentConflicts(db);
+
     await _mergePayments(db);
 
     await _repairLocalRelations(db);
     await _recalculateAllCustomerTotals(db);
 
-    // The recalculation changes customer totals locally. Push those values
-    // after the recalculation so Firestore does not keep stale totals.
+    // Push recalculated customer totals after all
+    // bill/payment/conflict synchronization is complete.
     await _pushRecalculatedCustomers(db);
-    }
-
-  Future<bool> _isFreshInstall(Database db) async {
-    final customers = await _count(db, 'customers');
-    final bills = await _count(db, 'bills');
-    final payments = await _count(db, 'payments');
-    final staff = await _count(db, 'staff');
-
-    return customers == 0 &&
-        bills == 0 &&
-        payments == 0 &&
-        staff == 0;
-  }
+      }
 
   Future<bool> _businessDataIsEmpty(Database db) async {
     return await _count(db, 'customers') == 0 &&
