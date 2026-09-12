@@ -377,13 +377,15 @@ class FirebaseService {
   // FRESH INSTALL: CLOUD -> LOCAL
   // ---------------------------------------------------------------------------
 
-  Future<void> _pullCloudToLocal(Database db) async {
+    Future<void> _pullCloudToLocal(Database db) async {
     final billings = await _readCollection('billings');
     final customers = await _readCollection('customers');
     final packages = await _readCollection('packages');
     final staff = await _readCollection('staff');
     final bills = await _readCollection('bills');
     final payments = await _readCollection('payments');
+    final paymentConflicts =
+        await _readCollection('payment_conflicts');
 
     for (final row in billings) {
       await _upsertBilling(db, row);
@@ -405,16 +407,16 @@ class FirebaseService {
       await _upsertBill(db, row);
     }
 
-        for (final row in payments) {
+    for (final row in payments) {
       await _upsertPayment(db, row);
     }
 
-    final conflicts = await _readCollection('payment_conflicts');
-
-    for (final row in conflicts) {
+    // Restore genuine payment conflicts as conflicts,
+    // never as normal payments.
+    for (final row in paymentConflicts) {
       await _upsertPaymentConflict(db, row);
     }
-  }
+    }
 
     // ---------------------------------------------------------------------------
   // BILLING WORKSPACES
