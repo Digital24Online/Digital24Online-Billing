@@ -283,6 +283,18 @@ class FirebaseService {
         await _count(db, 'staff') == 0;
   }
 
+  Future<bool> _isFreshInstall(Database db) async {
+  final customers = await _count(db, 'customers');
+  final bills = await _count(db, 'bills');
+  final payments = await _count(db, 'payments');
+  final staff = await _count(db, 'staff');
+
+  return customers == 0 &&
+      bills == 0 &&
+      payments == 0 &&
+      staff == 0;
+  }
+
   Future<int> _count(Database db, String table) async {
     final result = await db.rawQuery('SELECT COUNT(*) AS total FROM $table');
     return _int(result.isEmpty ? 0 : result.first['total']);
