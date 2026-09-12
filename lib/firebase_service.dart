@@ -246,7 +246,7 @@ class FirebaseService {
     }
   }
 
-  Future<void> _syncNowInternal() async {
+    Future<void> _syncNowInternal() async {
     if (!isSignedIn) {
       throw StateError('Please sign in first.');
     }
@@ -254,12 +254,16 @@ class FirebaseService {
     await _ensureBusinessDocument();
     final db = await DatabaseHelper.instance.database;
 
-        await _mergeBillings(db);
+    await _mergeBillings(db);
     await _processCustomerDeletionTombstones(db);
     await _mergeCustomers(db);
     await _mergePackages(db);
     await _mergeStaff(db);
     await _mergeBills(db);
+
+    // Payment conflicts are synchronized separately from real payments.
+    // Conflict records must never affect customer paid/due totals.
+    await _mergePaymentConflicts(db);
     await _mergePayments(db);
 
     await _repairLocalRelations(db);
@@ -268,7 +272,7 @@ class FirebaseService {
     // The recalculation changes customer totals locally. Push those values
     // after the recalculation so Firestore does not keep stale totals.
     await _pushRecalculatedCustomers(db);
-  }
+    }
 
   Future<bool> _isFreshInstall(Database db) async {
     final customers = await _count(db, 'customers');
@@ -1771,7 +1775,7 @@ Future<void> _upsertStaff(
   // PAYMENTS
   // ---------------------------------------------------------------------------
 
-    Future<void> _mergePayments(Database db) async {
+      Future<void> _mergePayments(Database db) async {
     final local = await db.query('payments');
     final cloud = await _readCollection('payments');
 
@@ -1781,7 +1785,7 @@ Future<void> _upsertStaff(
     );
 
     final userById = <int, String>{
-      for (final c in customers) _int(c['id']): _string(c['user_id'])
+      for (final c in customers) _int(c['id']): _string(c['user_id']),
     };
 
     final cloudByReceipt = <String, Map<String, dynamic>>{};
@@ -1805,121 +1809,172 @@ Future<void> _upsertStaff(
 
       final remote = cloudByReceipt[receipt];
 
-      // A receipt number is the permanent identity of a payment.
-      // If this receipt already exists in Cloud, never overwrite it
-      // from another device. This prevents Payment History and the
-      // server-side bill balance from becoming inconsistent.
+      // একই receipt Cloud-এ থাকলে এটি আর নতুন payment হিসেবে
+      // upload করা হবে না।
       if (remote != null) {
         continue;
       }
 
-      final uploaded = await _tryUploadPaymentAtomically(
+      final result = await _tryUploadPaymentAtomically(
         db,
         row,
         customerUserId,
       );
 
-      // If the Cloud bill rejects the payment because of a conflict
-      // or overpayment, keep the local payment record intact.
-      // It must not be silently deleted.
-      if (!uploaded) {
+      // 0 = temporary/unknown failure.
+      // Payment local database-এ থাকবে এবং পরের sync-এ আবার চেষ্টা হবে.
+      if (result == 0) {
         continue;
+      }
+
+      // 2 = genuine Cloud payment conflict.
+      // এটি payments table-এ রাখা যাবে না, কারণ তাহলে
+      // customer paid total ভুল হয়ে যাবে।
+      if (result == 2) {
+        await _movePaymentToConflict(
+          db,
+          row,
+          customerUserId,
+          'Cloud bill already has enough payment.',
+        );
       }
     }
 
-    // Cloud remains the source of truth for payment records.
-    // Pull all Cloud payments back into this device so every
-    // authorized phone eventually has the same payment history.
+    // Cloud-এর বৈধ payment records local device-এ pull করা।
     final merged = await _readCollection('payments');
 
     for (final row in merged) {
       await _upsertPayment(db, row);
     }
-    }
-  Future<bool> _tryUploadPaymentAtomically(
+      }
+    Future<int> _tryUploadPaymentAtomically(
     Database db,
     Map<String, dynamic> row,
     String customerUserId,
   ) async {
     final receipt = _string(row['receipt_no']).trim();
-    if (receipt.isEmpty) return false;
+    if (receipt.isEmpty) return 0;
 
     final month = await _paymentBillingMonth(db, row);
-    if (month.isEmpty) return false;
+    if (month.isEmpty) return 0;
 
-    final billKey = _key('${_int(row['billing_id'], fallback: 1)}__${customerUserId}__$month');
+    final billKey = _key(
+      '${_int(row['billing_id'], fallback: 1)}__'
+      '${customerUserId}__'
+      '$month',
+    );
+
     final billRef = _collection('bills').doc(billKey);
     final balanceRef = _collection('bill_balances').doc(billKey);
     final paymentRef = _collection('payments').doc(_key(receipt));
     final amount = _double(row['amount']);
 
-    if (amount <= 0) return false;
+    if (amount <= 0) return 0;
 
     try {
-            await _firestore.runTransaction<void>((transaction) async {
-        final billSnapshot = await transaction.get(billRef);
-        final balanceSnapshot = await transaction.get(balanceRef);
-        final paymentSnapshot = await transaction.get(paymentRef);
+      var uploaded = false;
+      var conflict = false;
 
-        if (paymentSnapshot.exists) return;
+      await _firestore.runTransaction<void>(
+        (transaction) async {
+          final billSnapshot =
+              await transaction.get(billRef);
 
-        if (!billSnapshot.exists) {
-          throw StateError('Cloud bill not found for payment $receipt.');
-        }
+          final balanceSnapshot =
+              await transaction.get(balanceRef);
 
-        // The balance document is created during bill synchronization.
-        // Refuse an uninitialized balance instead of guessing the paid total.
-        if (!balanceSnapshot.exists) {
-          throw StateError(
-            'Cloud bill balance is not initialized for $billKey.',
+          final paymentSnapshot =
+              await transaction.get(paymentRef);
+
+          // একই receipt আগে থেকেই Cloud-এ থাকলে
+          // নতুন করে upload করার দরকার নেই।
+          if (paymentSnapshot.exists) {
+            uploaded = true;
+            return;
+          }
+
+          if (!billSnapshot.exists) {
+            throw StateError(
+              'Cloud bill not found for payment $receipt.',
+            );
+          }
+
+          if (!balanceSnapshot.exists) {
+            throw StateError(
+              'Cloud bill balance is not initialized for $billKey.',
+            );
+          }
+
+          final billData =
+              billSnapshot.data() ??
+                  <String, dynamic>{};
+
+          final balanceData =
+              balanceSnapshot.data() ??
+                  <String, dynamic>{};
+
+          final billAmount =
+              _double(billData['amount']);
+
+          final cloudPaid =
+              _double(balanceData['paid_total']);
+
+          // এটি প্রকৃত payment conflict।
+          if (cloudPaid + amount >
+              billAmount + 0.000001) {
+            conflict = true;
+            return;
+          }
+
+          transaction.set(
+            paymentRef,
+            await _paymentToCloud(
+              db,
+              row,
+              customerUserId,
+            ),
+            SetOptions(merge: true),
           );
-        }
 
-        final billData = billSnapshot.data() ?? <String, dynamic>{};
-        final balanceData = balanceSnapshot.data() ?? <String, dynamic>{};
-
-        final billAmount = _double(billData['amount']);
-        final cloudPaid = _double(balanceData['paid_total']);
-
-        if (cloudPaid + amount > billAmount + 0.000001) {
-          throw StateError(
-            'Payment conflict: bill already has enough payment.',
+          transaction.set(
+            balanceRef,
+            {
+              'customer_user_id': customerUserId,
+              'billing_month': month,
+              'bill_amount': billAmount,
+              'paid_total': cloudPaid + amount,
+              'updated_at':
+                  FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
           );
-        }
 
-        transaction.set(
-          paymentRef,
-          await _paymentToCloud(db, row, customerUserId),
-          SetOptions(merge: true),
-        );
+          transaction.set(
+            billRef,
+            {
+              'paid_total': cloudPaid + amount,
+              'updated_at':
+                  FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
 
-        transaction.set(
-          balanceRef,
-          {
-            'customer_user_id': customerUserId,
-            'billing_month': month,
-            'bill_amount': billAmount,
-            'paid_total': cloudPaid + amount,
-            'updated_at': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+          uploaded = true;
+        },
+      );
 
-        transaction.set(
-          billRef,
-          {
-            'paid_total': cloudPaid + amount,
-            'updated_at': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
-      });
+      if (conflict) {
+        return 2;
+      }
 
-      return true;
+      return uploaded ? 1 : 0;
     } catch (_) {
-      return false;
+      // Network error, permission error, missing/uninitialized
+      // cloud data ইত্যাদি হলে এটিকে conflict বলা যাবে না।
+      // পরের sync-এ আবার চেষ্টা করা হবে।
+      return 0;
     }
-  }
+    }
 
   Future<String> _paymentBillingMonth(
     Database db,
