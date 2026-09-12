@@ -415,8 +415,14 @@ class FirebaseService {
       await _upsertBill(db, row);
     }
 
-    for (final row in payments) {
+        for (final row in payments) {
       await _upsertPayment(db, row);
+    }
+
+    final conflicts = await _readCollection('payment_conflicts');
+
+    for (final row in conflicts) {
+      await _upsertPaymentConflict(db, row);
     }
   }
 
