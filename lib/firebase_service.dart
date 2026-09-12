@@ -1986,7 +1986,7 @@ Future<void> _upsertStaff(
   // PAYMENT CONFLICTS
   // ---------------------------------------------------------------------------
 
-  Future<void> _movePaymentToConflict(
+    Future<void> _movePaymentToConflict(
     Database db,
     Map<String, dynamic> row,
     String customerUserId,
@@ -2057,6 +2057,12 @@ Future<void> _upsertStaff(
         fallback: 1,
       ),
       'customer_user_id': customerUserId,
+      'customer_id': _int(
+        row['customer_id'],
+      ),
+      'bill_id': _int(
+        row['bill_id'],
+      ),
       'amount': _double(
         row['amount'],
       ),
@@ -2084,7 +2090,7 @@ Future<void> _upsertStaff(
       receipt,
       cloudData,
     );
-  }
+    }
 
   Future<String> _staffNameForPayment(
     Database db,
