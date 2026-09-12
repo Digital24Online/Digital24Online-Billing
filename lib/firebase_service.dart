@@ -1982,6 +1982,353 @@ Future<void> _upsertStaff(
     }
     }
 
+    // ---------------------------------------------------------------------------
+  // PAYMENT CONFLICTS
+  // ---------------------------------------------------------------------------
+
+  Future<void> _movePaymentToConflict(
+    Database db,
+    Map<String, dynamic> row,
+    String customerUserId,
+    String reason,
+  ) async {
+    final receipt = _string(row['receipt_no']).trim();
+    if (receipt.isEmpty || customerUserId.trim().isEmpty) {
+      return;
+    }
+
+    final staffName = await _staffNameForPayment(
+      db,
+      _int(row['staff_id']),
+    );
+
+    final now = DateTime.now().toIso8601String();
+
+    final conflict = <String, dynamic>{
+      'billing_id': _int(
+        row['billing_id'],
+        fallback: 1,
+      ),
+      'customer_id': _int(
+        row['customer_id'],
+      ),
+      'bill_id': _int(
+        row['bill_id'],
+      ),
+      'user_id': customerUserId,
+      'amount': _double(
+        row['amount'],
+      ),
+      'payment_date': _string(
+        row['payment_date'],
+      ),
+      'receipt_no': receipt,
+      'staff_id': _int(
+        row['staff_id'],
+      ),
+      'note': _string(
+        row['note'],
+      ),
+      'conflict_reason': reason.trim(),
+      'created_at': _string(
+        row['created_at'],
+      ).isEmpty
+          ? now
+          : _string(row['created_at']),
+      'updated_at': now,
+      'conflict_at': now,
+    };
+
+    await db.insert(
+      'payment_conflicts',
+      conflict,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+
+    await db.delete(
+      'payments',
+      where: 'receipt_no = ?',
+      whereArgs: [receipt],
+    );
+
+    final cloudData = <String, dynamic>{
+      'billing_id': _int(
+        row['billing_id'],
+        fallback: 1,
+      ),
+      'customer_user_id': customerUserId,
+      'amount': _double(
+        row['amount'],
+      ),
+      'payment_date': _string(
+        row['payment_date'],
+      ),
+      'receipt_no': receipt,
+      'staff_name': staffName,
+      'note': _string(
+        row['note'],
+      ),
+      'conflict_reason': reason.trim(),
+      'created_at': conflict['created_at'],
+      'updated_at': now,
+      'conflict_at': now,
+      'id_local': _int(
+        row['id'],
+      ),
+      'cloud_updated_at':
+          FieldValue.serverTimestamp(),
+    };
+
+    await _setCloud(
+      'payment_conflicts',
+      receipt,
+      cloudData,
+    );
+  }
+
+  Future<String> _staffNameForPayment(
+    Database db,
+    int staffId,
+  ) async {
+    if (staffId <= 0) {
+      return '';
+    }
+
+    final rows = await db.query(
+      'staff',
+      columns: ['name'],
+      where: 'id = ?',
+      whereArgs: [staffId],
+      limit: 1,
+    );
+
+    if (rows.isEmpty) {
+      return '';
+    }
+
+    return _string(
+      rows.first['name'],
+    ).trim();
+  }
+
+  Future<void> _mergePaymentConflicts(
+    Database db,
+  ) async {
+    final local = await db.query(
+      'payment_conflicts',
+    );
+
+    final cloud = await _readCollection(
+      'payment_conflicts',
+    );
+
+    final cloudByReceipt =
+        <String, Map<String, dynamic>>{};
+
+    for (final row in cloud) {
+      final receipt = _string(
+        row['receipt_no'],
+      ).trim();
+
+      if (receipt.isNotEmpty) {
+        cloudByReceipt[receipt] = row;
+      }
+    }
+
+    // Local conflict -> Cloud
+    for (final row in local) {
+      final receipt = _string(
+        row['receipt_no'],
+      ).trim();
+
+      final userId = _string(
+        row['user_id'],
+      ).trim();
+
+      if (receipt.isEmpty || userId.isEmpty) {
+        continue;
+      }
+
+      final remote = cloudByReceipt[receipt];
+
+      final staffName =
+          await _staffNameForPayment(
+        db,
+        _int(row['staff_id']),
+      );
+
+      if (remote == null ||
+          _localIsNewer(row, remote)) {
+        await _setCloud(
+          'payment_conflicts',
+          receipt,
+          {
+            'billing_id': _int(
+              row['billing_id'],
+              fallback: 1,
+            ),
+            'customer_user_id': userId,
+            'amount': _double(
+              row['amount'],
+            ),
+            'payment_date': _string(
+              row['payment_date'],
+            ),
+            'receipt_no': receipt,
+            'staff_name': staffName,
+            'note': _string(
+              row['note'],
+            ),
+            'conflict_reason': _string(
+              row['conflict_reason'],
+            ),
+            'created_at': _string(
+              row['created_at'],
+            ),
+            'updated_at': _string(
+              row['updated_at'],
+            ),
+            'conflict_at': _string(
+              row['conflict_at'],
+            ),
+            'id_local': _int(
+              row['id'],
+            ),
+            'cloud_updated_at':
+                FieldValue.serverTimestamp(),
+          },
+        );
+      }
+    }
+
+    // Cloud -> Local
+    final merged = await _readCollection(
+      'payment_conflicts',
+    );
+
+    for (final row in merged) {
+      await _upsertPaymentConflict(
+        db,
+        row,
+      );
+    }
+  }
+
+  Future<void> _upsertPaymentConflict(
+    Database db,
+    Map<String, dynamic> r,
+  ) async {
+    final receipt = _string(
+      r['receipt_no'],
+    ).trim();
+
+    final userId = _string(
+      r['customer_user_id'],
+    ).trim();
+
+    if (receipt.isEmpty || userId.isEmpty) {
+      return;
+    }
+
+    final billingId = _int(
+      r['billing_id'],
+      fallback: 1,
+    );
+
+    final customers = await db.query(
+      'customers',
+      columns: ['id'],
+      where: 'billing_id = ? AND user_id = ?',
+      whereArgs: [
+        billingId,
+        userId,
+      ],
+      limit: 1,
+    );
+
+    if (customers.isEmpty) {
+      return;
+    }
+
+    final customerId = _int(
+      customers.first['id'],
+    );
+
+    final staffId = await _findStaffId(
+      db,
+      _string(r['staff_name']),
+    );
+
+    final values = <String, dynamic>{
+      'billing_id': billingId,
+      'customer_id': customerId,
+      'bill_id': _int(
+        r['bill_id'],
+      ),
+      'user_id': userId,
+      'amount': _double(
+        r['amount'],
+      ),
+      'payment_date': _string(
+        r['payment_date'],
+      ),
+      'receipt_no': receipt,
+      'staff_id': staffId,
+      'note': _string(
+        r['note'],
+      ),
+      'conflict_reason': _string(
+        r['conflict_reason'],
+      ),
+      'created_at': _string(
+        r['created_at'],
+      ),
+      'updated_at': _string(
+        r['updated_at'],
+      ),
+      'conflict_at': _string(
+        r['conflict_at'],
+      ),
+    };
+
+    final found = await db.query(
+      'payment_conflicts',
+      where: 'receipt_no = ?',
+      whereArgs: [receipt],
+      limit: 1,
+    );
+
+    if (found.isEmpty) {
+      await db.insert(
+        'payment_conflicts',
+        values,
+        conflictAlgorithm:
+            ConflictAlgorithm.ignore,
+      );
+    } else if (_remoteIsNewer(
+      found.first,
+      r,
+    )) {
+      await db.update(
+        'payment_conflicts',
+        values,
+        where: 'id = ?',
+        whereArgs: [
+          found.first['id'],
+        ],
+      );
+    }
+
+    // A payment that has become a genuine conflict must never
+    // remain in the normal payments table, otherwise totals would
+    // count the conflicting amount as successfully collected.
+    await db.delete(
+      'payments',
+      where: 'receipt_no = ?',
+      whereArgs: [receipt],
+    );
+  }
+  
   Future<String> _paymentBillingMonth(
     Database db,
     Map<String, dynamic> payment,
