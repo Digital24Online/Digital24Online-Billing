@@ -24,7 +24,7 @@ class DatabaseHelper {
       'digital24_billing.db',
     );
 
-        return openDatabase(
+            return openDatabase(
       dbPath,
       version: 9,
       onConfigure: (db) async {
