@@ -767,6 +767,124 @@ if (oldVersion < 9) {
     );
   }
 
+    // ============================================================
+  // BILLING WORKSPACE CONTROL
+  // ============================================================
+
+  int _activeBillingId = 1;
+
+  Future<void> _seedDefaultBillings(Database db) async {
+    final now = DateTime.now().toIso8601String();
+
+    for (final name in [
+      'Billing 1',
+      'Billing 2',
+    ]) {
+      await db.insert(
+        'billings',
+        {
+          'name': name,
+          'active': 1,
+          'cloud_id': '',
+          'created_at': now,
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getBillings() async {
+    final db = await database;
+
+    var rows = await db.query(
+      'billings',
+      where: 'active = 1',
+      orderBy: 'id ASC',
+    );
+
+    if (rows.isEmpty) {
+      await _seedDefaultBillings(db);
+
+      rows = await db.query(
+        'billings',
+        where: 'active = 1',
+        orderBy: 'id ASC',
+      );
+    }
+
+    return rows;
+  }
+
+  int get activeBillingId => _activeBillingId;
+
+  Future<void> setActiveBilling(int id) async {
+    final rows = await getBillings();
+
+    final exists = rows.any(
+      (row) => _int(row['id']) == id,
+    );
+
+    if (!exists) {
+      throw StateError(
+        'Billing not found: $id',
+      );
+    }
+
+    _activeBillingId = id;
+  }
+
+  Future<int> addBilling(String name) async {
+    final cleanName = name.trim();
+
+    if (cleanName.isEmpty) {
+      throw ArgumentError(
+        'Billing name cannot be empty',
+      );
+    }
+
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+
+    return db.insert(
+      'billings',
+      {
+        'name': cleanName,
+        'active': 1,
+        'cloud_id': '',
+        'created_at': now,
+        'updated_at': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.abort,
+    );
+  }
+
+  Future<int> updateBilling(
+    int id,
+    String name,
+  ) async {
+    final cleanName = name.trim();
+
+    if (cleanName.isEmpty) {
+      throw ArgumentError(
+        'Billing name cannot be empty',
+      );
+    }
+
+    final db = await database;
+
+    return db.update(
+      'billings',
+      {
+        'name': cleanName,
+        'updated_at':
+            DateTime.now().toIso8601String(),
+      },
+      where: 'id = ? AND active = 1',
+      whereArgs: [id],
+    );
+  }
+
     // ---------------------------------------------------------------------------
   // BILLING WORKSPACES
   // ---------------------------------------------------------------------------
