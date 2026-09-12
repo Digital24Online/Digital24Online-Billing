@@ -724,23 +724,26 @@ if (oldVersion < 9) {
     )
   ''');
     }
-    if (!await _tableExists(db, 'bills')) {
+        if (!await _tableExists(db, 'bills')) {
       await db.execute('''
         CREATE TABLE bills (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          billing_id INTEGER NOT NULL DEFAULT 1,
           customer_id INTEGER NOT NULL,
           billing_month TEXT NOT NULL,
           bill_date INTEGER NOT NULL DEFAULT 7,
           amount REAL NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
+
           UNIQUE(customer_id, billing_month),
+
           FOREIGN KEY(customer_id)
             REFERENCES customers(id)
             ON DELETE CASCADE
         )
       ''');
-    }
+        }
 
     if (!await _tableExists(db, 'staff')) {
       await db.execute('''
