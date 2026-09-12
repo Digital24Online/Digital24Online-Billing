@@ -142,6 +142,35 @@ class DatabaseHelper {
         conflict_at TEXT NOT NULL
       )
     ''');
+
+          await db.execute('''
+      CREATE TABLE payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        billing_id INTEGER NOT NULL DEFAULT 1,
+        customer_id INTEGER NOT NULL,
+        bill_id INTEGER,
+        user_id TEXT NOT NULL DEFAULT '',
+        amount REAL NOT NULL DEFAULT 0,
+        payment_date TEXT NOT NULL,
+        receipt_no TEXT NOT NULL UNIQUE,
+        staff_id INTEGER,
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+
+        FOREIGN KEY(customer_id)
+          REFERENCES customers(id)
+          ON DELETE CASCADE,
+
+        FOREIGN KEY(bill_id)
+          REFERENCES bills(id)
+          ON DELETE SET NULL,
+
+        FOREIGN KEY(staff_id)
+          REFERENCES staff(id)
+          ON DELETE SET NULL
+      )
+    ''');
     await db.execute(
       'CREATE INDEX idx_customers_bill_date '
       'ON customers(bill_date)',
