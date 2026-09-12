@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Each Digital 24 Online Billing account owns
+    // exactly one business workspace identified by Auth UID.
+    match /businesses/{userId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+
+      // All application data lives below the authenticated
+      // user's own business document.
+      match /{document=**} {
+        allow read, write: if request.auth != null
+                           && request.auth.uid == userId;
+      }
+    }
+
+    // Nothing outside the user's own business workspace
+    // is accessible from the application.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
