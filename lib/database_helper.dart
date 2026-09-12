@@ -26,7 +26,7 @@ class DatabaseHelper {
 
     return openDatabase(
   dbPath,
-  version: 8,
+  version: 9,
   onConfigure: (db) async {
     await db.execute('PRAGMA foreign_keys = ON');
   },
@@ -124,8 +124,8 @@ class DatabaseHelper {
       )
     ''');
 
-    await db.execute('''
-      CREATE TABLE payments (
+        await db.execute('''
+      CREATE TABLE payment_conflicts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         billing_id INTEGER NOT NULL DEFAULT 1,
         customer_id INTEGER NOT NULL,
@@ -136,23 +136,12 @@ class DatabaseHelper {
         receipt_no TEXT NOT NULL UNIQUE,
         staff_id INTEGER,
         note TEXT NOT NULL DEFAULT '',
+        conflict_reason TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-
-        FOREIGN KEY(customer_id)
-          REFERENCES customers(id)
-          ON DELETE CASCADE,
-
-        FOREIGN KEY(bill_id)
-          REFERENCES bills(id)
-          ON DELETE SET NULL,
-
-        FOREIGN KEY(staff_id)
-          REFERENCES staff(id)
-          ON DELETE SET NULL
+        conflict_at TEXT NOT NULL
       )
     ''');
-
     await db.execute(
       'CREATE INDEX idx_customers_bill_date '
       'ON customers(bill_date)',
@@ -401,8 +390,32 @@ if (oldVersion < 8) {
   );
 }
 
-  }
+// ============================================================
+// VERSION 9
+// Payment Conflict Protection
+// ============================================================
+if (oldVersion < 9) {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS payment_conflicts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      billing_id INTEGER NOT NULL DEFAULT 1,
+      customer_id INTEGER NOT NULL,
+      bill_id INTEGER,
+      user_id TEXT NOT NULL DEFAULT '',
+      amount REAL NOT NULL DEFAULT 0,
+      payment_date TEXT NOT NULL,
+      receipt_no TEXT NOT NULL UNIQUE,
+      staff_id INTEGER,
+      note TEXT NOT NULL DEFAULT '',
+      conflict_reason TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      conflict_at TEXT NOT NULL
+    )
+  ''');
+}
 
+    }
   Future<bool> _tableExists(
     Database db,
     String table,
@@ -649,7 +662,7 @@ if (oldVersion < 8) {
       ''');
     }
 
-    if (!await _tableExists(db, 'payments')) {
+        if (!await _tableExists(db, 'payments')) {
       await db.execute('''
         CREATE TABLE payments (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -666,7 +679,6 @@ if (oldVersion < 8) {
           FOREIGN KEY(customer_id)
             REFERENCES customers(id)
             ON DELETE CASCADE,
-
           FOREIGN KEY(bill_id)
             REFERENCES bills(id)
             ON DELETE SET NULL,
@@ -674,6 +686,27 @@ if (oldVersion < 8) {
           FOREIGN KEY(staff_id)
             REFERENCES staff(id)
             ON DELETE SET NULL
+        )
+      ''');
+    }
+
+    if (!await _tableExists(db, 'payment_conflicts')) {
+      await db.execute('''
+        CREATE TABLE payment_conflicts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          billing_id INTEGER NOT NULL DEFAULT 1,
+          customer_id INTEGER NOT NULL,
+          bill_id INTEGER,
+          user_id TEXT NOT NULL DEFAULT '',
+          amount REAL NOT NULL DEFAULT 0,
+          payment_date TEXT NOT NULL,
+          receipt_no TEXT NOT NULL UNIQUE,
+          staff_id INTEGER,
+          note TEXT NOT NULL DEFAULT '',
+          conflict_reason TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          conflict_at TEXT NOT NULL
         )
       ''');
     }
@@ -2307,20 +2340,41 @@ Future<int> addPayment(
         'updated_at',
       ],
       'payments': [
-        'id',
-        'billing_id',
-        'customer_id',
-        'bill_id',
-        'user_id',
-        'amount',
-        'payment_date',
-        'receipt_no',
-        'staff_id',
-        'note',
-        'created_at',
-        'updated_at',
-      ],
-      'deleted_customers': [
+  'id',
+  'billing_id',
+  'customer_id',
+  'bill_id',
+  'user_id',
+  'amount',
+  'payment_date',
+  'receipt_no',
+  'staff_id',
+  'note',
+  'created_at',
+  'updated_at',
+],
+'payment_conflicts': [
+  'id',
+  'billing_id',
+  'customer_id',
+  'bill_id',
+  'user_id',
+  'amount',
+  'payment_date',
+  'receipt_no',
+  'staff_id',
+  'note',
+  'conflict_reason',
+  'created_at',
+  'updated_at',
+  'conflict_at',
+],
+'deleted_customers': [
+  'id',
+  'billing_id',
+  'user_id',
+  'deleted_at',
+],
         'id',
         'billing_id',
         'user_id',
