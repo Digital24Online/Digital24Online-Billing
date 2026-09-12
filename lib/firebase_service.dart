@@ -1596,58 +1596,174 @@ Future<void> _upsertStaff(
         'cloud_updated_at': FieldValue.serverTimestamp(),
       };
 
-  Future<void> _upsertBill(
+    Future<void> _upsertBill(
     Database db,
     Map<String, dynamic> r,
   ) async {
-    final billingId = _int(r['billing_id'], fallback: 1);
-    final userId = _string(r['customer_user_id']).trim();
-    final month = _string(r['billing_month']).trim();
+    final billingId = _int(
+      r['billing_id'],
+      fallback: 1,
+    );
 
-    if (userId.isEmpty || month.isEmpty) return;
+    final userId = _string(
+      r['customer_user_id'],
+    ).trim();
 
+    final month = _string(
+      r['billing_month'],
+    ).trim();
+
+    if (billingId <= 0 ||
+        userId.isEmpty ||
+        month.isEmpty) {
+      return;
+    }
+
+    // ------------------------------------------------------------
+    // Customer যাচাই
+    // ------------------------------------------------------------
     final customers = await db.query(
       'customers',
+      columns: ['id', 'billing_id'],
       where: 'billing_id = ? AND user_id = ?',
-      whereArgs: [billingId, userId],
+      whereArgs: [
+        billingId,
+        userId,
+      ],
       limit: 1,
     );
-    if (customers.isEmpty) return;
 
-    final customerId = _int(customers.first['id']);
+    if (customers.isEmpty) {
+      return;
+    }
 
+    final customerId = _int(
+      customers.first['id'],
+    );
+
+    if (customerId <= 0) {
+      return;
+    }
+
+    // ------------------------------------------------------------
+    // Bill-এর Local data
+    // ------------------------------------------------------------
     final values = {
       'billing_id': billingId,
       'customer_id': customerId,
       'billing_month': month,
-      'bill_date': _int(r['bill_date'], fallback: 7),
-      'amount': _double(r['amount']),
-      'created_at': _string(r['created_at']),
-      'updated_at': _string(r['updated_at']),
+      'bill_date': _int(
+        r['bill_date'],
+        fallback: 7,
+      ),
+      'amount': _double(
+        r['amount'],
+      ),
+      'created_at': _string(
+        r['created_at'],
+      ),
+      'updated_at': _string(
+        r['updated_at'],
+      ),
     };
 
+    // ------------------------------------------------------------
+    // বর্তমান Database schema অনুযায়ী:
+    // UNIQUE(customer_id, billing_month)
+    //
+    // তাই Existing Bill Customer + Month দিয়ে খোঁজা হবে।
+    // ------------------------------------------------------------
     final found = await db.query(
       'bills',
-      where: 'billing_id = ? AND customer_id = ? AND billing_month = ?',
-      whereArgs: [billingId, customerId, month],
+      columns: [
+        'id',
+        'billing_id',
+        'customer_id',
+        'billing_month',
+      ],
+      where:
+          'customer_id = ? AND billing_month = ?',
+      whereArgs: [
+        customerId,
+        month,
+      ],
       limit: 1,
     );
 
-    if (found.isEmpty) {
-      await db.insert(
-        'bills',
-        values,
-        conflictAlgorithm: ConflictAlgorithm.ignore,
+    if (found.isNotEmpty) {
+      final existingBillingId = _int(
+        found.first['billing_id'],
+        fallback: 1,
       );
-    } else if (_remoteIsNewer(found.first, r)) {
-      await db.update(
-        'bills',
-        values,
-        where: 'id = ?',
-        whereArgs: [found.first['id']],
-      );
+
+      // অন্য Billing-এর Bill কখনো overwrite করা যাবে না।
+      if (existingBillingId != billingId) {
+        return;
+      }
+
+      if (_remoteIsNewer(
+        found.first,
+        r,
+      )) {
+        await db.update(
+          'bills',
+          values,
+          where: 'id = ?',
+          whereArgs: [
+            found.first['id'],
+          ],
+        );
+      }
+
+      return;
     }
-  }
+
+    // ------------------------------------------------------------
+    // নতুন Bill তৈরি
+    // ------------------------------------------------------------
+    final billId = await db.insert(
+      'bills',
+      values,
+      conflictAlgorithm:
+          ConflictAlgorithm.ignore,
+    );
+
+    // ------------------------------------------------------------
+    // Concurrent operation-এর কারণে Bill আগে তৈরি হলে
+    // আবার খুঁজে নেওয়া হবে।
+    // ------------------------------------------------------------
+    if (billId <= 0) {
+      final retry = await db.query(
+        'bills',
+        columns: [
+          'id',
+          'billing_id',
+          'customer_id',
+          'billing_month',
+        ],
+        where:
+            'customer_id = ? AND billing_month = ?',
+        whereArgs: [
+          customerId,
+          month,
+        ],
+        limit: 1,
+      );
+
+      if (retry.isEmpty) {
+        return;
+      }
+
+      final retryBillingId = _int(
+        retry.first['billing_id'],
+        fallback: 1,
+      );
+
+      if (retryBillingId != billingId) {
+        return;
+      }
+    }
+    }
   
   // ---------------------------------------------------------------------------
   // PAYMENTS
