@@ -1596,7 +1596,7 @@ Future<void> _upsertStaff(
         'cloud_updated_at': FieldValue.serverTimestamp(),
       };
 
-    Future<void> _upsertBill(
+        Future<void> _upsertBill(
     Database db,
     Map<String, dynamic> r,
   ) async {
@@ -1668,10 +1668,12 @@ Future<void> _upsertStaff(
     };
 
     // ------------------------------------------------------------
-    // বর্তমান Database schema অনুযায়ী:
+    // বর্তমান Database schema:
     // UNIQUE(customer_id, billing_month)
     //
     // তাই Existing Bill Customer + Month দিয়ে খোঁজা হবে।
+    // created_at / updated_at অবশ্যই পড়তে হবে,
+    // কারণ _remoteIsNewer() এগুলো ব্যবহার করে।
     // ------------------------------------------------------------
     final found = await db.query(
       'bills',
@@ -1680,6 +1682,8 @@ Future<void> _upsertStaff(
         'billing_id',
         'customer_id',
         'billing_month',
+        'created_at',
+        'updated_at',
       ],
       where:
           'customer_id = ? AND billing_month = ?',
@@ -1701,6 +1705,7 @@ Future<void> _upsertStaff(
         return;
       }
 
+      // Cloud-এর Bill সত্যিই নতুন হলে তবেই Local Bill update।
       if (_remoteIsNewer(
         found.first,
         r,
@@ -1740,6 +1745,8 @@ Future<void> _upsertStaff(
           'billing_id',
           'customer_id',
           'billing_month',
+          'created_at',
+          'updated_at',
         ],
         where:
             'customer_id = ? AND billing_month = ?',
@@ -1763,7 +1770,7 @@ Future<void> _upsertStaff(
         return;
       }
     }
-    }
+        }
   
   // ---------------------------------------------------------------------------
   // PAYMENTS
