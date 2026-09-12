@@ -2270,155 +2270,150 @@ Future<int> addPayment(
     }
   }
 
-  Future<bool> _hasCurrentSchema(String path) async {
-  Database? testDb;
+    Future<bool> _hasCurrentSchema(String path) async {
+    Database? testDb;
 
-  try {
-    testDb = await openDatabase(
-      path,
-      readOnly: true,
-    );
-
-    const required = <String, List<String>>{
-      'billings': [
-        'id',
-        'name',
-        'active',
-        'cloud_id',
-        'created_at',
-        'updated_at',
-      ],
-      'customers': [
-        'id',
-        'billing_id',
-        'cust_id',
-        'user_id',
-        'name',
-        'mobile',
-        'address',
-        'package_id',
-        'package_name',
-        'bill_date',
-        'amount',
-        'total_amount',
-        'paid_amount',
-        'due_amount',
-        'payment_date',
-        'staff_id',
-        'status',
-        'active',
-        'created_at',
-        'updated_at',
-      ],
-      'packages': [
-        'id',
-        'name',
-        'speed',
-        'price',
-        'active',
-        'cloud_id',
-        'created_at',
-        'updated_at',
-      ],
-      'bills': [
-        'id',
-        'billing_id',
-        'customer_id',
-        'billing_month',
-        'bill_date',
-        'amount',
-        'created_at',
-        'updated_at',
-      ],
-      'staff': [
-        'id',
-        'name',
-        'mobile',
-        'active',
-        'cloud_id',
-        'created_at',
-        'updated_at',
-      ],
-      'payments': [
-  'id',
-  'billing_id',
-  'customer_id',
-  'bill_id',
-  'user_id',
-  'amount',
-  'payment_date',
-  'receipt_no',
-  'staff_id',
-  'note',
-  'created_at',
-  'updated_at',
-],
-'payment_conflicts': [
-  'id',
-  'billing_id',
-  'customer_id',
-  'bill_id',
-  'user_id',
-  'amount',
-  'payment_date',
-  'receipt_no',
-  'staff_id',
-  'note',
-  'conflict_reason',
-  'created_at',
-  'updated_at',
-  'conflict_at',
-],
-'deleted_customers': [
-  'id',
-  'billing_id',
-  'user_id',
-  'deleted_at',
-],
-        'id',
-        'billing_id',
-        'user_id',
-        'deleted_at',
-      ],
-    };
-
-    for (final entry in required.entries) {
-      final rows = await testDb.rawQuery(
-        'PRAGMA table_info(${entry.key})',
+    try {
+      testDb = await openDatabase(
+        path,
+        readOnly: true,
       );
 
-      if (rows.isEmpty) {
+      const required = <String, List<String>>{
+        'billings': [
+          'id',
+          'name',
+          'active',
+          'cloud_id',
+          'created_at',
+          'updated_at',
+        ],
+        'customers': [
+          'id',
+          'billing_id',
+          'cust_id',
+          'user_id',
+          'name',
+          'mobile',
+          'address',
+          'package_id',
+          'package_name',
+          'bill_date',
+          'amount',
+          'total_amount',
+          'paid_amount',
+          'due_amount',
+          'payment_date',
+          'staff_id',
+          'status',
+          'active',
+          'created_at',
+          'updated_at',
+        ],
+        'packages': [
+          'id',
+          'name',
+          'speed',
+          'price',
+          'active',
+          'cloud_id',
+          'created_at',
+          'updated_at',
+        ],
+        'bills': [
+          'id',
+          'billing_id',
+          'customer_id',
+          'billing_month',
+          'bill_date',
+          'amount',
+          'created_at',
+          'updated_at',
+        ],
+        'staff': [
+          'id',
+          'name',
+          'mobile',
+          'active',
+          'cloud_id',
+          'created_at',
+          'updated_at',
+        ],
+        'payments': [
+          'id',
+          'billing_id',
+          'customer_id',
+          'bill_id',
+          'user_id',
+          'amount',
+          'payment_date',
+          'receipt_no',
+          'staff_id',
+          'note',
+          'created_at',
+          'updated_at',
+        ],
+        'payment_conflicts': [
+          'id',
+          'billing_id',
+          'customer_id',
+          'bill_id',
+          'user_id',
+          'amount',
+          'payment_date',
+          'receipt_no',
+          'staff_id',
+          'note',
+          'conflict_reason',
+          'created_at',
+          'updated_at',
+          'conflict_at',
+        ],
+        'deleted_customers': [
+          'id',
+          'billing_id',
+          'user_id',
+          'deleted_at',
+        ],
+      };
+
+      for (final entry in required.entries) {
+        final rows = await testDb.rawQuery(
+          'PRAGMA table_info(${entry.key})',
+        );
+
+        if (rows.isEmpty) {
+          return false;
+        }
+
+        final columns = rows
+            .map((row) => row['name']?.toString())
+            .whereType<String>()
+            .toSet();
+
+        if (!entry.value.every(columns.contains)) {
+          return false;
+        }
+      }
+
+      final integrity = await testDb.rawQuery(
+        'PRAGMA integrity_check',
+      );
+
+      if (integrity.isEmpty) {
         return false;
       }
 
-      final columns = rows
-          .map((row) => row['name']?.toString())
-          .whereType<String>()
-          .toSet();
+      final result =
+          integrity.first.values.first?.toString().toLowerCase();
 
-      if (!entry.value.every(columns.contains)) {
-        return false;
-      }
-    }
-
-    final integrity = await testDb.rawQuery(
-      'PRAGMA integrity_check',
-    );
-
-    if (integrity.isEmpty) {
+      return result == 'ok';
+    } catch (_) {
       return false;
+    } finally {
+      await testDb?.close();
     }
-
-    final result =
-        integrity.first.values.first?.toString().toLowerCase();
-
-    return result == 'ok';
-  } catch (_) {
-    return false;
-  } finally {
-    await testDb?.close();
-  }
-  }
+    }
 
 
 Future<void> exportBackupToFile() async {
