@@ -2502,9 +2502,9 @@ Future<void> exportBackupToFile() async {
     );
 
     if (!await _hasCurrentSchema(temporaryPath)) {
-  throw Exception(
-    'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
-  );
+      throw Exception(
+        'এই ফাইলটি Digital 24 Online Billing-এর বৈধ Database Backup নয়।',
+      );
     }
 
     final currentFile = File(currentDbPath);
@@ -2533,7 +2533,7 @@ Future<void> exportBackupToFile() async {
     // Opening the restored file also verifies that SQLite can use it.
     await database;
 
-        if (!await _hasCurrentSchema(currentDbPath)) {
+    if (!await _hasCurrentSchema(currentDbPath)) {
       throw Exception(
         'Restore-এর পরে Database Schema যাচাই করা যায়নি।',
       );
@@ -2576,7 +2576,9 @@ Future<void> exportBackupToFile() async {
       // Preserve the original restore error below.
     }
 
-    throw Exception('Database Restore ব্যর্থ হয়েছে: $e');
+    throw Exception(
+      'Database Restore ব্যর্থ হয়েছে: $e',
+    );
   } finally {
     final tempFile = File(temporaryPath);
 
