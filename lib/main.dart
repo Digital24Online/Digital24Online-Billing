@@ -1606,14 +1606,16 @@ unawaited(loadCustomers());
                           Navigator.pop(ctx);
                         }
 
-                        await loadCustomers();
+                        unawaited(loadCustomers());
 
-                        msg(
-                          t(
-                            'তথ্য পরিবর্তন হয়েছে',
-                            'Customer updated',
-                          ),
-                        );
+msg(
+  t(
+    'তথ্য পরিবর্তন হয়েছে',
+    'Customer updated',
+  ),
+);
+
+_syncInBackground();
                       } catch (e) {
                         if (ctx.mounted) {
                           setD(
