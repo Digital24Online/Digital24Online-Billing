@@ -59,6 +59,107 @@ class FirebaseService {
     return _firestore.collection('businesses').doc(id);
   }
 
+  // ============================================================
+// REAL-TIME MULTI-DEVICE SYNC
+// ============================================================
+
+final StreamController<int> _dataChangeController =
+    StreamController<int>.broadcast();
+
+final List<
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>
+> _cloudSubscriptions = [];
+
+Timer? _realtimePullTimer;
+bool _realtimePullRunning = false;
+int _dataChangeVersion = 0;
+
+Stream<int> get dataChanges =>
+    _dataChangeController.stream;
+
+void _startRealtimeListeners() {
+  _stopRealtimeListeners();
+
+  if (!isSignedIn) return;
+
+  const collections = <String>[
+    'billings',
+    'customers',
+    'packages',
+    'staff',
+    'bills',
+    'payments',
+    'payment_conflicts',
+    'bill_balances',
+  ];
+
+  for (final name in collections) {
+    final subscription = _collection(name)
+        .snapshots()
+        .listen((_) {
+      _scheduleRealtimePull();
+    });
+
+    _cloudSubscriptions.add(subscription);
+  }
+}
+
+void _stopRealtimeListeners() {
+  for (final subscription in _cloudSubscriptions) {
+    subscription.cancel();
+  }
+
+  _cloudSubscriptions.clear();
+
+  _realtimePullTimer?.cancel();
+  _realtimePullTimer = null;
+}
+
+void _scheduleRealtimePull() {
+  if (!isSignedIn) return;
+
+  _realtimePullTimer?.cancel();
+
+  _realtimePullTimer = Timer(
+    const Duration(milliseconds: 150),
+    () async {
+      if (!isSignedIn || _realtimePullRunning) {
+        return;
+      }
+
+      _realtimePullRunning = true;
+
+      try {
+        final db =
+            await DatabaseHelper.instance.database;
+
+        // Cloud → Local
+        // কোনো local data delete করা হবে না।
+        await _pullCloudToLocal(db);
+
+        // Local relationship repair
+        await _repairLocalRelations(db);
+
+        // Customer totals আবার হিসাব
+        await _recalculateAllCustomerTotals(db);
+
+        // UI-কে জানানো
+        _dataChangeVersion++;
+
+        if (!_dataChangeController.isClosed) {
+          _dataChangeController.add(
+            _dataChangeVersion,
+          );
+        }
+      } catch (_) {
+        // Temporary cloud/network problem হলে
+        // local database বন্ধ হবে না।
+      } finally {
+        _realtimePullRunning = false;
+      }
+    },
+  );
+}
   CollectionReference<Map<String, dynamic>> _collection(String name) =>
       _businessRef.collection(name);
 
