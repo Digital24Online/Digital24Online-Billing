@@ -1689,8 +1689,17 @@ _syncInBackground();
     if (ok != true) return;
     try {
       await db.deleteCustomer(c.id!);
-      await loadCustomers();
-      msg(t('ইউজার মুছে ফেলা হয়েছে', 'Customer deleted'));
+
+unawaited(loadCustomers());
+
+msg(
+  t(
+    'ইউজার মুছে ফেলা হয়েছে',
+    'Customer deleted',
+  ),
+);
+
+_syncInBackground();
     } catch (e) { msg('$e'); }
   }
 
