@@ -156,79 +156,73 @@ class FirebaseService {
   // ---------------------------------------------------------------------------
 
         Future<void> restoreAfterLogin() async {
-    if (!isSignedIn) return;
+  if (!isSignedIn) return;
 
-    try {
-      await _ensureBusinessDocument();
+  await _ensureBusinessDocument();
 
-      final db = await DatabaseHelper.instance.database;
-      final freshInstall = await _isFreshInstall(db);
+  final db = await DatabaseHelper.instance.database;
+  final freshInstall = await _isFreshInstall(db);
 
-      // On a genuinely fresh installation, remove only the local
-      // default master data before restoring the Cloud master.
-      if (freshInstall && await _hasOnlyDefaultPackages(db)) {
-        await db.delete('packages');
-      }
+  // সত্যিকারের নতুন installation হলে শুধু
+  // Flutter/SQLite-এর default master data সরানো যাবে।
+  // Customer, Bill, Payment, Staff থাকলে এগুলো কখনো মুছবে না।
+  if (freshInstall && await _hasOnlyDefaultPackages(db)) {
+    await db.delete('packages');
+  }
 
-      if (freshInstall && await _hasOnlyDefaultBillings(db)) {
-        await db.delete('billings');
-      }
+  if (freshInstall && await _hasOnlyDefaultBillings(db)) {
+    await db.delete('billings');
+  }
 
-      if (freshInstall) {
-        // Restore existing Cloud master data first.
-        await _pullCloudToLocal(db);
+  if (freshInstall) {
+    // প্রথমে Cloud-এর সম্পূর্ণ master data Local DB-তে restore।
+    await _pullCloudToLocal(db);
 
-        // If Cloud has no packages, create the standard packages locally
-        // and publish them to Cloud.
-        if (await _count(db, 'packages') == 0) {
-          await _seedDefaultPackages(db);
-          await _mergePackages(db);
-        }
-
-        // If Cloud has no Billing workspace, recreate only the two
-        // standard local Billing rows and publish them to Cloud.
-        //
-        // Do NOT call DatabaseHelper._seedDefaultBillings() here.
-        // That method is private to DatabaseHelper.
-        if (await _count(db, 'billings') == 0) {
-          final now = DateTime.now().toIso8601String();
-
-          await db.insert(
-            'billings',
-            {
-              'name': 'Billing 1',
-              'active': 1,
-              'created_at': now,
-              'updated_at': now,
-            },
-            conflictAlgorithm: ConflictAlgorithm.ignore,
-          );
-
-          await db.insert(
-            'billings',
-            {
-              'name': 'Billing 2',
-              'active': 1,
-              'created_at': now,
-              'updated_at': now,
-            },
-            conflictAlgorithm: ConflictAlgorithm.ignore,
-          );
-
-          await _mergeBillings(db);
-        }
-
-        await _repairLocalRelations(db);
-        await _recalculateAllCustomerTotals(db);
-        await _pushRecalculatedCustomers(db);
-        return;
-      }
-
-      // Existing installation: perform normal two-way sync.
-      await syncNow();
-    } catch (_) {
-      // Offline use must continue even when Cloud recovery is unavailable.
+    // Cloud-এ Package না থাকলে শুধু default package তৈরি।
+    if (await _count(db, 'packages') == 0) {
+      await _seedDefaultPackages(db);
+      await _mergePackages(db);
     }
+
+    // Cloud-এ Billing workspace না থাকলে만 default Billing তৈরি।
+    if (await _count(db, 'billings') == 0) {
+      final now = DateTime.now().toIso8601String();
+
+      await db.insert(
+        'billings',
+        {
+          'name': 'Billing 1',
+          'active': 1,
+          'created_at': now,
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+
+      await db.insert(
+        'billings',
+        {
+          'name': 'Billing 2',
+          'active': 1,
+          'created_at': now,
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+
+      await _mergeBillings(db);
+    }
+
+    await _repairLocalRelations(db);
+    await _recalculateAllCustomerTotals(db);
+    await _pushRecalculatedCustomers(db);
+
+    return;
+  }
+
+  // Existing installation:
+  // Local ↔ Cloud দুই দিকের নিরাপদ Sync।
+  await syncNow();
         }
   Future<void> syncNow() async {
     final running = _syncInProgress;
