@@ -18,6 +18,17 @@ import 'firebase_options.dart';
 
 import 'database_helper.dart';
 import 'firebase_service.dart';
+void _syncInBackground() {
+  if (!FirebaseService.instance.isSignedIn) {
+    return;
+  }
+
+  unawaited(
+    FirebaseService.instance.syncNow().catchError(
+      (_) {},
+    ),
+  );
+}
 
 const _brandBlue = Color(0xFF0867C8);
 const _brandCyan = Color(0xFF11A8C7);
