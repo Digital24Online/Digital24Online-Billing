@@ -3452,15 +3452,47 @@ class _PackageManagerState extends State<PackageManager> {
                     leading: Icon(active ? Icons.speed : Icons.speed_outlined),
                     trailing: Wrap(children: [
                       IconButton(onPressed: () => edit(r), icon: const Icon(Icons.edit)),
-                      Switch(value: active, onChanged: (v) async {
-                        await widget.db.setPackageActive((r['id'] as num).toInt(), v);
-                        await load();
-                      }),
-                    ]),
-                  );
-                },
-              ),
-      ),
+                                             Switch(
+                         value: active,
+                         onChanged: (v) async {
+                           try {
+                             await widget.db.setPackageActive(
+                               (r['id'] as num).toInt(),
+                               v,
+                             );
+
+                             await load();
+
+                             _syncInBackground();
+
+                             if (mounted) {
+                               ScaffoldMessenger.of(context).showSnackBar(
+                                 SnackBar(
+                                   content: Text(
+                                     v
+                                         ? t(
+                                             'প্যাকেজ Active করা হয়েছে',
+                                             'Package activated',
+                                           )
+                                         : t(
+                                             'প্যাকেজ Closed করা হয়েছে',
+                                             'Package deactivated',
+                                           ),
+                                   ),
+                                 ),
+                               );
+                             }
+                           } catch (e) {
+                             if (mounted) {
+                               ScaffoldMessenger.of(context).showSnackBar(
+                                 SnackBar(
+                                   content: Text('$e'),
+                                 ),
+                               );
+                             }
+                           }
+                         },
+                       ),
 
             actions: [
         TextButton(onPressed: () => edit(), child: Text(t('নতুন প্যাকেজ', 'Add Package'))),
