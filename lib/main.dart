@@ -767,6 +767,18 @@ class _BillingHomePageState extends State<BillingHomePage> {
   String searchText = '';
   bool loading = true;
 
+  void _syncInBackground() {
+  if (!FirebaseService.instance.isSignedIn) {
+    return;
+  }
+
+  unawaited(
+    FirebaseService.instance.syncNow().catchError(
+      (_) {},
+    ),
+  );
+  }
+  
   List<Map<String, dynamic>> billings = [];
 int selectedBillingId = 1;
 bool billingLoading = false;
