@@ -207,6 +207,16 @@ class DatabaseHelper {
       )
     ''');
 
+      await db.execute('''
+  CREATE TABLE deleted_customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    billing_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    deleted_at TEXT NOT NULL,
+    UNIQUE(billing_id, user_id)
+  )
+''');
+
           await db.execute('''
       CREATE TABLE payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -506,6 +516,27 @@ if (oldVersion < 9) {
       conflict_at TEXT NOT NULL
     )
   ''');
+}
+
+// ============================================================
+// VERSION 10
+// deleted_customers Safety Fix
+// ============================================================
+if (oldVersion < 10) {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS deleted_customers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      billing_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
+      deleted_at TEXT NOT NULL,
+      UNIQUE(billing_id, user_id)
+    )
+  ''');
+
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_deleted_customers_key '
+    'ON deleted_customers(billing_id, user_id)',
+  );
 }
 
     }
