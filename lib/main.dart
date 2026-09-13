@@ -3523,11 +3523,9 @@ class _StaffManagerState extends State<StaffManager> {
           m.text.trim(),
         );
 
-        await load();
+        unawaited(load());
 
-        try {
-          await FirebaseService.instance.syncNow();
-        } catch (_) {}
+_syncInBackground();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
