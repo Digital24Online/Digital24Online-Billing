@@ -816,10 +816,25 @@ bool billingLoading = false;
     }).toList();
   }
 
-  @override
+    @override
   void initState() {
     super.initState();
+
+    _dataChangeSubscription =
+        FirebaseService.instance.dataChanges.listen((_) {
+      if (!mounted) return;
+
+      unawaited(loadBillingContext());
+    });
+
     loadBillingContext();
+  }
+
+  @override
+  void dispose() {
+    _dataChangeSubscription?.cancel();
+    _dataChangeSubscription = null;
+    super.dispose();
   }
 
   Future<void> loadBillingContext() async {
