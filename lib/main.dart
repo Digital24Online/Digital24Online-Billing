@@ -1783,9 +1783,20 @@ _syncInBackground();
                   final history = await db.getPaymentHistory(c.id!, billId: bid);
                   final payment = history.firstWhere((x) => (x['id'] as num).toInt() == paymentId, orElse: () => history.first);
                   if (ctx.mounted) Navigator.pop(ctx);
-                  await loadCustomers();
-                  await printReceipt(c, payment);
-                  msg(t('পেমেন্ট গ্রহণ হয়েছে', 'Payment received'));
+                  unawaited(loadCustomers());
+
+msg(
+  t(
+    'পেমেন্ট গ্রহণ হয়েছে',
+    'Payment received',
+  ),
+);
+
+_syncInBackground();
+
+unawaited(
+  printReceipt(c, payment),
+);
                 } catch (e) {
                   if (ctx.mounted) setD(() => saving = false);
                   msg('${t('পেমেন্টে সমস্যা: ', 'Payment error: ')}$e');
