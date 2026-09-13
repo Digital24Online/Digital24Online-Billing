@@ -89,12 +89,12 @@ class DatabaseHelper {
       'digital24_billing.db',
     );
 
-              return openDatabase(
-    dbPath,
-    version: 10,
-    onConfigure: (db) async {
-      await db.execute('PRAGMA foreign_keys = ON');
-    },
+            return openDatabase(
+  dbPath,
+  version: 10,
+  onConfigure: (db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+  },
   onCreate: _create,
   onUpgrade: _upgrade,
 );
