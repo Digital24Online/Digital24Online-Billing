@@ -1650,10 +1650,27 @@ _syncInBackground();
   Future<void> toggleCustomer(Customer c) async {
     if (c.id == null) return;
     try {
-      await db.setCustomerStatus(c.id!, !c.active);
-      await loadCustomers();
-      msg(c.active ? t('ইউজার Closed করা হয়েছে', 'Customer closed') : t('ইউজার Active করা হয়েছে', 'Customer activated'));
-    } catch (e) { msg('$e'); }
+      await db.setCustomerStatus(
+  c.id!,
+  !c.active,
+);
+
+unawaited(loadCustomers());
+
+msg(
+  c.active
+      ? t(
+          'ইউজার Closed করা হয়েছে',
+          'Customer closed',
+        )
+      : t(
+          'ইউজার Active করা হয়েছে',
+          'Customer activated',
+        ),
+);
+
+_syncInBackground();
+      catch (e) { msg('$e'); }
   }
 
   Future<void> deleteCustomer(Customer c) async {
