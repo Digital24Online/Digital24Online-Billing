@@ -3635,11 +3635,9 @@ _syncInBackground();
           mobile,
         );
 
-        await load();
+                await load();
 
-        try {
-          await FirebaseService.instance.syncNow();
-        } catch (_) {}
+        _syncInBackground();
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -3708,11 +3706,9 @@ _syncInBackground();
     try {
       await widget.db.deleteStaff(id);
 
-      await load();
+            await load();
 
-      try {
-        await FirebaseService.instance.syncNow();
-      } catch (_) {}
+      _syncInBackground();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
