@@ -3341,7 +3341,28 @@ class _PackageManagerState extends State<PackageManager> {
   List<Map<String, dynamic>> rows = [];
   String t(String b, String e) => widget.english ? e : b;
 
-  @override void initState() { super.initState(); load(); }
+    StreamSubscription<int>? _dataChangeSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _dataChangeSubscription =
+        FirebaseService.instance.dataChanges.listen((_) {
+      if (!mounted) return;
+
+      unawaited(load());
+    });
+
+    load();
+  }
+
+  @override
+  void dispose() {
+    _dataChangeSubscription?.cancel();
+    _dataChangeSubscription = null;
+    super.dispose();
+  }
 
   Future<void> load() async {
     try {
