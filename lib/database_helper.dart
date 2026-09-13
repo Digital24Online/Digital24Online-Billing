@@ -90,15 +90,14 @@ class DatabaseHelper {
     );
 
             return openDatabase(
-      dbPath,
-      version: 9,
-      onConfigure: (db) async {
-        await db.execute('PRAGMA foreign_keys = ON');
-      },
-      onCreate: _create,
-      onUpgrade: _upgrade,
-    );
-  }
+  dbPath,
+  version: 10,
+  onConfigure: (db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+  },
+  onCreate: _create,
+  onUpgrade: _upgrade,
+);
 
   // ============================================================
   // DATABASE CREATE
