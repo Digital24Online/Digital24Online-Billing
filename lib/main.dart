@@ -901,19 +901,12 @@ bool billingLoading = false;
                     }
 
                     try {
-                      // First save locally so Offline Mode continues to work.
+                                            // First save locally so Offline Mode continues to work.
                       await db.updateBilling(id, name);
 
-                      // Immediately push the Billing Name to Cloud when
-                      // a Cloud account is signed in.
-                      if (FirebaseService.instance.isSignedIn) {
-                        try {
-                          await FirebaseService.instance.syncNow();
-                        } catch (_) {
-                          // Local save remains successful even if Cloud is
-                          // temporarily unavailable. Auto Sync will retry.
-                        }
-                      }
+                      // Cloud sync runs in the background.
+                      // Local save does not wait for Cloud.
+                      _syncInBackground();
 
                       final updated = await db.getBillings();
 
