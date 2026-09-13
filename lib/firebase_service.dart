@@ -3168,8 +3168,9 @@ Future<void> _upsertStaff(
   }
 
   void dispose() {
-  _stopAutoSync();
-  _authSubscription?.cancel();
-  _authSubscription = null;
-  _dataChangeController.close();
+    _stopAutoSync();
+    _authSubscription?.cancel();
+    _authSubscription = null;
+    _dataChangeController.close();
   }
+}
