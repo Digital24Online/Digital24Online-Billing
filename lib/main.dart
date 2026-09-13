@@ -3937,7 +3937,33 @@ class _ReportManagerState extends State<ReportManager> {
   List<Map<String, dynamic>> payments = [];
   List<Map<String, dynamic>> dues = [];
   bool busy = false;
+
+  StreamSubscription<int>? _dataChangeSubscription;
+
   String t(String b, String e) => widget.english ? e : b;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _dataChangeSubscription =
+        FirebaseService.instance.dataChanges.listen((_) {
+      if (!mounted) return;
+
+      if (payments.isNotEmpty) {
+        unawaited(loadPayments());
+      } else if (dues.isNotEmpty) {
+        unawaited(loadDue());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _dataChangeSubscription?.cancel();
+    _dataChangeSubscription = null;
+    super.dispose();
+  }
 
   Future<void> loadPayments() async {
     setState(() => busy = true);
