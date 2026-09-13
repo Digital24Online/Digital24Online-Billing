@@ -767,6 +767,8 @@ class _BillingHomePageState extends State<BillingHomePage> {
   String searchText = '';
   bool loading = true;
 
+  StreamSubscription<int>? _dataChangeSubscription;
+
   void _syncInBackground() {
   if (!FirebaseService.instance.isSignedIn) {
     return;
