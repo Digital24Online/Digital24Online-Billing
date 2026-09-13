@@ -1313,13 +1313,14 @@ bool billingLoading = false;
                         if (!mounted) return;
 
                         msg(
-                          t(
-                            'ইউজার সফলভাবে সংরক্ষণ হয়েছে',
-                            'Customer saved successfully',
-                          ),
-                        );
+  t(
+    'ইউজার সফলভাবে সংরক্ষণ হয়েছে',
+    'Customer saved successfully',
+  );
 
-                        unawaited(loadCustomers());
+_syncInBackground();
+
+unawaited(loadCustomers());
                       } catch (e) {
                         if (ctx.mounted) {
                           setD(
