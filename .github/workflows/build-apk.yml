@@ -172,7 +172,7 @@ jobs:
               count=1
           )
 
-                    # --------------------------------------------------
+          # --------------------------------------------------
           # Android NDK
           # --------------------------------------------------
 
@@ -474,7 +474,7 @@ jobs:
             'namespace = "com.digital24online"' \
             android/app/build.gradle.kts
 
-                    echo "===== RELEASE SIGNING ====="
+          echo "===== RELEASE SIGNING ====="
           grep -q \
             'create("release")' \
             android/app/build.gradle.kts
