@@ -3390,12 +3390,42 @@ class _PackageManagerState extends State<PackageManager> {
         final name = n.text.trim();
         final p = double.tryParse(price.text.trim()) ?? -1;
         if (name.isEmpty || p < 0) throw Exception(t('সঠিক প্যাকেজ ও মূল্য দিন', 'Enter a valid package and price'));
-        if (old == null) {
-          await widget.db.addPackage(name, speed.text.trim(), p);
+                if (old == null) {
+          await widget.db.addPackage(
+            name,
+            speed.text.trim(),
+            p,
+          );
         } else {
-          await widget.db.updatePackage((old['id'] as num).toInt(), name, speed.text.trim(), p);
+          await widget.db.updatePackage(
+            (old['id'] as num).toInt(),
+            name,
+            speed.text.trim(),
+            p,
+          );
         }
+
         await load();
+
+        _syncInBackground();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                old == null
+                    ? t(
+                        'প্যাকেজ সফলভাবে যোগ হয়েছে',
+                        'Package added successfully',
+                      )
+                    : t(
+                        'প্যাকেজ সফলভাবে আপডেট হয়েছে',
+                        'Package updated successfully',
+                      ),
+              ),
+            ),
+          );
+        }
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
       }
