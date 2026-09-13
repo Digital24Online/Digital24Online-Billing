@@ -208,19 +208,23 @@ void _scheduleRealtimePull() {
   // ---------------------------------------------------------------------------
 
   void _startAutoSync() {
-    if (_autoSyncTimer != null) return;
+  if (_autoSyncTimer != null) return;
 
-    _autoSyncTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
+  _startRealtimeListeners();
+
+  _autoSyncTimer = Timer.periodic(
+    const Duration(seconds: 5),
+    (_) async {
       if (!isSignedIn) return;
+
       try {
         await syncNow();
-      } catch (_) {}
-    });
-  }
-
-  void _stopAutoSync() {
-    _autoSyncTimer?.cancel();
-    _autoSyncTimer = null;
+      } catch (_) {
+        // Offline হলে Local SQLite চলবে।
+        // Internet ফিরে এলে আবার sync হবে।
+      }
+    },
+  );
   }
 
   Future<void> _ensureBusinessDocument() async {
