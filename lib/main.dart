@@ -1321,11 +1321,12 @@ bool billingLoading = false;
 
                         if (!mounted) return;
 
-                        msg(
+msg(
   t(
     'ইউজার সফলভাবে সংরক্ষণ হয়েছে',
     'Customer saved successfully',
-  );
+  ),
+);
 
 _syncInBackground();
 
@@ -3442,70 +3443,104 @@ class _PackageManagerState extends State<PackageManager> {
     n.dispose(); speed.dispose(); price.dispose();
   }
 
-  @override Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(t('Package Management', 'Package Management')),
+      title: Text(
+        t('Package Management', 'Package Management'),
+      ),
       content: SizedBox(
         width: double.maxFinite,
         height: 460,
         child: rows.isEmpty
-            ? Center(child: Text(t('কোনো প্যাকেজ নেই', 'No packages')))
+            ? Center(
+                child: Text(
+                  t('কোনো প্যাকেজ নেই', 'No packages'),
+                ),
+              )
             : ListView.builder(
                 itemCount: rows.length,
                 itemBuilder: (_, i) {
                   final r = rows[i];
                   final active = (r['active'] ?? 1) == 1;
+
                   return ListTile(
                     title: Text('${r['name'] ?? ''}'),
-                    subtitle: Text('${r['speed'] ?? ''} • ${r['price'] ?? 0} ৳'),
-                    leading: Icon(active ? Icons.speed : Icons.speed_outlined),
-                    trailing: Wrap(children: [
-                      IconButton(onPressed: () => edit(r), icon: const Icon(Icons.edit)),
-                                             Switch(
-                         value: active,
-                         onChanged: (v) async {
-                           try {
-                             await widget.db.setPackageActive(
-                               (r['id'] as num).toInt(),
-                               v,
-                             );
+                    subtitle: Text(
+                      '${r['speed'] ?? ''} • ${r['price'] ?? 0} ৳',
+                    ),
+                    leading: Icon(
+                      active
+                          ? Icons.speed
+                          : Icons.speed_outlined,
+                    ),
+                    trailing: Wrap(
+                      children: [
+                        IconButton(
+                          onPressed: () => edit(r),
+                          icon: const Icon(Icons.edit),
+                        ),
+                        Switch(
+                          value: active,
+                          onChanged: (v) async {
+                            try {
+                              await widget.db.setPackageActive(
+                                (r['id'] as num).toInt(),
+                                v,
+                              );
 
-                             await load();
+                              await load();
+                              _syncInBackground();
 
-                             _syncInBackground();
-
-                             if (mounted) {
-                               ScaffoldMessenger.of(context).showSnackBar(
-                                 SnackBar(
-                                   content: Text(
-                                     v
-                                         ? t(
-                                             'প্যাকেজ Active করা হয়েছে',
-                                             'Package activated',
-                                           )
-                                         : t(
-                                             'প্যাকেজ Closed করা হয়েছে',
-                                             'Package deactivated',
-                                           ),
-                                   ),
-                                 ),
-                               );
-                             }
-                           } catch (e) {
-                             if (mounted) {
-                               ScaffoldMessenger.of(context).showSnackBar(
-                                 SnackBar(
-                                   content: Text('$e'),
-                                 ),
-                               );
-                             }
-                           }
-                         },
-                       ),
-
-            actions: [
-        TextButton(onPressed: () => edit(), child: Text(t('নতুন প্যাকেজ', 'Add Package'))),
-        FilledButton(onPressed: () => Navigator.pop(context), child: Text(t('বন্ধ', 'Close'))),
+                              if (mounted) {
+                                ScaffoldMessenger.of(context)
+                                    .showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      v
+                                          ? t(
+                                              'প্যাকেজ Active করা হয়েছে',
+                                              'Package activated',
+                                            )
+                                          : t(
+                                              'প্যাকেজ Closed করা হয়েছে',
+                                              'Package deactivated',
+                                            ),
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context)
+                                    .showSnackBar(
+                                  SnackBar(
+                                    content: Text('$e'),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => edit(),
+          child: Text(
+            t('নতুন প্যাকেজ', 'Add Package'),
+          ),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            t('বন্ধ', 'Close'),
+          ),
+        ),
       ],
     );
   }
