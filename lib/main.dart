@@ -171,15 +171,16 @@ class CloudAuthGate extends StatefulWidget {
 class _CloudAuthGateState extends State<CloudAuthGate> {
   bool offlineMode = false;
   bool loading = true;
-  List<Map<String, dynamic>> billings = [];
-  int selectedBillingId = 1;
-  bool billingLoading = true;
+  bool restoring = false;
+  String? restoreError;
+
   User? user;
   StreamSubscription<User?>? authSubscription;
 
   @override
   void initState() {
     super.initState();
+
     if (!widget.firebaseReady) {
       loading = false;
       offlineMode = true;
@@ -188,20 +189,64 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
 
     final service = FirebaseService.instance;
     user = service.currentUser;
-    loading = false;
-    authSubscription = FirebaseAuth.instance.authStateChanges().listen((next) {
+
+    authSubscription =
+        FirebaseAuth.instance.authStateChanges().listen((next) async {
       if (!mounted) return;
+
       setState(() {
         user = next;
-        if (next != null) offlineMode = false;
+        restoreError = null;
       });
+
+      if (next != null) {
+        await _restoreCloudData();
+      } else {
+        if (!mounted) return;
+
+        setState(() {
+          restoring = false;
+          loading = false;
+        });
+      }
     });
 
     if (user != null) {
-      Future<void>.microtask(() async {
-        try {
-          await service.restoreAfterLogin();
-        } catch (_) {}
+      Future<void>.microtask(_restoreCloudData);
+    } else {
+      loading = false;
+    }
+  }
+
+  Future<void> _restoreCloudData() async {
+    if (!mounted || user == null) return;
+
+    if (restoring) return;
+
+    setState(() {
+      restoring = true;
+      loading = true;
+      restoreError = null;
+      offlineMode = false;
+    });
+
+    try {
+      await FirebaseService.instance.restoreAfterLogin();
+
+      if (!mounted) return;
+
+      setState(() {
+        restoring = false;
+        loading = false;
+        restoreError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        restoring = false;
+        loading = false;
+        restoreError = '$e';
       });
     }
   }
@@ -212,9 +257,12 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
     super.dispose();
   }
 
-  Future<void> _login({required bool create}) async {
+  Future<void> _login({
+    required bool create,
+  }) async {
     final email = TextEditingController();
     final password = TextEditingController();
+
     bool busy = false;
     String? error;
 
@@ -223,7 +271,9 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
-          title: Text(create ? 'Cloud Account তৈরি' : 'Cloud Login'),
+          title: Text(
+            create ? 'Cloud Account তৈরি' : 'Cloud Login',
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -246,33 +296,51 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
               ),
               if (error != null) ...[
                 const SizedBox(height: 10),
-                Text(error!, style: const TextStyle(color: Colors.red)),
+                Text(
+                  error!,
+                  style: const TextStyle(color: Colors.red),
+                ),
               ],
             ],
           ),
           actions: [
             TextButton(
-              onPressed: busy ? null : () => Navigator.pop(ctx),
+              onPressed: busy
+                  ? null
+                  : () => Navigator.pop(ctx),
               child: const Text('Cancel'),
             ),
             FilledButton.icon(
               onPressed: busy
                   ? null
                   : () async {
-                      if (email.text.trim().isEmpty || password.text.isEmpty) {
-                        setD(() => error = 'Email ও Password দিন।');
+                      if (email.text.trim().isEmpty ||
+                          password.text.isEmpty) {
+                        setD(
+                          () => error =
+                              'Email ও Password দিন।',
+                        );
                         return;
                       }
-                      if (create && password.text.length < 6) {
-                        setD(() => error = 'Password কমপক্ষে 6 অক্ষরের হতে হবে।');
+
+                      if (create &&
+                          password.text.length < 6) {
+                        setD(
+                          () => error =
+                              'Password কমপক্ষে 6 অক্ষরের হতে হবে।',
+                        );
                         return;
                       }
+
                       setD(() {
                         busy = true;
                         error = null;
                       });
+
                       try {
-                        final service = FirebaseService.instance;
+                        final service =
+                            FirebaseService.instance;
+
                         if (create) {
                           await service.createAccount(
                             email: email.text,
@@ -284,8 +352,12 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
                             password: password.text,
                           );
                         }
+
                         await service.restoreAfterLogin();
-                        if (ctx.mounted) Navigator.pop(ctx);
+
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                        }
                       } catch (e) {
                         if (ctx.mounted) {
                           setD(() {
@@ -299,28 +371,153 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                      ),
                     )
-                  : const Icon(Icons.cloud_done_outlined),
-              label: Text(create ? 'Create' : 'Login'),
+                  : const Icon(
+                      Icons.cloud_done_outlined,
+                    ),
+              label: Text(
+                create ? 'Create' : 'Login',
+              ),
             ),
           ],
         ),
       ),
     );
+
     email.dispose();
     password.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+    if (offlineMode || !widget.firebaseReady) {
+      return widget.child;
+    }
+
+    if (loading || restoring) {
+      return Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(maxWidth: 430),
+              child: Card(
+                margin: const EdgeInsets.all(24),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 20),
+                      Text(
+                        'Cloud Data নিরাপদে Restore হচ্ছে...',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: 10),
+                      Text(
+                        'Data Restore সম্পূর্ণ না হওয়া পর্যন্ত Billing খুলবে না।',
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       );
     }
-    if (offlineMode || !widget.firebaseReady) return widget.child;
-    if (user != null) return widget.child;
+
+    if (user != null && restoreError != null) {
+      return Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(maxWidth: 430),
+              child: Card(
+                margin: const EdgeInsets.all(24),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.cloud_off,
+                        size: 56,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Cloud Data Restore সম্পূর্ণ হয়নি',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Data নিরাপত্তার জন্য Billing এখন খোলা হচ্ছে না। '
+                        'আবার চেষ্টা করুন।',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        restoreError!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.red,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _restoreCloudData,
+                          icon: const Icon(
+                            Icons.refresh,
+                          ),
+                          label: const Text(
+                            'আবার Restore চেষ্টা করুন',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            offlineMode = true;
+                            restoreError = null;
+                          });
+                        },
+                        icon: const Icon(
+                          Icons.wifi_off,
+                        ),
+                        label: const Text(
+                          'শুধু Offline Data ব্যবহার করুন',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (user != null) {
+      return widget.child;
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -328,7 +525,8 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 430),
+              constraints:
+                  const BoxConstraints(maxWidth: 430),
               child: Card(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -337,25 +535,35 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
                     children: [
                       const CircleAvatar(
                         radius: 38,
-                        child: Icon(Icons.cloud_sync, size: 38),
+                        child: Icon(
+                          Icons.cloud_sync,
+                          size: 38,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       const Text(
                         'Digital 24 Online Billing',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Cloud Login করলে একই account-এর data একাধিক device-এ sync হবে।',
+                        'Cloud Login করলে একই account-এর '
+                        'data একাধিক device-এ sync হবে।',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 20),
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
-                          onPressed: () => _login(create: false),
-                          icon: const Icon(Icons.login),
+                          onPressed: () =>
+                              _login(create: false),
+                          icon: const Icon(
+                            Icons.login,
+                          ),
                           label: const Text('Login'),
                         ),
                       ),
@@ -363,16 +571,29 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
-                          onPressed: () => _login(create: true),
-                          icon: const Icon(Icons.person_add_alt_1),
-                          label: const Text('নতুন Cloud Account তৈরি'),
+                          onPressed: () =>
+                              _login(create: true),
+                          icon: const Icon(
+                            Icons.person_add_alt_1,
+                          ),
+                          label: const Text(
+                            'নতুন Cloud Account তৈরি',
+                          ),
                         ),
                       ),
                       const SizedBox(height: 10),
                       TextButton.icon(
-                        onPressed: () => setState(() => offlineMode = true),
-                        icon: const Icon(Icons.wifi_off),
-                        label: const Text('এখন Offline Mode-এ চালান'),
+                        onPressed: () {
+                          setState(
+                            () => offlineMode = true,
+                          );
+                        },
+                        icon: const Icon(
+                          Icons.wifi_off,
+                        ),
+                        label: const Text(
+                          'এখন Offline Mode-এ চালান',
+                        ),
                       ),
                     ],
                   ),
