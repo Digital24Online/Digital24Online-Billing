@@ -3548,6 +3548,9 @@ class _PackageManagerState extends State<PackageManager> {
   }
 }
 
+  }
+}
+
 class StaffManager extends StatefulWidget {
   final DatabaseHelper db;
   final bool english;
