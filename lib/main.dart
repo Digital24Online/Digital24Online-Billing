@@ -3465,7 +3465,9 @@ class _PackageManagerState extends State<PackageManager> {
                   final active = (r['active'] ?? 1) == 1;
 
                   return ListTile(
-                    title: Text('${r['name'] ?? ''}'),
+                    title: Text(
+                      '${r['name'] ?? ''}',
+                    ),
                     subtitle: Text(
                       '${r['speed'] ?? ''} • ${r['price'] ?? 0} ৳',
                     ),
@@ -3545,6 +3547,8 @@ class _PackageManagerState extends State<PackageManager> {
     );
   }
 }
+
+class StaffManager extends StatefulWidget {
 
 class StaffManager extends StatefulWidget {
   final DatabaseHelper db;
