@@ -11,7 +11,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-                  - name: Set up Flutter
+                        - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.7'
@@ -171,6 +171,22 @@ jobs:
               text,
               count=1
           )
+
+                    # --------------------------------------------------
+          # Android NDK
+          # --------------------------------------------------
+
+          text = re.sub(
+              r'ndkVersion\s*=\s*flutter\.ndkVersion',
+              'ndkVersion = "28.2.13676358"',
+              text,
+              count=1
+          )
+
+          if 'ndkVersion = "28.2.13676358"' not in text:
+              raise RuntimeError(
+                  "Could not configure Android NDK 28.2.13676358."
+              )
 
           # --------------------------------------------------
           # Google Services plugin
