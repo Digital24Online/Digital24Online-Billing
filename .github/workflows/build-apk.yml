@@ -57,8 +57,6 @@ jobs:
           SDKMANAGER_DIR="$(dirname "$SDKMANAGER")"
           echo "$SDKMANAGER_DIR" >> "$GITHUB_PATH"
 
-          chmod +x "$SDKMANAGER"
-
           echo "===== ACCEPTING ANDROID LICENSES ====="
 
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
