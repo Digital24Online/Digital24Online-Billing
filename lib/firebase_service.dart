@@ -207,24 +207,33 @@ void _scheduleRealtimePull() {
   // AUTO SYNC / CLOUD
   // ---------------------------------------------------------------------------
 
-  void _startAutoSync() {
-  if (_autoSyncTimer != null) return;
+    void _startAutoSync() {
+    if (_autoSyncTimer != null) return;
 
-  _startRealtimeListeners();
+    _startRealtimeListeners();
 
-  _autoSyncTimer = Timer.periodic(
-    const Duration(seconds: 5),
-    (_) async {
-      if (!isSignedIn) return;
+    _autoSyncTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) async {
+        if (!isSignedIn) return;
 
-      try {
-        await syncNow();
-      } catch (_) {
-        // Offline হলে Local SQLite চলবে।
-        // Internet ফিরে এলে আবার sync হবে।
-      }
-    },
-  );
+        try {
+          await syncNow();
+        } catch (_) {
+          // Offline হলে Local SQLite চলবে।
+          // Internet ফিরে এলে আবার sync হবে।
+        }
+      },
+    );
+  }
+
+  void _stopAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
+
+    // Auto sync বন্ধ হলে realtime Firestore
+    // listeners-ও বন্ধ করতে হবে।
+    _stopRealtimeListeners();
   }
 
   Future<void> _ensureBusinessDocument() async {
