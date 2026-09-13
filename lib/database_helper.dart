@@ -89,15 +89,16 @@ class DatabaseHelper {
       'digital24_billing.db',
     );
 
-            return openDatabase(
-  dbPath,
-  version: 10,
-  onConfigure: (db) async {
-    await db.execute('PRAGMA foreign_keys = ON');
-  },
-  onCreate: _create,
-  onUpgrade: _upgrade,
-);
+              return openDatabase(
+    dbPath,
+    version: 10,
+    onConfigure: (db) async {
+      await db.execute('PRAGMA foreign_keys = ON');
+    },
+    onCreate: _create,
+    onUpgrade: _upgrade,
+  );
+  }
 
   // ============================================================
   // DATABASE CREATE
@@ -539,7 +540,6 @@ if (oldVersion < 10) {
   );
 }
 
-    }
   Future<bool> _tableExists(
     Database db,
     String table,
