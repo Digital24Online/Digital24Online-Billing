@@ -539,6 +539,7 @@ if (oldVersion < 10) {
     'ON deleted_customers(billing_id, user_id)',
   );
 }
+}
 
   Future<bool> _tableExists(
     Database db,
