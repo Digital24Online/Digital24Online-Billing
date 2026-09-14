@@ -1006,56 +1006,81 @@ void _scheduleRealtimePull() {
     }
     }
 
-  Map<String, dynamic> _customerToCloud(
+  Future<Map<String, dynamic>> _customerToCloud(
+    Database db,
     Map<String, dynamic> r,
-  ) =>
-      {
-        'billing_id': _int(
-          r['billing_id'],
-          fallback: 1,
-        ),
-        'cust_id': _string(r['cust_id']),
-        'user_id': _string(r['user_id']),
-        'name': _string(r['name']),
-        'mobile': _string(r['mobile']),
-        'address': _string(r['address']),
-        'package_name': _string(r['package_name']),
-        'bill_date': _int(
-          r['bill_date'],
-          fallback: 7,
-        ),
-        'amount': _double(r['amount']),
-        'total_amount': _double(
-          r['total_amount'],
-        ),
-        'paid_amount': _double(
-          r['paid_amount'],
-        ),
-        'due_amount': _double(
-          r['due_amount'],
-        ),
-        'payment_date': _string(
-          r['payment_date'],
-        ),
-        'staff_id': _int(r['staff_id']),
-        'status': _int(
-          r['status'],
-          fallback: 1,
-        ),
-        'active': _int(
-          r['active'],
-          fallback: 1,
-        ),
-        'created_at': _string(
-          r['created_at'],
-        ),
-        'updated_at': _string(
-          r['updated_at'],
-        ),
-        'id_local': _int(r['id']),
-        'cloud_updated_at':
-            FieldValue.serverTimestamp(),
-      };
+  ) async {
+    String staffName = '';
+
+    final staffId = _int(r['staff_id']);
+    if (staffId > 0) {
+      final staff = await db.query(
+        'staff',
+        where: 'id = ?',
+        whereArgs: [staffId],
+        limit: 1,
+      );
+
+      if (staff.isNotEmpty) {
+        staffName = _string(
+          staff.first['name'],
+        ).trim();
+      }
+    }
+
+    return {
+      'billing_id': _int(
+        r['billing_id'],
+        fallback: 1,
+      ),
+      'cust_id': _string(r['cust_id']),
+      'user_id': _string(r['user_id']),
+      'name': _string(r['name']),
+      'mobile': _string(r['mobile']),
+      'address': _string(r['address']),
+      'package_name': _string(r['package_name']),
+      'bill_date': _int(
+        r['bill_date'],
+        fallback: 7,
+      ),
+      'amount': _double(r['amount']),
+      'total_amount': _double(
+        r['total_amount'],
+      ),
+      'paid_amount': _double(
+        r['paid_amount'],
+      ),
+      'due_amount': _double(
+        r['due_amount'],
+      ),
+      'payment_date': _string(
+        r['payment_date'],
+      ),
+
+      // অন্য ফোনের SQLite staff ID সরাসরি Cloud-এ
+      // ব্যবহার করা হবে না।
+      // Staff-এর নাম দিয়ে অন্য ফোনে Local ID resolve হবে।
+      'staff_name': staffName,
+
+      'status': _int(
+        r['status'],
+        fallback: 1,
+      ),
+      'active': _int(
+        r['active'],
+        fallback: 1,
+      ),
+      'created_at': _string(
+        r['created_at'],
+      ),
+      'updated_at': _string(
+        r['updated_at'],
+      ),
+      'id_local': _int(r['id']),
+      'cloud_updated_at':
+          FieldValue.serverTimestamp(),
+    };
+  }
 
   Future<void> _upsertCustomer(
     Database db,
