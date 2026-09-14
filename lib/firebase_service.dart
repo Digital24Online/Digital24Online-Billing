@@ -908,7 +908,10 @@ void _scheduleRealtimePull() {
         continue;
       }
 
-            await _setCloud(
+      final key =
+          '${billingId}__$userId';
+
+      await _setCloud(
         'customer_deletions',
         _key(key),
         {
@@ -920,9 +923,6 @@ void _scheduleRealtimePull() {
               FieldValue.serverTimestamp(),
         },
       );
-      
-      final key =
-          '${billingId}__$userId';
 
       final customerRef = _collection(
         'customers',
