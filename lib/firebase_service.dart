@@ -90,6 +90,7 @@ void _startRealtimeListeners() {
     'bills',
     'payments',
     'payment_conflicts',
+    'customer_deletions',
     'bill_balances',
   ];
 
