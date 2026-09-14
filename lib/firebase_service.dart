@@ -834,10 +834,10 @@ void _scheduleRealtimePull() {
   // CUSTOMERS
   // ---------------------------------------------------------------------------
 
-        Future<void> _processCustomerDeletionTombstones(
+  Future<void> _processCustomerDeletionTombstones(
     Database db,
   ) async {
-      final cloudDeleted =
+    final cloudDeleted =
         await _readCollection('customer_deletions');
 
     for (final row in cloudDeleted) {
@@ -969,7 +969,7 @@ void _scheduleRealtimePull() {
         whereArgs: [row['id']],
       );
     }
-        }
+  }
     Future<void> _mergeCustomers(Database db) async {
     final local = await db.query('customers');
     final cloud = await _readCollection('customers');
