@@ -1091,37 +1091,90 @@ void _scheduleRealtimePull() {
 
     if (userId.isEmpty) return;
 
-    final values = {
-      'billing_id': _int(
-        r['billing_id'],
-        fallback: 1,
-      ),
+    final billingId = _int(
+      r['billing_id'],
+      fallback: 1,
+    );
+
+    if (billingId <= 0) return;
+
+    final found = await db.query(
+      'customers',
+      where:
+          'billing_id = ? AND user_id = ?',
+      whereArgs: [
+        billingId,
+        userId,
+      ],
+      limit: 1,
+    );
+
+    // Cloud-এর staff_id কখনো সরাসরি Local SQLite ID
+    // হিসেবে ব্যবহার করা হবে না।
+    //
+    // আগে staff_name দিয়ে এই ফোনের Local Staff ID খোঁজা হবে।
+    int? resolvedStaffId;
+
+    final staffName =
+        _string(r['staff_name']).trim();
+
+    if (staffName.isNotEmpty) {
+      resolvedStaffId = await _findStaffId(
+        db,
+        staffName,
+      );
+    }
+
+    // পুরোনো Cloud record-এ staff_name না থাকলে
+    // existing local Staff relation অক্ষুণ্ণ থাকবে।
+    if (resolvedStaffId == null &&
+        found.isNotEmpty) {
+      final existingStaffId =
+          _int(found.first['staff_id']);
+
+      if (existingStaffId > 0) {
+        final staffExists = await db.query(
+          'staff',
+          columns: ['id'],
+          where: 'id = ?',
+          whereArgs: [existingStaffId],
+          limit: 1,
+        );
+
+        if (staffExists.isNotEmpty) {
+          resolvedStaffId = existingStaffId;
+        }
+      }
+    }
+
+    final values =
+        <String, dynamic>{
+      'billing_id': billingId,
       'cust_id': _string(r['cust_id']),
       'user_id': userId,
       'name': _string(r['name']),
       'mobile': _string(r['mobile']),
       'address': _string(r['address']),
-      'package_name': _string(
-        r['package_name'],
-      ),
+      'package_name':
+          _string(r['package_name']),
       'bill_date': _int(
         r['bill_date'],
         fallback: 7,
       ),
       'amount': _double(r['amount']),
-      'total_amount': _double(
-        r['total_amount'],
-      ),
-      'paid_amount': _double(
-        r['paid_amount'],
-      ),
-      'due_amount': _double(
-        r['due_amount'],
-      ),
-      'payment_date': _string(
-        r['payment_date'],
-      ),
-      'staff_id': _int(r['staff_id']),
+      'total_amount':
+          _double(r['total_amount']),
+      'paid_amount':
+          _double(r['paid_amount']),
+      'due_amount':
+          _double(r['due_amount']),
+      'payment_date':
+          _string(r['payment_date']),
+
+      // Valid Staff না থাকলে অবশ্যই NULL।
+      // কখনো 0 নয়।
+      'staff_id': resolvedStaffId,
+
       'status': _int(
         r['status'],
         fallback: 1,
@@ -1130,27 +1183,11 @@ void _scheduleRealtimePull() {
         r['active'],
         fallback: 1,
       ),
-      'created_at': _string(
-        r['created_at'],
-      ),
-      'updated_at': _string(
-        r['updated_at'],
-      ),
+      'created_at':
+          _string(r['created_at']),
+      'updated_at':
+          _string(r['updated_at']),
     };
-
-    final found = await db.query(
-      'customers',
-      where:
-          'billing_id = ? AND user_id = ?',
-      whereArgs: [
-        _int(
-          r['billing_id'],
-          fallback: 1,
-        ),
-        userId,
-      ],
-      limit: 1,
-    );
 
     if (found.isEmpty) {
       await db.insert(
@@ -1167,7 +1204,9 @@ void _scheduleRealtimePull() {
         'customers',
         values,
         where: 'id = ?',
-        whereArgs: [found.first['id']],
+        whereArgs: [
+          found.first['id'],
+        ],
       );
     }
   }
