@@ -836,6 +836,52 @@ void _scheduleRealtimePull() {
         Future<void> _processCustomerDeletionTombstones(
     Database db,
   ) async {
+      final cloudDeleted =
+        await _readCollection('customer_deletions');
+
+    for (final row in cloudDeleted) {
+      final billingId = _int(
+        row['billing_id'],
+        fallback: 1,
+      );
+
+      final userId =
+          _string(row['user_id']).trim();
+
+      final deletedAt =
+          _string(row['deleted_at']).trim();
+
+      if (billingId <= 0 ||
+          userId.isEmpty ||
+          deletedAt.isEmpty) {
+        continue;
+      }
+
+      final exists =
+          await db.query(
+        'deleted_customers',
+        where:
+            'billing_id = ? AND user_id = ?',
+        whereArgs: [
+          billingId,
+          userId,
+        ],
+        limit: 1,
+      );
+
+      if (exists.isEmpty) {
+        await db.insert(
+          'deleted_customers',
+          {
+            'billing_id': billingId,
+            'user_id': userId,
+            'deleted_at': deletedAt,
+          },
+          conflictAlgorithm:
+              ConflictAlgorithm.ignore,
+        );
+      }
+    }
     final deleted = await db.query(
       'deleted_customers',
       orderBy: 'id ASC',
@@ -861,6 +907,19 @@ void _scheduleRealtimePull() {
         continue;
       }
 
+            await _setCloud(
+        'customer_deletions',
+        _key(key),
+        {
+          'billing_id': billingId,
+          'user_id': userId,
+          'deleted_at':
+              deletedAt.toIso8601String(),
+          'cloud_updated_at':
+              FieldValue.serverTimestamp(),
+        },
+      );
+      
       final key =
           '${billingId}__$userId';
 
@@ -882,15 +941,18 @@ void _scheduleRealtimePull() {
           snapshot.data() ??
           <String, dynamic>{};
 
-      final remoteUpdatedAt =
-          _remoteTimestamp(remote);
+      final remoteCreatedAt =
+          DateTime.tryParse(
+        _string(remote['created_at']),
+      ) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
 
       // Cloud record যদি deletion-এর সময়ের
       // সমান বা পুরোনো হয়, তাহলে এটি সেই পুরোনো
       // Customer record।
       //
       // এটিকে আবার delete করব এবং tombstone রাখব।
-      if (!remoteUpdatedAt.isAfter(deletedAt)) {
+      if (!remoteCreatedAt.isAfter(deletedAt)) {
         await customerRef.delete();
         continue;
       }
