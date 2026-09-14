@@ -293,8 +293,11 @@ await _pullCloudToLocal(db);
   }
 
   if (freshInstall) {
-    // প্রথমে Cloud-এর সম্পূর্ণ master data Local DB-তে restore।
-    await _pullCloudToLocal(db);
+  // Cloud deletion আগে Local-এ apply হবে।
+  await _processCustomerDeletionTombstones(db);
+
+  // প্রথমে Cloud-এর সম্পূর্ণ master data Local DB-তে restore।
+  await _pullCloudToLocal(db);
 
     // Cloud-এ Package না থাকলে শুধু default package তৈরি।
     if (await _count(db, 'packages') == 0) {
