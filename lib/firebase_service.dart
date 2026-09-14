@@ -964,7 +964,7 @@ void _scheduleRealtimePull() {
         await _setCloud(
           'customers',
           _key(key),
-          _customerToCloud(row),
+          await _customerToCloud(db, row),
         );
         continue;
       }
@@ -975,7 +975,7 @@ void _scheduleRealtimePull() {
         await _setCloud(
           'customers',
           _key(key),
-          _customerToCloud(row),
+          await _customerToCloud(db, row),
         );
       }
     }
