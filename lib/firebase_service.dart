@@ -131,12 +131,15 @@ void _scheduleRealtimePull() {
       _realtimePullRunning = true;
 
       try {
-        final db =
-            await DatabaseHelper.instance.database;
+final db =
+    await DatabaseHelper.instance.database;
 
-        // Cloud → Local
-        // কোনো local data delete করা হবে না।
-        await _pullCloudToLocal(db);
+// Cloud deletion আগে Local-এ apply হবে।
+await _processCustomerDeletionTombstones(db);
+
+// Cloud → Local
+// কোনো local data delete করা হবে না।
+await _pullCloudToLocal(db);
 
         // Local relationship repair
         await _repairLocalRelations(db);
