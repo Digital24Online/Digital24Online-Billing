@@ -1680,7 +1680,9 @@ msg(
 );
 
 _syncInBackground();
-      catch (e) { msg('$e'); }
+    } catch (e) {
+      msg('$e');
+    }
   }
 
   Future<void> deleteCustomer(Customer c) async {
