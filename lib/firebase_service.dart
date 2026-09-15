@@ -2171,8 +2171,37 @@ if (byName.isNotEmpty) {
           // একই receipt আগে থেকেই Cloud-এ থাকলে
           // নতুন করে upload করার দরকার নেই।
           if (paymentSnapshot.exists) {
-            uploaded = true;
-            return;
+  final remotePayment =
+      paymentSnapshot.data() ??
+          <String, dynamic>{};
+
+  final samePayment =
+      _int(
+            remotePayment['billing_id'],
+            fallback: 1,
+          ) ==
+          _int(
+            row['billing_id'],
+            fallback: 1,
+          ) &&
+      _string(
+            remotePayment['customer_user_id'],
+          ).trim() ==
+          customerUserId &&
+      (_double(
+                remotePayment['amount'],
+              ) -
+              _double(row['amount']))
+          .abs() <
+          0.000001;
+
+  if (!samePayment) {
+    conflict = true;
+    return;
+  }
+
+  uploaded = true;
+  return;
           }
 
           if (!billSnapshot.exists) {
