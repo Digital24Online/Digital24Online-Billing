@@ -1871,25 +1871,141 @@ _syncInBackground();
     }
   }
 
-  Future<void> showDetails(Customer c) async {
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(t('ইউজারের বিস্তারিত তথ্য', 'Customer Details')),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          detail('ইউজার আইডি', c.userId), detail('নাম', c.name), detail('মোবাইল', c.mobile.isEmpty ? '-' : c.mobile),
-          detail('ঠিকানা', c.address.isEmpty ? '-' : c.address), detail('প্যাকেজ', c.packageName.isEmpty ? '-' : c.packageName),
-          detail('বিল ডেট', '${bnNumber(c.billDate)} তারিখ'), detail('মোট বিল', '${money(c.bill)} ৳'),
-          detail('মোট পরিশোধ', '${money(c.paid)} ৳'), detail('মোট বকেয়া', '${money(c.due)} ৳'),
-          detail('সর্বশেষ পেমেন্ট', c.paymentDate.isEmpty ? '-' : c.paymentDate), detail('স্ট্যাটাস', c.active ? 'Active' : 'Closed'),
-        ])),
-                actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('বন্ধ', 'Close'))),
-          FilledButton.icon(onPressed: () { Navigator.pop(ctx); showPaymentHistory(c); }, icon: const Icon(Icons.history), label: Text(t('পেমেন্ট হিস্ট্রি', 'Payment History'))),
-        ],
-      ),
+Future<void> showDetails(Customer c) async {
+  String staffName = '-';
+
+  if (c.staffId != null) {
+    final database = await db.database;
+
+    final staffRows = await database.query(
+      'staff',
+      columns: ['name'],
+      where: 'id = ?',
+      whereArgs: [c.staffId],
+      limit: 1,
     );
+
+    if (staffRows.isNotEmpty) {
+      staffName =
+          '${staffRows.first['name'] ?? ''}'.trim();
+
+      if (staffName.isEmpty) {
+        staffName = '-';
+      }
+    }
   }
+
+  if (!mounted) return;
+
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(
+        t(
+          'ইউজারের বিস্তারিত তথ্য',
+          'Customer Details',
+        ),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            detail(
+              'Cust ID',
+              c.custId.isEmpty
+                  ? '-'
+                  : c.custId,
+            ),
+            detail(
+              'ইউজার আইডি',
+              c.userId,
+            ),
+            detail(
+              'নাম',
+              c.name,
+            ),
+            detail(
+              'স্টাফ',
+              staffName,
+            ),
+            detail(
+              'মোবাইল',
+              c.mobile.isEmpty
+                  ? '-'
+                  : c.mobile,
+            ),
+            detail(
+              'ঠিকানা',
+              c.address.isEmpty
+                  ? '-'
+                  : c.address,
+            ),
+            detail(
+              'প্যাকেজ',
+              c.packageName.isEmpty
+                  ? '-'
+                  : c.packageName,
+            ),
+            detail(
+              'বিল ডেট',
+              '${bnNumber(c.billDate)} তারিখ',
+            ),
+            detail(
+              'মোট বিল',
+              '${money(c.bill)} ৳',
+            ),
+            detail(
+              'মোট পরিশোধ',
+              '${money(c.paid)} ৳',
+            ),
+            detail(
+              'মোট বকেয়া',
+              '${money(c.due)} ৳',
+            ),
+            detail(
+              'সর্বশেষ পেমেন্ট',
+              c.paymentDate.isEmpty
+                  ? '-'
+                  : c.paymentDate,
+            ),
+            detail(
+              'স্ট্যাটাস',
+              c.active
+                  ? 'Active'
+                  : 'Closed',
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () =>
+              Navigator.pop(ctx),
+          child: Text(
+            t('বন্ধ', 'Close'),
+          ),
+        ),
+        FilledButton.icon(
+          onPressed: () {
+            Navigator.pop(ctx);
+            showPaymentHistory(c);
+          },
+          icon: const Icon(
+            Icons.history,
+          ),
+          label: Text(
+            t(
+              'পেমেন্ট হিস্ট্রি',
+              'Payment History',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
   
     Widget detail(String a, String b) => Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [SizedBox(width: 110, child: Text('$a:', style: const TextStyle(fontWeight: FontWeight.bold))), Expanded(child: Text(b))]));
 
