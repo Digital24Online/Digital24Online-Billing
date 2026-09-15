@@ -1165,6 +1165,25 @@ await _pullCloudToLocal(db);
 
     if (billingId <= 0) return;
 
+    // একবার Customer Delete হলে
+    // Cloud-এর পুরোনো Customer আর Local-এ
+    // ঢুকতে পারবে না।
+    final deleted = await db.query(
+      'deleted_customers',
+      columns: ['id'],
+      where:
+          'billing_id = ? AND user_id = ?',
+      whereArgs: [
+        billingId,
+        userId,
+      ],
+      limit: 1,
+    );
+
+    if (deleted.isNotEmpty) {
+      return;
+    }
+
     final found = await db.query(
       'customers',
       where:
@@ -1176,10 +1195,8 @@ await _pullCloudToLocal(db);
       limit: 1,
     );
 
-    // Cloud-এর staff_id কখনো সরাসরি Local SQLite ID
-    // হিসেবে ব্যবহার করা হবে না।
-    //
-    // আগে staff_name দিয়ে এই ফোনের Local Staff ID খোঁজা হবে।
+    // Cloud-এর staff_id কখনো সরাসরি
+    // Local SQLite ID হিসেবে ব্যবহার করা হবে না।
     int? resolvedStaffId;
 
     final staffName =
@@ -1238,8 +1255,7 @@ await _pullCloudToLocal(db);
       'payment_date':
           _string(r['payment_date']),
 
-      // Valid Staff না থাকলে অবশ্যই NULL।
-      // কখনো 0 নয়।
+      // Valid Staff না থাকলে NULL।
       'staff_id': resolvedStaffId,
 
       'status': _int(
