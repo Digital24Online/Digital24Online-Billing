@@ -2650,25 +2650,36 @@ if (byName.isNotEmpty) {
     Database db,
     Map<String, dynamic> payment,
   ) async {
-    final billId = payment['bill_id'];
+    final month = _string(
+  payment['billing_month'],
+).trim();
 
-    if (billId != null) {
-      final bills = await db.query(
-        'bills',
-        columns: ['billing_month'],
-        where: 'id = ?',
-        whereArgs: [billId],
-        limit: 1,
-      );
+if (month.isNotEmpty) {
+  return month;
+}
 
-      if (bills.isNotEmpty) {
-        final month = _string(bills.first['billing_month']).trim();
-        if (month.isNotEmpty) return month;
-      }
+final billId = payment['bill_id'];
+
+if (billId != null) {
+  final bills = await db.query(
+    'bills',
+    columns: ['billing_month'],
+    where: 'id = ?',
+    whereArgs: [billId],
+    limit: 1,
+  );
+
+  if (bills.isNotEmpty) {
+    final localMonth =
+        _string(
+      bills.first['billing_month'],
+    ).trim();
+
+    if (localMonth.isNotEmpty) {
+      return localMonth;
     }
-
-    final month = _string(payment['billing_month']).trim();
-    if (month.isNotEmpty) return month;
+  }
+}
 
     final date = _string(payment['payment_date']);
     if (date.length >= 7) return date.substring(0, 7);
