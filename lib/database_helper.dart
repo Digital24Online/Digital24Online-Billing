@@ -1194,52 +1194,63 @@ if (oldVersion < 10) {
     );
   }
 
-    Future<int> deleteCustomer(
-    int id,
-  ) async {
-    final db = await database;
+Future<int> deleteCustomer(
+  int id,
+) async {
+  final db = await database;
 
-    return db.transaction<int>((txn) async {
-      final rows = await txn.query(
-        'customers',
-        columns: ['billing_id', 'user_id'],
-        where: 'id = ? AND billing_id = ?',
-        whereArgs: [id, _activeBillingId],
-        limit: 1,
-      );
+  return db.transaction<int>((txn) async {
+    final rows = await txn.query(
+      'customers',
+      columns: ['billing_id', 'user_id'],
+      where: 'id = ? AND billing_id = ?',
+      whereArgs: [id, _activeBillingId],
+      limit: 1,
+    );
 
-      if (rows.isEmpty) {
-        return 0;
-      }
+    if (rows.isEmpty) {
+      return 0;
+    }
 
-      final billingId =
-          (rows.first['billing_id'] as num?)?.toInt() ??
-              _activeBillingId;
+    final billingId =
+        (rows.first['billing_id'] as num?)?.toInt() ??
+            _activeBillingId;
 
-      final userId =
-          '${rows.first['user_id'] ?? ''}'.trim();
+    final userId =
+        '${rows.first['user_id'] ?? ''}'.trim();
 
-      if (userId.isEmpty) {
-        return 0;
-      }
+    if (userId.isEmpty) {
+      return 0;
+    }
 
-      await txn.insert(
-        'deleted_customers',
-        {
-          'billing_id': billingId,
-          'user_id': userId,
-          'deleted_at': DateTime.now().toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+    final deletedAt =
+        DateTime.now().toIso8601String();
 
-      return txn.delete(
-        'customers',
-        where: 'id = ? AND billing_id = ?',
-        whereArgs: [id, _activeBillingId],
-      );
-    });
-  }
+    await txn.insert(
+      'deleted_customers',
+      {
+        'billing_id': billingId,
+        'user_id': userId,
+        'deleted_at': deletedAt,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    // Customer row মুছবে না।
+    // শুধু User List থেকে লুকানো হবে।
+    // ফলে Billing/Payment/History নষ্ট হবে না।
+    return txn.update(
+      'customers',
+      {
+        'active': 0,
+        'status': -1,
+        'updated_at': deletedAt,
+      },
+      where: 'id = ? AND billing_id = ?',
+      whereArgs: [id, _activeBillingId],
+    );
+  });
+}
 
   // ============================================================
   // PACKAGES
