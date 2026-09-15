@@ -2758,157 +2758,233 @@ unawaited(
   }
   }
   
-  Future<void> exportUserListPdf() async {
-    try {
-      final rows = List<Customer>.from(filtered);
-      if (rows.isEmpty) {
-        msg(t('PDF করার মতো কোনো ইউজার নেই।', 'There are no customers to export.'));
-        return;
-      }
+Future<void> exportUserListPdf() async {
+  try {
+    final rows = List<Customer>.from(filtered);
 
-      final logoData = await rootBundle.load('assets/logo.png');
-      final logo = pw.MemoryImage(
-        logoData.buffer.asUint8List(),
-      );
-
-      final doc = pw.Document();
-
-      double totalBillValue = 0;
-      double totalPaidValue = 0;
-      double totalDueValue = 0;
-
-      for (final c in rows) {
-        totalBillValue += c.bill;
-        totalPaidValue += c.paid;
-        totalDueValue += c.due;
-      }
-      
-      doc.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4.landscape,
-          margin: const pw.EdgeInsets.all(24),
-          header: (_) => pw.Column(
-            children: [
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.center,
-                children: [
-                  pw.Container(
-                    width: 72,
-                    height: 42,
-                    child: pw.Image(logo, fit: pw.BoxFit.contain),
-                  ),
-                  pw.SizedBox(width: 12),
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'DIGITAL 24 ONLINE',
-                        style: pw.TextStyle(
-                          fontSize: 18,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                      pw.Text('Internet Service Provider'),
-                      pw.Text(
-                        'Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100',
-                        style: const pw.TextStyle(fontSize: 8),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              pw.Divider(),
-              pw.Center(
-                child: pw.Text(
-                  'CUSTOMER / PAYMENT REPORT',
-                  style: pw.TextStyle(
-                    fontSize: 14,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-              ),
-              pw.SizedBox(height: 8),
-            ],
-          ),
-          footer: (context) => pw.Align(
-            alignment: pw.Alignment.centerRight,
-            child: pw.Text(
-              'Page ${context.pageNumber} / ${context.pagesCount}',
-              style: const pw.TextStyle(fontSize: 8),
-            ),
-          ),
-          build: (_) => [
-            pw.TableHelper.fromTextArray(
-              headers: const [
-                'SN',
-                'Cust ID',
-                'Username',
-                'Name',
-                'Mobile',
-                'Package',
-                'Bill Date',
-                'Bill',
-                'Paid',
-                'Due',
-                'Status',
-              ],
-              data: rows.asMap().entries.map((entry) {
-                final i = entry.key;
-                final c = entry.value;
-                return [
-                  '${i + 1}',
-                  '${c.id ?? '-'}',
-                  c.userId,
-                  c.name,
-                  c.mobile,
-                  c.packageName,
-                  '${c.billDate}',
-                  money(c.bill),
-                  money(c.paid),
-                  money(c.due),
-                  c.active ? 'Active' : 'Closed',
-                ];
-              }).toList(),
-              cellStyle: const pw.TextStyle(fontSize: 7),
-              headerStyle: pw.TextStyle(
-                fontSize: 7,
-                fontWeight: pw.FontWeight.bold,
-              ),
-              cellPadding: const pw.EdgeInsets.all(4),
-              border: pw.TableBorder.all(width: 0.35),
-              headerDecoration: const pw.BoxDecoration(
-                color: PdfColors.blueGrey100,
-              ),
-            ),
-            pw.SizedBox(height: 12),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('Customers: ${rows.length}'),
-                pw.Text('Total Bill: BDT ${money(totalBillValue)}'),
-                pw.Text('Total Paid: BDT ${money(totalPaidValue)}'),
-                pw.Text('Total Due: BDT ${money(totalDueValue)}'),
-              ],
-            ),
-            pw.SizedBox(height: 8),
-            pw.Text(
-              'Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
-              style: const pw.TextStyle(fontSize: 8),
-            ),
-          ],
+    if (rows.isEmpty) {
+      msg(
+        t(
+          'PDF করার মতো কোনো ইউজার নেই।',
+          'There are no customers to export.',
         ),
       );
-
-      final bytes = Uint8List.fromList(await doc.save());
-      final fileName =
-          'Digital24Online_Customer_Report_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-
-      await _showPdfActions(bytes, fileName);
-    } catch (e) {
-      msg('${t('PDF তৈরিতে সমস্যা: ', 'PDF error: ')}$e');
+      return;
     }
+
+    final logoData =
+        await rootBundle.load(
+      'assets/logo.png',
+    );
+
+    final logo = pw.MemoryImage(
+      logoData.buffer.asUint8List(),
+    );
+
+    final doc = pw.Document();
+
+    double totalBillValue = 0;
+    double totalPaidValue = 0;
+    double totalDueValue = 0;
+
+    for (final c in rows) {
+      totalBillValue += c.bill;
+      totalPaidValue += c.paid;
+      totalDueValue += c.due;
+    }
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat:
+            PdfPageFormat.a4.landscape,
+        margin:
+            const pw.EdgeInsets.all(24),
+        header: (_) => pw.Column(
+          children: [
+            pw.Row(
+              crossAxisAlignment:
+                  pw.CrossAxisAlignment.center,
+              children: [
+                pw.Container(
+                  width: 72,
+                  height: 42,
+                  child: pw.Image(
+                    logo,
+                    fit: pw.BoxFit.contain,
+                  ),
+                ),
+                pw.SizedBox(width: 12),
+                pw.Column(
+                  crossAxisAlignment:
+                      pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'DIGITAL 24 ONLINE',
+                      style: pw.TextStyle(
+                        fontSize: 18,
+                        fontWeight:
+                            pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      'Internet Service Provider',
+                    ),
+                    pw.Text(
+                      'Seroil Colony, 4 No. Road, Ghoramara, Chandrima Rajshahi-6100',
+                      style:
+                          const pw.TextStyle(
+                        fontSize: 8,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 10),
+            pw.Divider(),
+            pw.Center(
+              child: pw.Text(
+                'CUSTOMER / PAYMENT REPORT',
+                style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight:
+                      pw.FontWeight.bold,
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 8),
+          ],
+        ),
+        footer: (context) =>
+            pw.Align(
+          alignment:
+              pw.Alignment.centerRight,
+          child: pw.Text(
+            'Page ${context.pageNumber} / ${context.pagesCount}',
+            style:
+                const pw.TextStyle(
+              fontSize: 8,
+            ),
+          ),
+        ),
+        build: (_) => [
+          pw.TableHelper.fromTextArray(
+            headers: const [
+              'SN',
+              'Cust ID',
+              'Username',
+              'Name',
+              'Mobile',
+              'Package',
+              'Bill Date',
+              'Bill',
+              'Paid',
+              'Due',
+              'Status',
+            ],
+            data: rows
+                .asMap()
+                .entries
+                .map((entry) {
+              final i = entry.key;
+              final c = entry.value;
+
+              return [
+                '${i + 1}',
+
+                // এখানে Internal SQLite ID নয়।
+                // Customer-এর আসল Cust ID যাবে।
+                c.custId.isEmpty
+                    ? '-'
+                    : c.custId,
+
+                c.userId,
+                c.name,
+                c.mobile,
+                c.packageName,
+                '${c.billDate}',
+                money(c.bill),
+                money(c.paid),
+                money(c.due),
+                c.active
+                    ? 'Active'
+                    : 'Closed',
+              ];
+            }).toList(),
+            cellStyle:
+                const pw.TextStyle(
+              fontSize: 7,
+            ),
+            headerStyle: pw.TextStyle(
+              fontSize: 7,
+              fontWeight:
+                  pw.FontWeight.bold,
+            ),
+            cellPadding:
+                const pw.EdgeInsets.all(4),
+            border:
+                pw.TableBorder.all(
+              width: 0.35,
+            ),
+            headerDecoration:
+                const pw.BoxDecoration(
+              color:
+                  PdfColors.blueGrey100,
+            ),
+          ),
+          pw.SizedBox(height: 12),
+          pw.Row(
+            mainAxisAlignment:
+                pw.MainAxisAlignment
+                    .spaceBetween,
+            children: [
+              pw.Text(
+                'Customers: ${rows.length}',
+              ),
+              pw.Text(
+                'Total Bill: BDT ${money(totalBillValue)}',
+              ),
+              pw.Text(
+                'Total Paid: BDT ${money(totalPaidValue)}',
+              ),
+              pw.Text(
+                'Total Due: BDT ${money(totalDueValue)}',
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text(
+            'Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
+            style:
+                const pw.TextStyle(
+              fontSize: 8,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final bytes =
+        Uint8List.fromList(
+      await doc.save(),
+    );
+
+    final fileName =
+        'Digital24Online_Customer_Report_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+
+    await _showPdfActions(
+      bytes,
+      fileName,
+    );
+  } catch (e) {
+    msg(
+      '${t(
+        'PDF তৈরিতে সমস্যা: ',
+        'PDF error: ',
+      )}$e',
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {
