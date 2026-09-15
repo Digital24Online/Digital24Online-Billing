@@ -804,16 +804,42 @@ bool billingLoading = false;
   int get activeCount => customers.where((c) => c.active).length;
   int get closedCount => customers.where((c) => !c.active).length;
 
-  List<Customer> get filtered {
-    final q = searchText.trim().toLowerCase();
-    if (q.isEmpty) return customers;
-    return customers.where((c) {
-      return c.userId.toLowerCase().contains(q) ||
-          c.name.toLowerCase().contains(q) ||
-          c.mobile.contains(q) ||
-          c.packageName.toLowerCase().contains(q);
-    }).toList();
-  }
+List<Customer> get filtered {
+  final q = searchText.trim().toLowerCase();
+
+  final result = q.isEmpty
+      ? List<Customer>.from(customers)
+      : customers.where((c) {
+          return c.userId.toLowerCase().contains(q) ||
+              c.name.toLowerCase().contains(q) ||
+              c.mobile.contains(q) ||
+              c.packageName.toLowerCase().contains(q);
+        }).toList();
+
+  // Cust ID ছোট থেকে বড় Numeric Order।
+  // যেমন: 913 → 1014 → 142235
+  result.sort((a, b) {
+    final aId = int.tryParse(a.custId.trim());
+    final bId = int.tryParse(b.custId.trim());
+
+    if (aId != null && bId != null) {
+      final compare = aId.compareTo(bId);
+      if (compare != 0) return compare;
+    } else if (aId != null) {
+      return -1;
+    } else if (bId != null) {
+      return 1;
+    }
+
+    return a.userId
+        .toLowerCase()
+        .compareTo(
+          b.userId.toLowerCase(),
+        );
+  });
+
+  return result;
+}
 
   @override
   void initState() {
