@@ -844,8 +844,11 @@ await _pullCloudToLocal(db);
     Database db,
   ) async {
     final cloudDeleted =
-        await _readCollection('customer_deletions');
+        await _readCollection(
+      'customer_deletions',
+    );
 
+    // Cloud-এর সব Delete tombstone Local-এ আনুন।
     for (final row in cloudDeleted) {
       final billingId = _int(
         row['billing_id'],
@@ -864,8 +867,7 @@ await _pullCloudToLocal(db);
         continue;
       }
 
-      final exists =
-          await db.query(
+      final exists = await db.query(
         'deleted_customers',
         where:
             'billing_id = ? AND user_id = ?',
@@ -889,7 +891,9 @@ await _pullCloudToLocal(db);
         );
       }
     }
-    final deleted = await db.query(
+
+    final deleted =
+        await db.query(
       'deleted_customers',
       orderBy: 'id ASC',
     );
@@ -900,11 +904,11 @@ await _pullCloudToLocal(db);
         fallback: 1,
       );
 
-      final userId = _string(
-        row['user_id'],
-      ).trim();
+      final userId =
+          _string(row['user_id']).trim();
 
-      final deletedAt = DateTime.tryParse(
+      final deletedAt =
+          DateTime.tryParse(
         _string(row['deleted_at']),
       );
 
@@ -917,6 +921,7 @@ await _pullCloudToLocal(db);
       final key =
           '${billingId}__$userId';
 
+      // Delete tombstone Cloud-এ স্থায়ীভাবে রাখুন।
       await _setCloud(
         'customer_deletions',
         _key(key),
@@ -930,50 +935,43 @@ await _pullCloudToLocal(db);
         },
       );
 
-      final customerRef = _collection(
-        'customers',
-      ).doc(_key(key));
-
-      final snapshot = await customerRef.get();
-
-      // Cloud-এ Customer আর নেই।
-      // Tombstone অবশ্যই রেখে দিতে হবে, যাতে কোনো
-      // পুরোনো Offline device আবার Customer-টি
-      // Cloud-এ resurrect করতে না পারে।
-      if (!snapshot.exists) {
-        continue;
-      }
-
-      final remote =
-          snapshot.data() ??
-          <String, dynamic>{};
-
-      final remoteCreatedAt =
-          DateTime.tryParse(
-        _string(remote['created_at']),
-      ) ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-
-      // Cloud record যদি deletion-এর সময়ের
-      // সমান বা পুরোনো হয়, তাহলে এটি সেই পুরোনো
-      // Customer record।
-      //
-      // এটিকে আবার delete করব এবং tombstone রাখব।
-      if (!remoteCreatedAt.isAfter(deletedAt)) {
-        await customerRef.delete();
-        continue;
-      }
-
-      // Cloud-এ deletion-এর পরে সত্যিকারের নতুন
-      // Customer record তৈরি/পরিবর্তন হয়েছে।
-      //
-      // এটিকে legitimate newer record হিসেবে গ্রহণ
-      // করে পুরোনো tombstone সরিয়ে দেওয়া হবে।
-      await db.delete(
-        'deleted_customers',
-        where: 'id = ?',
-        whereArgs: [row['id']],
+      // পুরোনো Customer Cloud-এ থাকলে সরিয়ে দিন।
+      final customerRef =
+          _collection('customers').doc(
+        _key(key),
       );
+
+      final snapshot =
+          await customerRef.get();
+
+      if (snapshot.exists) {
+        await customerRef.delete();
+      }
+
+      // এই ফোনেও Customer-কে Deleted করুন।
+      //
+      // মূল row রাখা হচ্ছে যাতে Billing /
+      // Payment / History-এর relation নষ্ট না হয়।
+      await db.update(
+        'customers',
+        {
+          'status': -1,
+          'active': 0,
+        },
+        where:
+            'billing_id = ? AND user_id = ?',
+        whereArgs: [
+          billingId,
+          userId,
+        ],
+      );
+
+      // গুরুত্বপূর্ণ:
+      // deleted_customers থেকে tombstone
+      // কখনো DELETE করা হবে না।
+      //
+      // তাই পুরোনো Offline ফোন থেকেও
+      // Customer আবার ফিরে আসতে পারবে না।
     }
   }
     Future<void> _mergeCustomers(Database db) async {
