@@ -1208,8 +1208,8 @@ if (oldVersion < 10) {
     );
   }
 
-Future<int> deleteCustomer(
-  int id,
+  Future<int> deleteCustomer(
+    int id,
 ) async {
   final db = await database;
 
@@ -1240,6 +1240,10 @@ Future<int> deleteCustomer(
     final deletedAt =
         DateTime.now().toIso8601String();
 
+    // Deleted Customer-এর নিরাপত্তা Tombstone।
+    // এটি Customer-এর পুরোনো তথ্য নয়।
+    // পুরোনো Offline/Cloud data যেন আবার ফিরে না আসে
+    // তার জন্য এই রেকর্ড স্থায়ীভাবে রাখা হবে।
     await txn.insert(
       'deleted_customers',
       {
@@ -1250,18 +1254,48 @@ Future<int> deleteCustomer(
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
 
-    // Customer row মুছবে না।
-    // শুধু User List থেকে লুকানো হবে।
-    // ফলে Billing/Payment/History নষ্ট হবে না।
-    return txn.update(
+    // Customer-এর Payment/Collection records সম্পূর্ণ মুছুন।
+    await txn.delete(
+      'payment_conflicts',
+      where:
+          'customer_id = ? AND billing_id = ?',
+      whereArgs: [
+        id,
+        billingId,
+      ],
+    );
+
+    await txn.delete(
+      'payments',
+      where:
+          'customer_id = ? AND billing_id = ?',
+      whereArgs: [
+        id,
+        billingId,
+      ],
+    );
+
+    // Customer-এর সব Monthly Bill সম্পূর্ণ মুছুন।
+    await txn.delete(
+      'bills',
+      where:
+          'customer_id = ? AND billing_id = ?',
+      whereArgs: [
+        id,
+        billingId,
+      ],
+    );
+
+    // সবশেষে Customer master record মুছুন।
+    // অন্য Customer-এর কোনো record এতে স্পর্শ হবে না।
+    return txn.delete(
       'customers',
-      {
-        'active': 0,
-        'status': -1,
-        'updated_at': deletedAt,
-      },
-      where: 'id = ? AND billing_id = ?',
-      whereArgs: [id, _activeBillingId],
+      where:
+          'id = ? AND billing_id = ?',
+      whereArgs: [
+        id,
+        billingId,
+      ],
     );
   });
 }
