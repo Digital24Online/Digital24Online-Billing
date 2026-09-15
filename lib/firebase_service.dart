@@ -2075,7 +2075,26 @@ if (byName.isNotEmpty) {
       // একই receipt Cloud-এ থাকলে এটি আর নতুন payment হিসেবে
       // upload করা হবে না।
       if (remote != null) {
-        continue;
+  final samePayment =
+      _int(remote['billing_id'], fallback: 1) ==
+          _int(row['billing_id'], fallback: 1) &&
+      _string(remote['customer_user_id']).trim() ==
+          customerUserId &&
+      (_double(remote['amount']) -
+                  _double(row['amount']))
+              .abs() <
+          0.000001;
+
+  if (!samePayment) {
+    await _movePaymentToConflict(
+      db,
+      row,
+      customerUserId,
+      'Same receipt number has different payment data.',
+    );
+  }
+
+  continue;
       }
 
       final result = await _tryUploadPaymentAtomically(
