@@ -840,140 +840,255 @@ await _pullCloudToLocal(db);
   // CUSTOMERS
   // ---------------------------------------------------------------------------
 
-  Future<void> _processCustomerDeletionTombstones(
-    Database db,
-  ) async {
-    final cloudDeleted =
-        await _readCollection(
-      'customer_deletions',
+Future<void> _processCustomerDeletionTombstones(
+  Database db,
+) async {
+  final cloudDeleted =
+      await _readCollection(
+    'customer_deletions',
+  );
+
+  // Cloud-এর সব Delete Tombstone Local-এ আনুন।
+  for (final row in cloudDeleted) {
+    final billingId = _int(
+      row['billing_id'],
+      fallback: 1,
     );
 
-    // Cloud-এর সব Delete tombstone Local-এ আনুন।
-    for (final row in cloudDeleted) {
-      final billingId = _int(
-        row['billing_id'],
-        fallback: 1,
-      );
+    final userId =
+        _string(row['user_id']).trim();
 
-      final userId =
-          _string(row['user_id']).trim();
+    final deletedAt =
+        _string(row['deleted_at']).trim();
 
-      final deletedAt =
-          _string(row['deleted_at']).trim();
-
-      if (billingId <= 0 ||
-          userId.isEmpty ||
-          deletedAt.isEmpty) {
-        continue;
-      }
-
-      final exists = await db.query(
-        'deleted_customers',
-        where:
-            'billing_id = ? AND user_id = ?',
-        whereArgs: [
-          billingId,
-          userId,
-        ],
-        limit: 1,
-      );
-
-      if (exists.isEmpty) {
-        await db.insert(
-          'deleted_customers',
-          {
-            'billing_id': billingId,
-            'user_id': userId,
-            'deleted_at': deletedAt,
-          },
-          conflictAlgorithm:
-              ConflictAlgorithm.ignore,
-        );
-      }
+    if (billingId <= 0 ||
+        userId.isEmpty ||
+        deletedAt.isEmpty) {
+      continue;
     }
 
-    final deleted =
-        await db.query(
+    final exists = await db.query(
       'deleted_customers',
-      orderBy: 'id ASC',
+      where:
+          'billing_id = ? AND user_id = ?',
+      whereArgs: [
+        billingId,
+        userId,
+      ],
+      limit: 1,
     );
 
-    for (final row in deleted) {
-      final billingId = _int(
-        row['billing_id'],
-        fallback: 1,
-      );
-
-      final userId =
-          _string(row['user_id']).trim();
-
-      final deletedAt =
-          DateTime.tryParse(
-        _string(row['deleted_at']),
-      );
-
-      if (billingId <= 0 ||
-          userId.isEmpty ||
-          deletedAt == null) {
-        continue;
-      }
-
-      final key =
-          '${billingId}__$userId';
-
-      // Delete tombstone Cloud-এ স্থায়ীভাবে রাখুন।
-      await _setCloud(
-        'customer_deletions',
-        _key(key),
+    if (exists.isEmpty) {
+      await db.insert(
+        'deleted_customers',
         {
           'billing_id': billingId,
           'user_id': userId,
-          'deleted_at':
-              deletedAt.toIso8601String(),
-          'cloud_updated_at':
-              FieldValue.serverTimestamp(),
+          'deleted_at': deletedAt,
         },
+        conflictAlgorithm:
+            ConflictAlgorithm.ignore,
       );
-
-      // পুরোনো Customer Cloud-এ থাকলে সরিয়ে দিন।
-      final customerRef =
-          _collection('customers').doc(
-        _key(key),
-      );
-
-      final snapshot =
-          await customerRef.get();
-
-      if (snapshot.exists) {
-        await customerRef.delete();
-      }
-
-      // এই ফোনেও Customer-কে Deleted করুন।
-      //
-      // মূল row রাখা হচ্ছে যাতে Billing /
-      // Payment / History-এর relation নষ্ট না হয়।
-      await db.update(
-        'customers',
-        {
-          'status': -1,
-          'active': 0,
-        },
-        where:
-            'billing_id = ? AND user_id = ?',
-        whereArgs: [
-          billingId,
-          userId,
-        ],
-      );
-
-      // গুরুত্বপূর্ণ:
-      // deleted_customers থেকে tombstone
-      // কখনো DELETE করা হবে না।
-      //
-      // তাই পুরোনো Offline ফোন থেকেও
-      // Customer আবার ফিরে আসতে পারবে না।
     }
   }
+
+  final deleted =
+      await db.query(
+    'deleted_customers',
+    orderBy: 'id ASC',
+  );
+
+  for (final row in deleted) {
+    final billingId = _int(
+      row['billing_id'],
+      fallback: 1,
+    );
+
+    final userId =
+        _string(row['user_id']).trim();
+
+    final deletedAt =
+        DateTime.tryParse(
+      _string(row['deleted_at']),
+    );
+
+    if (billingId <= 0 ||
+        userId.isEmpty ||
+        deletedAt == null) {
+      continue;
+    }
+
+    final key =
+        '${billingId}__$userId';
+
+    // Tombstone Cloud-এ স্থায়ীভাবে রাখুন।
+    // এটি Customer data নয়।
+    // শুধু Deleted Customer resurrection আটকাবে।
+    await _setCloud(
+      'customer_deletions',
+      _key(key),
+      {
+        'billing_id': billingId,
+        'user_id': userId,
+        'deleted_at':
+            deletedAt.toIso8601String(),
+        'cloud_updated_at':
+            FieldValue.serverTimestamp(),
+      },
+    );
+
+    // Cloud-এর Customer + Bill + Payment +
+    // Payment Conflict + Bill Balance সম্পূর্ণ মুছুন।
+    await _deleteCustomerCloudData(
+      billingId,
+      userId,
+    );
+
+    // এই ফোনে Customer-এর সব সম্পর্কিত Local data
+    // সম্পূর্ণ মুছে দিন।
+    final customers = await db.query(
+      'customers',
+      columns: ['id'],
+      where:
+          'billing_id = ? AND user_id = ?',
+      whereArgs: [
+        billingId,
+        userId,
+      ],
+      limit: 1,
+    );
+
+    for (final customer in customers) {
+      final customerId =
+          _int(customer['id']);
+
+      if (customerId <= 0) {
+        continue;
+      }
+
+      await db.delete(
+        'payment_conflicts',
+        where: 'customer_id = ?',
+        whereArgs: [customerId],
+      );
+
+      await db.delete(
+        'payments',
+        where: 'customer_id = ?',
+        whereArgs: [customerId],
+      );
+
+      await db.delete(
+        'bills',
+        where: 'customer_id = ?',
+        whereArgs: [customerId],
+      );
+
+      await db.delete(
+        'customers',
+        where: 'id = ? AND billing_id = ?',
+        whereArgs: [
+          customerId,
+          billingId,
+        ],
+      );
+    }
+
+    // Tombstone কখনো DELETE হবে না।
+    // পুরোনো Offline ফোন থেকেও Customer
+    // আবার ফিরে আসতে পারবে না।
+  }
+}
+
+Future<void> _deleteCustomerCloudData(
+  int billingId,
+  String userId,
+) async {
+  final references =
+      <DocumentReference<Map<String, dynamic>>>[];
+
+  // Customer document
+  references.add(
+    _collection('customers').doc(
+      _key('${billingId}__$userId'),
+    ),
+  );
+
+  Future<void> collectCustomerDocuments(
+    String collection,
+  ) async {
+    final snapshot = await _collection(collection)
+        .where(
+          'customer_user_id',
+          isEqualTo: userId,
+        )
+        .get();
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+
+      if (_int(
+            data['billing_id'],
+            fallback: 1,
+          ) ==
+          billingId) {
+        references.add(doc.reference);
+      }
+    }
+  }
+
+  await collectCustomerDocuments('bills');
+  await collectCustomerDocuments('payments');
+  await collectCustomerDocuments(
+    'payment_conflicts',
+  );
+
+  // Bill Balance-এ billing_id field নেই।
+  // তাই stable document key দিয়ে নির্দিষ্ট Customer-এর
+  // Balance record শনাক্ত করা হচ্ছে।
+  final balanceSnapshot =
+      await _collection('bill_balances')
+          .where(
+            'customer_user_id',
+            isEqualTo: userId,
+          )
+          .get();
+
+  final balancePrefix =
+      _key('${billingId}__${userId}__');
+
+  for (final doc in balanceSnapshot.docs) {
+    if (doc.id.startsWith(balancePrefix)) {
+      references.add(doc.reference);
+    }
+  }
+
+  // Firestore batch-এর নিরাপদ সীমার মধ্যে delete করুন।
+  const batchSize = 450;
+
+  for (
+    var start = 0;
+    start < references.length;
+    start += batchSize
+  ) {
+    final end =
+        (start + batchSize > references.length)
+            ? references.length
+            : start + batchSize;
+
+    final batch = _firestore.batch();
+
+    for (
+      var i = start;
+      i < end;
+      i++
+    ) {
+      batch.delete(references[i]);
+    }
+
+    await batch.commit();
+  }
+}
     Future<void> _mergeCustomers(Database db) async {
     final local = await db.query('customers');
     final cloud = await _readCollection('customers');
