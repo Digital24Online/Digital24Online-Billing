@@ -931,15 +931,22 @@ if (oldVersion < 10) {
     final db = await database;
 
     final where = <String>[];
-    final args = <dynamic>[_activeBillingId];
+    final args = <dynamic>[
+      _activeBillingId,
+    ];
+
     where.add('c.billing_id = ?');
+
+    // Deleted Customer User List-এ দেখাবে না।
+    where.add('c.status != ?');
+    args.add(-1);
 
     if (billDate != null) {
       where.add('c.bill_date = ?');
       args.add(billDate);
     }
 
-        if (search.trim().isNotEmpty) {
+    if (search.trim().isNotEmpty) {
       final q =
           '%${search.trim().toLowerCase()}%';
 
@@ -953,8 +960,15 @@ if (oldVersion < 10) {
         )
       ''');
 
-      args.addAll([q, q, q, q, q]);
-        }
+      args.addAll([
+        q,
+        q,
+        q,
+        q,
+        q,
+      ]);
+    }
+
     final whereSql = where.isEmpty
         ? ''
         : 'WHERE ${where.join(' AND ')}';
@@ -1003,7 +1017,7 @@ if (oldVersion < 10) {
       args,
     );
   }
-
+  
   Future<List<Map<String, dynamic>>>
       getCustomersByBillDate(
     int billDate,
