@@ -815,7 +815,7 @@ bool billingLoading = false;
     }).toList();
   }
 
-    @override
+  @override
   void initState() {
     super.initState();
 
@@ -823,7 +823,12 @@ bool billingLoading = false;
         FirebaseService.instance.dataChanges.listen((_) {
       if (!mounted) return;
 
-      unawaited(loadBillingContext());
+      // Cloud Sync হলে Billing Context নয়,
+      // শুধু Customer List refresh হবে।
+      //
+      // এতে পুরো User List আবার Loading অবস্থায়
+      // চলে যাবে না এবং Scroll position অযথা নড়বে না।
+      unawaited(loadCustomers());
     });
 
     loadBillingContext();
