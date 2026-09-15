@@ -3274,10 +3274,10 @@ if (byName.isNotEmpty) {
         ? serverValue.toDate()
         : DateTime.tryParse(_string(serverValue));
 
-    return serverDate ??
-        DateTime.tryParse(_string(row['updated_at'])) ??
-        DateTime.tryParse(_string(row['created_at'])) ??
-        DateTime.fromMillisecondsSinceEpoch(0);
+    return DateTime.tryParse(_string(row['updated_at'])) ??
+    serverDate ??
+    DateTime.tryParse(_string(row['created_at'])) ??
+    DateTime.fromMillisecondsSinceEpoch(0);
   }
   
   String _key(String value) {
