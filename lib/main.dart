@@ -4208,45 +4208,104 @@ _syncInBackground();
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(
-        t(
-          'Staff Collection',
-          'Staff Collection',
-        ),
+@override
+Widget build(BuildContext context) {
+  return AlertDialog(
+    title: Text(
+      t(
+        'Staff Collection',
+        'Staff Collection',
       ),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: 420,
-        child: rows.isEmpty
-            ? Center(
-                child: Text(
-                  t(
-                    'কোনো active staff নেই',
-                    'No active staff',
-                  ),
+    ),
+    content: SizedBox(
+      width: double.maxFinite,
+      height: 420,
+      child: rows.isEmpty
+          ? Center(
+              child: Text(
+                t(
+                  'কোনো active staff নেই',
+                  'No active staff',
                 ),
-              )
-            : ListView.builder(
-                itemCount: rows.length,
-                itemBuilder: (_, i) {
-                  final row = rows[i];
+              ),
+            )
+          : ListView.separated(
+              itemCount: rows.length,
+              separatorBuilder: (_, __) =>
+                  const SizedBox(height: 8),
+              itemBuilder: (_, i) {
+                final row = rows[i];
 
-                  return ListTile(
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.person),
+                final staffName =
+                    '${row['name'] ?? ''}'
+                        .trim();
+
+                final mobile =
+                    '${row['mobile'] ?? ''}'
+                        .trim();
+
+                return Card(
+                  margin: EdgeInsets.zero,
+                  elevation: 1,
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
                     ),
-                    title: Text(
-                      '${row['name'] ?? ''}',
-                    ),
-                    subtitle: Text(
-                      '${row['mobile'] ?? ''}',
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Row(
                       children: [
+                        const CircleAvatar(
+                          radius: 22,
+                          child: Icon(
+                            Icons.person,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+
+                        // Staff name-এর জন্য
+                        // সম্পূর্ণ মাঝের জায়গা থাকবে।
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            mainAxisSize:
+                                MainAxisSize.min,
+                            children: [
+                              Text(
+                                staffName.isEmpty
+                                    ? '-'
+                                    : staffName,
+                                maxLines: 1,
+                                overflow:
+                                    TextOverflow.ellipsis,
+                                softWrap: false,
+                                style:
+                                    const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight:
+                                      FontWeight.w700,
+                                ),
+                              ),
+                              if (mobile.isNotEmpty) ...[
+                                const SizedBox(
+                                  height: 3,
+                                ),
+                                Text(
+                                  mobile,
+                                  maxLines: 1,
+                                  overflow:
+                                      TextOverflow.ellipsis,
+                                  style:
+                                      const TextStyle(
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+
                         IconButton(
                           tooltip: t(
                             'Edit',
@@ -4255,8 +4314,10 @@ _syncInBackground();
                           icon: const Icon(
                             Icons.edit_rounded,
                           ),
-                          onPressed: () => editStaff(row),
+                          onPressed: () =>
+                              editStaff(row),
                         ),
+
                         IconButton(
                           tooltip: t(
                             'Delete',
@@ -4265,48 +4326,50 @@ _syncInBackground();
                           icon: const Icon(
                             Icons.delete_outline_rounded,
                           ),
-                          onPressed: () => deleteStaff(row),
+                          onPressed: () =>
+                              deleteStaff(row),
                         ),
                       ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
+            ),
+    ),
+    actions: [
+      TextButton.icon(
+        onPressed: collectionReport,
+        icon: const Icon(
+          Icons.assessment_rounded,
+        ),
+        label: Text(
+          t(
+            'Collection Report',
+            'Collection Report',
+          ),
+        ),
       ),
-      actions: [
-        TextButton.icon(
-          onPressed: collectionReport,
-          icon: const Icon(
-            Icons.assessment_rounded,
-          ),
-          label: Text(
-            t(
-              'Collection Report',
-              'Collection Report',
-            ),
+      TextButton(
+        onPressed: add,
+        child: Text(
+          t(
+            'স্টাফ যোগ',
+            'Add Staff',
           ),
         ),
-        TextButton(
-          onPressed: add,
-          child: Text(
-            t(
-              'স্টাফ যোগ',
-              'Add Staff',
-            ),
+      ),
+      FilledButton(
+        onPressed: () =>
+            Navigator.pop(context),
+        child: Text(
+          t(
+            'বন্ধ',
+            'Close',
           ),
         ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            t(
-              'বন্ধ',
-              'Close',
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
 }
 
 class ReportManager extends StatefulWidget {
