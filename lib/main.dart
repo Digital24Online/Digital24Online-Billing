@@ -977,63 +977,141 @@ bool billingLoading = false;
   }
 
   Future<void> loadCustomers() async {
-    if (mounted) setState(() => loading = true);
+    // প্রথমবার List খালি থাকলে Loading দেখাবে।
+    //
+    // List আগে থেকেই থাকলে Sync-এর সময়
+    // Loading screen বসানো হবে না।
+    if (mounted && customers.isEmpty) {
+      setState(() => loading = true);
+    }
+
     try {
       final rows = await db.getCustomers(
-        billDate: selectedBillDate == 0 ? null : selectedBillDate,
+        billDate:
+            selectedBillDate == 0
+                ? null
+                : selectedBillDate,
         search: searchText,
       );
-      final currentBills = await db.getBills(monthKey());
-      final packages = await db.getPackages();
-      final packagePrices = <String, double>{};
+
+      final currentBills =
+          await db.getBills(monthKey());
+
+      final packages =
+          await db.getPackages();
+
+      final packagePrices =
+          <String, double>{};
+
       for (final p in packages) {
         if ((p['active'] ?? 1) == 1) {
-          packagePrices['${p['name'] ?? ''}'.trim().toLowerCase()] =
-              ((p['price'] ?? 0) as num).toDouble();
+          packagePrices[
+              '${p['name'] ?? ''}'
+                  .trim()
+                  .toLowerCase()] =
+              ((p['price'] ?? 0) as num)
+                  .toDouble();
         }
       }
-      final billsByCustomer = <int, Map<String, dynamic>>{};
+
+      final billsByCustomer =
+          <int, Map<String, dynamic>>{};
+
       for (final b in currentBills) {
         final id = b['customer_id'];
-        if (id is num) billsByCustomer[id.toInt()] = b;
+
+        if (id is num) {
+          billsByCustomer[
+              id.toInt()] = b;
+        }
       }
+
       final list = <Customer>[];
+
       for (final r in rows) {
-        final id = (r['id'] as num?)?.toInt();
-        final current = id == null ? null : billsByCustomer[id];
-        final packageName = '${r['package_name'] ?? ''}'.trim();
-        final packagePrice = packagePrices[packageName.toLowerCase()] ?? 0;
-                final billAmount = current == null
-            ? packagePrice
-            : ((current['amount'] ?? 0) as num).toDouble();
-        final paidAmount = current == null
-            ? 0.0
-            : ((current['paid'] ?? 0) as num).toDouble();
-        list.add(Customer(
-                    id: id,
-          custId: '${r['cust_id'] ?? ''}',
-          userId: '${r['user_id'] ?? ''}',
-          name: '${r['name'] ?? ''}',
-          mobile: '${r['mobile'] ?? ''}',
-          address: '${r['address'] ?? ''}',
-          packageName: packageName,
-          billDate: (r['bill_date'] as num?)?.toInt() ?? 7,
-          bill: billAmount,
-          paid: paidAmount,
-                    paymentDate: '${r['payment_date'] ?? ''}',
-          staffId: (r['staff_id'] as num?)?.toInt(),
-          active: (r['status'] ?? 1) == 1,
-        ));
+        final id =
+            (r['id'] as num?)?.toInt();
+
+        final current =
+            id == null
+                ? null
+                : billsByCustomer[id];
+
+        final packageName =
+            '${r['package_name'] ?? ''}'
+                .trim();
+
+        final packagePrice =
+            packagePrices[
+                    packageName.toLowerCase()] ??
+                0;
+
+        final billAmount =
+            current == null
+                ? packagePrice
+                : ((current['amount'] ?? 0)
+                        as num)
+                    .toDouble();
+
+        final paidAmount =
+            current == null
+                ? 0.0
+                : ((current['paid'] ?? 0)
+                        as num)
+                    .toDouble();
+
+        list.add(
+          Customer(
+            id: id,
+            custId:
+                '${r['cust_id'] ?? ''}',
+            userId:
+                '${r['user_id'] ?? ''}',
+            name:
+                '${r['name'] ?? ''}',
+            mobile:
+                '${r['mobile'] ?? ''}',
+            address:
+                '${r['address'] ?? ''}',
+            packageName:
+                packageName,
+            billDate:
+                (r['bill_date'] as num?)
+                        ?.toInt() ??
+                    7,
+            bill: billAmount,
+            paid: paidAmount,
+            paymentDate:
+                '${r['payment_date'] ?? ''}',
+            staffId:
+                (r['staff_id'] as num?)
+                    ?.toInt(),
+            active:
+                (r['status'] ?? 1) == 1,
+          ),
+        );
       }
+
       if (!mounted) return;
+
       setState(() {
-        customers..clear()..addAll(list);
+        customers
+          ..clear()
+          ..addAll(list);
+
         loading = false;
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() => loading = false);
-      msg('${t('ডেটা লোডে সমস্যা: ', 'Load error: ')}$e');
+
+      msg(
+        '${t(
+          'ডেটা লোডে সমস্যা: ',
+          'Load error: ',
+        )}$e',
+      );
     }
   }
 
