@@ -4263,8 +4263,6 @@ Widget build(BuildContext context) {
                         ),
                         const SizedBox(width: 12),
 
-                        // Staff name-এর জন্য
-                        // সম্পূর্ণ মাঝের জায়গা থাকবে।
                         Expanded(
                           child: Column(
                             crossAxisAlignment:
@@ -4370,6 +4368,7 @@ Widget build(BuildContext context) {
       ),
     ],
   );
+}
 }
 
 class ReportManager extends StatefulWidget {
