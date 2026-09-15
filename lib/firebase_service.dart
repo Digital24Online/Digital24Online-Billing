@@ -1712,18 +1712,30 @@ Future<void> _upsertStaff(
     limit: 1,
   );
 
-  if (byName.isNotEmpty) {
-    final local = byName.first;
+if (byName.isNotEmpty) {
+  final local = byName.first;
 
+  if (_remoteIsNewer(local, r)) {
     await db.update(
       'staff',
       values,
       where: 'id = ?',
       whereArgs: [local['id']],
     );
-
-    return;
+  } else if (
+      _string(local['cloud_id']).trim().isEmpty) {
+    await db.update(
+      'staff',
+      {
+        'cloud_id': cloudId,
+      },
+      where: 'id = ?',
+      whereArgs: [local['id']],
+    );
   }
+
+  return;
+}
 
   // একেবারে নতুন Cloud Staff হলে নতুন local Staff তৈরি।
   await db.insert(
