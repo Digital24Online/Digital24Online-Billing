@@ -1768,34 +1768,81 @@ _syncInBackground();
     }
   }
 
-  Future<void> deleteCustomer(Customer c) async {
+  Future<void> deleteCustomer(
+    Customer c,
+  ) async {
     if (c.id == null) return;
-    final ok = await showDialog<bool>(
+
+    final ok =
+        await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(t('ইউজার মুছে ফেলবেন?', 'Delete customer?')),
-        content: Text('${c.userId} - ${c.name}\n\n${t('এই কাজটি ফিরিয়ে আনা যাবে না।', 'This action cannot be undone.')}'),
+      builder: (ctx) =>
+          AlertDialog(
+        title: Text(
+          t(
+            'ইউজার মুছে ফেলবেন?',
+            'Delete customer?',
+          ),
+        ),
+        content: Text(
+          '${c.userId} - ${c.name}\n\n'
+          '${t(
+            'এই কাজটি ফিরিয়ে আনা যাবে না।',
+            'This action cannot be undone.',
+          )}',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('বাতিল', 'Cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('মুছে ফেলুন', 'Delete'))),
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(
+              ctx,
+              false,
+            ),
+            child: Text(
+              t('বাতিল', 'Cancel'),
+            ),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(
+              ctx,
+              true,
+            ),
+            child: Text(
+              t(
+                'মুছে ফেলুন',
+                'Delete',
+              ),
+            ),
+          ),
         ],
       ),
     );
+
     if (ok != true) return;
+
     try {
-      await db.deleteCustomer(c.id!);
+      await db.deleteCustomer(
+        c.id!,
+      );
 
-unawaited(loadCustomers());
+      // Local Delete সম্পূর্ণ হওয়ার পর
+      // List একবার refresh হবে।
+      await loadCustomers();
 
-msg(
-  t(
-    'ইউজার মুছে ফেলা হয়েছে',
-    'Customer deleted',
-  ),
-);
+      msg(
+        t(
+          'ইউজার মুছে ফেলা হয়েছে',
+          'Customer deleted',
+        ),
+      );
 
-_syncInBackground();
-    } catch (e) { msg('$e'); }
+      // Offline হলে Local tombstone থাকবে।
+      // Internet এলে Sync সেটি Cloud-এ পাঠাবে।
+      _syncInBackground();
+    } catch (e) {
+      msg('$e');
+    }
   }
 
   Future<void> showDetails(Customer c) async {
