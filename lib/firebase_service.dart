@@ -3239,41 +3239,72 @@ if (billId != null) {
     }
     }
   
-    Future<void> _pushRecalculatedCustomers(Database db) async {
-    final rows = await db.query(
-      'customers',
-      columns: [
-        'billing_id',
-        'user_id',
-        'total_amount',
-        'paid_amount',
-        'due_amount',
-        'payment_date',
-      ],
-    );
-
-    for (final row in rows) {
-      final userId = _string(row['user_id']).trim();
-      if (userId.isEmpty) continue;
-
-      // Only derived billing totals are synchronized here.
-      // Customer master information such as name, mobile, package,
-      // bill date, status, etc. must never be overwritten by a
-      // recalculation running on another device.
-      await _setCloud(
+    Future<void> _pushRecalculatedCustomers(
+      Database db,
+    ) async {
+      final rows = await db.query(
         'customers',
-        _key(
-          '${_int(row['billing_id'], fallback: 1)}__$userId',
-        ),
-        {
-          'total_amount': _double(row['total_amount']),
-          'paid_amount': _double(row['paid_amount']),
-          'due_amount': _double(row['due_amount']),
-          'payment_date': _string(row['payment_date']),
-          'cloud_updated_at': FieldValue.serverTimestamp(),
-        },
+        columns: [
+          'billing_id',
+          'user_id',
+          'total_amount',
+          'paid_amount',
+          'due_amount',
+          'payment_date',
+        ],
       );
-    }
+
+      for (final row in rows) {
+        final userId =
+            _string(row['user_id']).trim();
+
+        if (userId.isEmpty) continue;
+
+        final billingId = _int(
+          row['billing_id'],
+          fallback: 1,
+        );
+
+        if (billingId <= 0) continue;
+
+        // Deleted Customer-এর calculated data
+        // Cloud customers collection-এ আর লেখা যাবে না।
+        final deleted = await db.query(
+          'deleted_customers',
+          columns: ['id'],
+          where:
+              'billing_id = ? AND user_id = ?',
+          whereArgs: [
+            billingId,
+            userId,
+          ],
+          limit: 1,
+        );
+
+        if (deleted.isNotEmpty) {
+          continue;
+        }
+
+        // শুধু calculated billing totals synchronize হবে।
+        await _setCloud(
+          'customers',
+          _key(
+            '${billingId}__$userId',
+          ),
+          {
+            'total_amount':
+                _double(row['total_amount']),
+            'paid_amount':
+                _double(row['paid_amount']),
+            'due_amount':
+                _double(row['due_amount']),
+            'payment_date':
+                _string(row['payment_date']),
+            'cloud_updated_at':
+                FieldValue.serverTimestamp(),
+          },
+        );
+      }
     }
 
   Future<String> _latestPaymentDate(
