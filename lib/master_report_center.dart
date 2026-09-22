@@ -186,7 +186,6 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
               FROM payments ps
               WHERE ps.customer_id = c.id
                 AND ps.bill_id = b.id
-                AND ps.staff_id = ?
                 AND ps.billing_id = ?
                 AND date(ps.payment_date)
                     BETWEEN date(?) AND date(?)
@@ -197,7 +196,6 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
             SELECT MAX(
               CASE
                 WHEN ps.bill_id = b.id
-                 AND ps.staff_id = ?
                  AND ps.billing_id = ?
                  AND date(ps.payment_date)
                      BETWEEN date(?) AND date(?)
@@ -212,7 +210,21 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
             )
             FROM payments ps
             WHERE ps.customer_id = c.id
-          ) AS last_staff_payment_date
+          ) AS last_staff_payment_date,
+          (
+            SELECT GROUP_CONCAT(
+              DISTINCT COALESCE(st.name, '')
+            )
+            FROM payments ps
+            LEFT JOIN staff st
+              ON st.id = ps.staff_id
+            WHERE ps.customer_id = c.id
+              AND ps.bill_id = b.id
+              AND ps.billing_id = ?
+              AND date(ps.payment_date)
+                  BETWEEN date(?) AND date(?)
+              AND ps.staff_id IS NOT NULL
+          ) AS collected_by
 
         FROM customers c
 
