@@ -2005,86 +2005,336 @@ Future<void> showDetails(Customer c) async {
 
   Future<void> takePayment(Customer c) async {
     if (c.id == null) return;
-    final bid = await currentBill(c);
-    final monthRows = await db.getBills(monthKey());
-    final current = monthRows.where((r) => (r['id'] as num).toInt() == bid).toList();
-    final billAmount = current.isEmpty ? c.bill : ((current.first['amount'] ?? 0) as num).toDouble();
-    final paidAmount = current.isEmpty ? 0.0 : ((current.first['paid'] ?? 0) as num).toDouble();
-    final due = (billAmount - paidAmount).clamp(0, double.infinity).toDouble();
-    if (due <= 0) { msg(t('এই মাসের কোনো বকেয়া নেই', 'No due for this month')); return; }
 
-    final amount = TextEditingController(text: money(due));
-    final note = TextEditingController();
-    final staff = await db.getStaff();
-    int? staffId;
+    final bid = await currentBill(c);
+
+    final monthRows =
+        await db.getBills(monthKey());
+
+    final current = monthRows
+        .where(
+          (r) =>
+              (r['id'] as num).toInt() ==
+              bid,
+        )
+        .toList();
+
+    final billAmount =
+        current.isEmpty
+            ? c.bill
+            : ((current.first['amount'] ?? 0)
+                    as num)
+                .toDouble();
+
+    final paidAmount =
+        current.isEmpty
+            ? 0.0
+            : ((current.first['paid'] ?? 0)
+                    as num)
+                .toDouble();
+
+    final due =
+        (billAmount - paidAmount)
+            .clamp(0, double.infinity)
+            .toDouble();
+
+    if (due <= 0) {
+      msg(
+        t(
+          'এই মাসের কোনো বকেয়া নেই',
+          'No due for this month',
+        ),
+      );
+      return;
+    }
+
+    final amount =
+        TextEditingController(
+      text: money(due),
+    );
+
+    final note =
+        TextEditingController();
+
+    final staff =
+        await db.getStaff();
+
+    // User-এর Assigned Staff
+    // শুরুতেই নির্বাচিত থাকবে।
+    int? staffId = c.staffId;
+
     bool saving = false;
 
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: Text(t('পেমেন্ট গ্রহণ', 'Receive Payment')),
-          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('${c.userId} - ${c.name}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Text('${t('এই মাসের বিল', 'Current month bill')}: ${money(billAmount)} ৳'),
-            Text('${t('পরিশোধ', 'Paid')}: ${money(paidAmount)} ৳'),
-            Text('${t('বকেয়া', 'Due')}: ${money(due)} ৳', style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            field(amount, t('পরিমাণ *', 'Amount *'), Icons.payments, type: const TextInputType.numberWithOptions(decimal: true)),
-            if (staff.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              DropdownButtonFormField<int?>(
-                initialValue: staffId,
-                decoration: InputDecoration(labelText: t('স্টাফ', 'Staff'), border: const OutlineInputBorder()),
-                items: [
-                  DropdownMenuItem<int?>(value: null, child: Text(t('নিজে/নির্ধারিত নয়', 'Self / Not assigned'))),
-                  ...staff.map((s) => DropdownMenuItem<int?>(value: (s['id'] as num).toInt(), child: Text('${s['name']}'))),
+      builder: (ctx) =>
+          StatefulBuilder(
+        builder: (ctx, setD) =>
+            AlertDialog(
+          title: Text(
+            t(
+              'পেমেন্ট গ্রহণ',
+              'Receive Payment',
+            ),
+          ),
+          content:
+              SingleChildScrollView(
+            child: Column(
+              mainAxisSize:
+                  MainAxisSize.min,
+              children: [
+                Text(
+                  '${c.userId} - ${c.name}',
+                  style:
+                      const TextStyle(
+                    fontWeight:
+                        FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(
+                  height: 12,
+                ),
+                Text(
+                  '${t('এই মাসের বিল', 'Current month bill')}: ${money(billAmount)} ৳',
+                ),
+                Text(
+                  '${t('পরিশোধ', 'Paid')}: ${money(paidAmount)} ৳',
+                ),
+                Text(
+                  '${t('বকেয়া', 'Due')}: ${money(due)} ৳',
+                  style:
+                      const TextStyle(
+                    fontWeight:
+                        FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(
+                  height: 12,
+                ),
+                field(
+                  amount,
+                  t(
+                    'পরিমাণ *',
+                    'Amount *',
+                  ),
+                  Icons.payments,
+                  type:
+                      const TextInputType
+                          .numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+                if (staff.isNotEmpty) ...[
+                  const SizedBox(
+                    height: 10,
+                  ),
+                  DropdownButtonFormField<
+                      int?>(
+                    initialValue:
+                        staff.any(
+                      (s) =>
+                          (s['id'] as num)
+                              .toInt() ==
+                          staffId,
+                    )
+                            ? staffId
+                            : null,
+                    decoration:
+                        InputDecoration(
+                      labelText: t(
+                        'স্টাফ',
+                        'Staff',
+                      ),
+                      border:
+                          const OutlineInputBorder(),
+                    ),
+                    items: [
+                      DropdownMenuItem<
+                          int?>(
+                        value: null,
+                        child: Text(
+                          t(
+                            'নিজে/নির্ধারিত নয়',
+                            'Self / Not assigned',
+                          ),
+                        ),
+                      ),
+                      ...staff.map(
+                        (s) =>
+                            DropdownMenuItem<
+                                int?>(
+                          value:
+                              (s['id'] as num)
+                                  .toInt(),
+                          child: Text(
+                            '${s['name']}',
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) =>
+                        setD(
+                      () => staffId = v,
+                    ),
+                  ),
                 ],
-                onChanged: (v) => setD(() => staffId = v),
-              ),
-            ],
-                        const SizedBox(height: 10), field(note, t('নোট', 'Note'), Icons.note),
-          ])),
+                const SizedBox(
+                  height: 10,
+                ),
+                field(
+                  note,
+                  t('নোট', 'Note'),
+                  Icons.note,
+                ),
+              ],
+            ),
+          ),
           actions: [
-            TextButton(onPressed: saving ? null : () => Navigator.pop(ctx), child: Text(t('বাতিল', 'Cancel'))),
+            TextButton(
+              onPressed: saving
+                  ? null
+                  : () =>
+                      Navigator.pop(ctx),
+              child: Text(
+                t('বাতিল', 'Cancel'),
+              ),
+            ),
             FilledButton.icon(
-              onPressed: saving ? null : () async {
-                final a = double.tryParse(amount.text.trim()) ?? 0;
-                if (a <= 0 || a > due + 0.0001) { msg(t('সঠিক পরিমাণ দিন', 'Enter a valid amount')); return; }
-                setD(() => saving = true);
-                try {
-                  final paymentId = await db.addPayment({'customer_id': c.id!, 'bill_id': bid, 'amount': a, 'payment_date': today(), 'staff_id': staffId, 'note': note.text.trim()});
-                  final history = await db.getPaymentHistory(c.id!, billId: bid);
-                  final payment = history.firstWhere((x) => (x['id'] as num).toInt() == paymentId, orElse: () => history.first);
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  unawaited(loadCustomers());
+              onPressed:
+                  saving
+                      ? null
+                      : () async {
+                          final a =
+                              double.tryParse(
+                                    amount
+                                        .text
+                                        .trim(),
+                                  ) ??
+                                  0;
 
-msg(
-  t(
-    'পেমেন্ট গ্রহণ হয়েছে',
-    'Payment received',
-  ),
-);
+                          if (a <= 0 ||
+                              a >
+                                  due +
+                                      0.0001) {
+                            msg(
+                              t(
+                                'সঠিক পরিমাণ দিন',
+                                'Enter a valid amount',
+                              ),
+                            );
+                            return;
+                          }
 
-_syncInBackground();
+                          setD(
+                            () =>
+                                saving =
+                                    true,
+                          );
 
-unawaited(
-  printReceipt(c, payment),
-);
-                } catch (e) {
-                  if (ctx.mounted) setD(() => saving = false);
-                  msg('${t('পেমেন্টে সমস্যা: ', 'Payment error: ')}$e');
-                }
-              },
-              icon: const Icon(Icons.receipt_long), label: Text(t('গ্রহণ ও Receipt', 'Receive & Receipt')),
+                          try {
+                            final paymentId =
+                                await db
+                                    .addPayment(
+                              {
+                                'customer_id':
+                                    c.id!,
+                                'bill_id':
+                                    bid,
+                                'amount':
+                                    a,
+
+                                // Date + Time
+                                'payment_date':
+                                    DateTime
+                                        .now()
+                                        .toIso8601String(),
+
+                                'staff_id':
+                                    staffId,
+                                'note':
+                                    note.text
+                                        .trim(),
+                              },
+                            );
+
+                            final history =
+                                await db
+                                    .getPaymentHistory(
+                              c.id!,
+                              billId: bid,
+                            );
+
+                            final payment =
+                                history.firstWhere(
+                              (x) =>
+                                  (x['id']
+                                          as num)
+                                      .toInt() ==
+                                  paymentId,
+                              orElse: () =>
+                                  history
+                                      .first,
+                            );
+
+                            if (ctx.mounted) {
+                              Navigator.pop(
+                                  ctx);
+                            }
+
+                            unawaited(
+                              loadCustomers(),
+                            );
+
+                            msg(
+                              t(
+                                'পেমেন্ট গ্রহণ হয়েছে',
+                                'Payment received',
+                              ),
+                            );
+
+                            _syncInBackground();
+
+                            unawaited(
+                              printReceipt(
+                                c,
+                                payment,
+                              ),
+                            );
+                          } catch (e) {
+                            if (ctx.mounted) {
+                              setD(
+                                () =>
+                                    saving =
+                                        false,
+                              );
+                            }
+
+                            msg(
+                              '${t(
+                                'পেমেন্টে সমস্যা: ',
+                                'Payment error: ',
+                              )}$e',
+                            );
+                          }
+                        },
+              icon: const Icon(
+                Icons.receipt_long,
+              ),
+              label: Text(
+                t(
+                  'গ্রহণ ও Receipt',
+                  'Receive & Receipt',
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
-            amount.dispose(); note.dispose();
+
+    amount.dispose();
+    note.dispose();
   }
 
   Future<void> showPaymentHistory(Customer c) async {
