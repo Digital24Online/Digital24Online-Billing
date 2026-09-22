@@ -1407,10 +1407,15 @@ List<Customer> get filtered {
                           await db.addPayment({
                             'customer_id':
                                 customerId,
-                            'bill_id': bid,
-                            'amount': p,
+                            'bill_id':
+                                bid,
+                            'amount':
+                                p,
                             'payment_date':
-                                today(),
+                                DateTime.now()
+                                    .toIso8601String(),
+                            'staff_id':
+                                assignedStaffId,
                             'note':
                                 'প্রাথমিক পরিশোধ',
                           });
