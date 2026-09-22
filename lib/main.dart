@@ -229,38 +229,36 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
     }
   }
 
-  Future<void> _restoreCloudData() async {
-    if (!mounted || user == null) return;
+Future<void> _restoreCloudData() async {
+  if (!mounted || user == null) return;
 
-    if (restoring) return;
+  if (restoring) return;
+
+  setState(() {
+    restoring = true;
+    loading = false;
+    restoreError = null;
+    offlineMode = false;
+  });
+
+  try {
+    await FirebaseService.instance.restoreAfterLogin();
+
+    if (!mounted) return;
 
     setState(() {
-      restoring = true;
-      loading = true;
+      restoring = false;
       restoreError = null;
-      offlineMode = false;
     });
+  } catch (e) {
+    if (!mounted) return;
 
-    try {
-      await FirebaseService.instance.restoreAfterLogin();
-
-      if (!mounted) return;
-
-      setState(() {
-        restoring = false;
-        loading = false;
-        restoreError = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        restoring = false;
-        loading = false;
-        restoreError = '$e';
-      });
-    }
+    setState(() {
+      restoring = false;
+      restoreError = '$e';
+    });
   }
+}
 
   @override
   void dispose() {
@@ -408,44 +406,38 @@ class _CloudAuthGateState extends State<CloudAuthGate> {
       return widget.child;
     }
 
-    if (loading || restoring) {
-      return Scaffold(
-        body: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints:
-                  const BoxConstraints(maxWidth: 430),
-              child: Card(
-                margin: const EdgeInsets.all(24),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 20),
-                      Text(
-                        'Cloud Data নিরাপদে Restore হচ্ছে...',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: 10),
-                      Text(
-                        'Data Restore সম্পূর্ণ না হওয়া পর্যন্ত Billing খুলবে না।',
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
+if (loading) {
+  return Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 430),
+          child: Card(
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 20),
+                  Text(
+                    'Digital 24 Online Billing',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
         ),
-      );
-    }
+      ),
+    ),
+  );
+}
 
     if (user != null && restoreError != null) {
       return Scaffold(
