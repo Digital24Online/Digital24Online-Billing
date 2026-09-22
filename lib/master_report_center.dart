@@ -313,6 +313,11 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         INNER JOIN customers c
           ON c.id = p.customer_id
          AND c.billing_id = p.billing_id
+        INNER JOIN bills b
+          ON b.id = p.bill_id
+         AND b.customer_id = c.id
+         AND b.billing_id = p.billing_id
+         AND b.billing_month = ?
         WHERE p.billing_id = ?
           AND p.staff_id = ?
           AND date(p.payment_date)
@@ -320,6 +325,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           $collectionSummaryCondition
         ''',
         [
+          month,
           activeBillingId,
           staffId,
           start,
