@@ -87,7 +87,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
     });
   }
 
-      Future<void> runStaffReport() async {
+  Future<void> runStaffReport() async {
     if (staffId == null) {
       _error(
         t(
@@ -101,8 +101,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
     setState(() => busy = true);
 
     try {
-      final database =
-          await widget.db.database;
+      final database = await widget.db.database;
 
       late String start;
       late String end;
@@ -111,25 +110,22 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           period == '7' ||
           period == '14' ||
           period == '21') {
-        final first =
-            DateTime.parse('$month-01');
+        final first = DateTime.parse('$month-01');
 
-        final last =
-            DateTime(
-              first.year,
-              first.month + 1,
-              0,
-            );
+        final last = DateTime(
+          first.year,
+          first.month + 1,
+          0,
+        );
 
         start = dateText(first);
         end = dateText(last);
 
-        billDate =
-            (period == '7' ||
-                    period == '14' ||
-                    period == '21')
-                ? int.parse(period)
-                : null;
+        billDate = (period == '7' ||
+                period == '14' ||
+                period == '21')
+            ? int.parse(period)
+            : null;
       } else {
         start = dateText(from);
         end = dateText(to);
@@ -137,15 +133,30 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
       }
 
       final billDateCondition =
-          billDate == null
-              ? ''
-              : ' AND c.bill_date=?';
+          billDate == null ? '' : ' AND c.bill_date=?';
 
-      final activeBillingId =
-          widget.db.activeBillingId;
+      final activeBillingId = widget.db.activeBillingId;
 
-      final rows =
-          await database.rawQuery(
+      /*
+       * IMPORTANT:
+       * Report-এর মূল User list এখন Staff-এর
+       * প্রকৃত Payment Database থেকে নির্ধারিত হবে।
+       *
+       * অর্থাৎ:
+       * Selected Staff
+       *      ↓
+       * payments.staff_id
+       *      ↓
+       * payment_date
+       *      ↓
+       * customer_id
+       *      ↓
+       * Customer
+       *
+       * ফলে অন্য Staff-এর User এখানে ঢুকবে না।
+       */
+
+      final rows = await database.rawQuery(
         '''
         SELECT
           c.id AS customer_id,
@@ -167,22 +178,22 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
 
           COALESCE(
             (
-              SELECT SUM(p2.amount)
-              FROM payments p2
-              WHERE p2.billing_id=?
-                AND p2.bill_id=b.id
+              SELECT SUM(pb.amount)
+              FROM payments pb
+              WHERE pb.bill_id = b.id
+                AND pb.billing_id = ?
             ),
             0
           ) AS bill_paid,
 
           COALESCE(
             (
-              SELECT SUM(p3.amount)
-              FROM payments p3
-              WHERE p3.billing_id=?
-                AND p3.customer_id=c.id
-                AND p3.staff_id=?
-                AND date(p3.payment_date)
+              SELECT SUM(ps.amount)
+              FROM payments ps
+              WHERE ps.customer_id = c.id
+                AND ps.staff_id = ?
+                AND ps.billing_id = ?
+                AND date(ps.payment_date)
                     BETWEEN date(?) AND date(?)
             ),
             0
@@ -190,8 +201,10 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
 
           MAX(
             CASE
-              WHEN p.billing_id=?
-               AND p.staff_id=?
+              WHEN p.staff_id = ?
+               AND p.billing_id = ?
+               AND date(p.payment_date)
+                   BETWEEN date(?) AND date(?)
               THEN p.payment_date
               ELSE NULL
             END
@@ -199,15 +212,22 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
 
         FROM customers c
 
+        INNER JOIN payments sp
+          ON sp.customer_id = c.id
+         AND sp.staff_id = ?
+         AND sp.billing_id = ?
+         AND date(sp.payment_date)
+             BETWEEN date(?) AND date(?)
+
         LEFT JOIN bills b
-          ON b.customer_id=c.id
-         AND b.billing_id=?
-         AND b.billing_month=?
+          ON b.customer_id = c.id
+         AND b.billing_id = ?
+         AND b.billing_month = ?
 
         LEFT JOIN payments p
-          ON p.customer_id=c.id
+          ON p.customer_id = c.id
 
-        WHERE c.billing_id=?
+        WHERE c.billing_id = ?
           $billDateCondition
 
         GROUP BY
@@ -229,15 +249,27 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         ''',
         [
           activeBillingId,
-          activeBillingId,
+
           staffId,
+          activeBillingId,
           start,
           end,
-          activeBillingId,
+
           staffId,
           activeBillingId,
-          month,
+          start,
+          end,
+
+          staffId,
           activeBillingId,
+          start,
+          end,
+
+          activeBillingId,
+          month,
+
+          activeBillingId,
+
           if (billDate != null) billDate,
         ].where((v) => v != null).toList(),
       );
@@ -252,78 +284,76 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           <Map<String, dynamic>>[];
 
       for (final raw in rows) {
-        final r =
-            Map<String, dynamic>.from(raw);
+        final r = Map<String, dynamic>.from(raw);
 
         final bill =
-            ((r['bill_amount'] ?? 0)
-                    as num)
+            ((r['bill_amount'] ?? 0) as num)
                 .toDouble();
 
         final paid =
-            ((r['bill_paid'] ?? 0)
-                    as num)
+            ((r['bill_paid'] ?? 0) as num)
                 .toDouble();
 
         final staffAmount =
-            ((r['staff_collection'] ?? 0)
-                    as num)
+            ((r['staff_collection'] ?? 0) as num)
                 .toDouble();
 
         final dueAmount =
             (bill - paid)
-                .clamp(
-                  0,
-                  double.infinity,
-                )
+                .clamp(0, double.infinity)
                 .toDouble();
 
         r['bill_amount'] = bill;
         r['bill_paid'] = paid;
-        r['staff_collection'] =
-            staffAmount;
+        r['staff_collection'] = staffAmount;
         r['due_amount'] = dueAmount;
 
-        if ((r['active'] ?? 1) == 0) {
-          closedRows.add(r);
-        }
-
+        /*
+         * Selected Staff-এর Payment নেওয়া User-ই
+         * Collected User হিসেবে গণনা হবে।
+         */
         if (staffAmount > 0) {
           collectedRows.add(r);
         }
 
+        /*
+         * একই Staff-এর Payment করা User-এর
+         * বর্তমান Bill-এর বকেয়া।
+         */
         if (dueAmount > 0) {
           dueRows.add(r);
         }
+
+        /*
+         * Staff-এর Collection-এর মধ্যে Closed User।
+         */
+        if ((r['active'] ?? 1) == 0) {
+          closedRows.add(r);
+        }
       }
 
-      final billTotal =
-          rows.fold<double>(
+      final billTotal = rows.fold<double>(
         0,
         (sum, r) =>
             sum +
-            ((r['bill_amount'] ?? 0)
-                    as num)
+            ((r['bill_amount'] ?? 0) as num)
                 .toDouble(),
       );
 
       final collectionTotal =
-          rows.fold<double>(
+          collectedRows.fold<double>(
         0,
         (sum, r) =>
             sum +
-            ((r['staff_collection'] ?? 0)
-                    as num)
+            ((r['staff_collection'] ?? 0) as num)
                 .toDouble(),
       );
 
-      final dueTotal =
-          dueRows.fold<double>(
+      final dueTotal = dueRows.fold<double>(
         0,
         (sum, r) =>
             sum +
-            ((r['due_amount'] ?? 0)
-                    as num)
+            ((r['due_amount'] ?? 0) as num)
                 .toDouble(),
       );
 
@@ -332,12 +362,9 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         'bill': billTotal,
         'collection': collectionTotal,
         'due': dueTotal,
-        'collected_users':
-            collectedRows.length,
-        'due_users':
-            dueRows.length,
-        'closed_users':
-            closedRows.length,
+        'collected_users': collectedRows.length,
+        'due_users': dueRows.length,
+        'closed_users': closedRows.length,
       };
 
       if (!mounted) return;
@@ -360,7 +387,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         )}$e',
       );
     }
-      }
+  }
 
   String get selectedBillingName {
     return '';
