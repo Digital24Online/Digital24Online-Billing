@@ -185,6 +185,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
               SELECT SUM(ps.amount)
               FROM payments ps
               WHERE ps.customer_id = c.id
+                AND ps.bill_id = b.id
                 AND ps.staff_id = ?
                 AND ps.billing_id = ?
                 AND date(ps.payment_date)
@@ -192,11 +193,11 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
             ),
             0
           ) AS staff_collection,
-
           (
             SELECT MAX(
               CASE
-                WHEN ps.staff_id = ?
+                WHEN ps.bill_id = b.id
+                 AND ps.staff_id = ?
                  AND ps.billing_id = ?
                  AND date(ps.payment_date)
                      BETWEEN date(?) AND date(?)
