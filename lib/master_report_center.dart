@@ -273,14 +273,17 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           // Bill paid
           activeBillingId,
 
-          // Per-user Staff Collection
-          staffId,
+          // Per-user Collection
           activeBillingId,
           start,
           end,
 
-          // Per-user last Staff Collection date/time
-          staffId,
+          // Last Collection Date/Time
+          activeBillingId,
+          start,
+          end,
+
+          // Collected By
           activeBillingId,
           start,
           end,
