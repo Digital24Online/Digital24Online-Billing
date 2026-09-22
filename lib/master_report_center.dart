@@ -304,11 +304,16 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
       /*
        * Staff Collection Summary:
        *
-       * এখানে customers.staff_id ব্যবহার করা হবে না।
-       * নির্বাচিত Staff যে Payment নিয়েছে,
-       * payments.staff_id অনুযায়ী সেটাই Collection।
+       * নির্বাচিত Staff-এর Assigned Customers
+       * customers.staff_id অনুযায়ী নির্ধারিত হবে।
        *
-       * 7/14/21 রিপোর্টে Customer-এর Bill Date-ও
+       * ঐ Customers-এর বর্তমান Billing Month-এর
+       * সব Payment Collection হিসেবে গণনা হবে।
+       *
+       * Payment যে Staff নিয়েছে তা Collection Total
+       * থেকে বাদ যাবে না।
+       *
+       * 7/14/21 রিপোর্টে Customer-এর Bill Date
        * একইভাবে filter হবে।
        */
       final collectionSummaryCondition =
@@ -334,7 +339,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
          AND b.billing_id = p.billing_id
          AND b.billing_month = ?
         WHERE p.billing_id = ?
-          AND p.staff_id = ?
+          AND c.staff_id = ?
           AND date(p.payment_date)
               BETWEEN date(?) AND date(?)
           $collectionSummaryCondition
