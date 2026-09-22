@@ -491,59 +491,109 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
       }
 
       final table = pw.Table.fromTextArray(
-        headers: [
+        headers: const [
+          'SN',
+          'Cust ID',
+          'User Name',
           'User ID',
-          'Name',
+          'Package',
+          'Bill Amount',
           'Mobile',
           'Bill Date',
-          'Package',
-          collection ? 'Collection' : 'Due',
+          'Staff Name',
+          'Staff Collection',
+          'Collection Date',
+          'Collection Time',
+          'Due',
           'Status',
         ],
-        data: data.map((r) {
-          final value = collection
-              ? r['staff_collection']
-              : r['due_amount'];
+        data: data.asMap().entries.map((entry) {
+          final index = entry.key + 1;
+          final r = entry.value;
+
+          final billAmount =
+              (r['bill_amount'] ?? 0) as num;
+
+          final staffCollection =
+              (r['staff_collection'] ?? 0) as num;
+
+          final dueAmount =
+              (r['due_amount'] ?? 0) as num;
+
+          String collectionDate = '';
+          String collectionTime = '';
+
+          if (collection) {
+            final rawPaymentDate =
+                '${r['last_staff_payment_date'] ?? ''}'
+                    .trim();
+
+            if (rawPaymentDate.isNotEmpty) {
+              final paymentDate =
+                  DateTime.tryParse(rawPaymentDate);
+
+              if (paymentDate != null) {
+                collectionDate =
+                    DateFormat('yyyy-MM-dd')
+                        .format(paymentDate);
+
+                collectionTime =
+                    DateFormat('HH:mm:ss')
+                        .format(paymentDate);
+              } else {
+                collectionDate = rawPaymentDate;
+              }
+            }
+          }
 
           return [
-            '${r['user_id'] ?? ''}',
+            '$index',
+            '${r['cust_id'] ?? ''}',
             '${r['name'] ?? ''}',
+            '${r['user_id'] ?? ''}',
+            '${r['package_name'] ?? ''}',
+            money(billAmount),
             '${r['mobile'] ?? ''}',
             '${r['bill_date'] ?? ''}',
-            '${r['package_name'] ?? ''}',
-            money((value ?? 0) as num),
+            '${r['staff_name'] ?? ''}',
+            collection
+                ? money(staffCollection)
+                : '',
+            collectionDate,
+            collectionTime,
+            money(dueAmount),
             (r['active'] ?? 1) == 1
                 ? 'Active'
                 : 'Closed',
           ];
         }).toList(),
+        repeatHeader: true,
         cellStyle: const pw.TextStyle(
-          fontSize: 6.5,
+          fontSize: 5.5,
         ),
         headerStyle: pw.TextStyle(
-          fontSize: 6.5,
+          fontSize: 5.5,
           fontWeight: pw.FontWeight.bold,
         ),
         cellAlignment: pw.Alignment.centerLeft,
         headerAlignment: pw.Alignment.centerLeft,
         border: pw.TableBorder.all(
-          width: 0.4,
+          width: 0.35,
         ),
-        cellPadding: const pw.EdgeInsets.all(4),
+        cellPadding: const pw.EdgeInsets.all(2.5),
       );
 
       /*
        * IMPORTANT:
-       * Table-কে Column-এর ভিতরে রাখা হচ্ছে না।
        *
-       * MultiPage সরাসরি Table পাবে।
-       * তাই Table প্রয়োজন অনুযায়ী
-       * পরবর্তী Page-এ যেতে পারবে।
+       * Table সরাসরি MultiPage-এর build list-এ যাবে।
+       * Column/Container-এর ভিতরে Table রাখা যাবে না।
+       *
+       * এতে অনেক User থাকলেও Table পরবর্তী Page-এ
+       * স্বাভাবিকভাবে continue করতে পারবে।
        */
-
       return [
         pw.SizedBox(height: 10),
-
         pw.Text(
           title,
           style: pw.TextStyle(
@@ -551,11 +601,8 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
             fontWeight: pw.FontWeight.bold,
           ),
         ),
-
         pw.SizedBox(height: 5),
-
         table,
-
         pw.SizedBox(height: 8),
       ];
     }
