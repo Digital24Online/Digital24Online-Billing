@@ -87,278 +87,212 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
     });
   }
 
-  Future<void> runStaffReport() async {
-    if (staffId == null) {
-      _error(
-        t(
-          'আগে একজন স্টাফ নির্বাচন করুন',
-          'Select a staff first',
-        ),
-      );
-      return;
+Future<void> runStaffReport() async {
+  if (staffId == null) {
+    _message(t('আগে একজন স্টাফ নির্বাচন করুন', 'Select a staff first'));
+    return;
+  }
+
+  setState(() => busy = true);
+
+  try {
+    final database = await widget.db.database;
+    final billingId = widget.db.activeBillingId;
+
+    late String start;
+    late String end;
+    int? selectedBillDate;
+
+    if (period == 'monthly' ||
+        period == '7' ||
+        period == '14' ||
+        period == '21') {
+      final first = DateTime.parse('$month-01');
+      final last = DateTime(first.year, first.month + 1, 0);
+
+      start = dateText(first);
+      end = dateText(last);
+
+      if (period != 'monthly') {
+        selectedBillDate = int.parse(period);
+      }
+    } else {
+      start = dateText(from);
+      end = dateText(to);
     }
 
-    setState(() => busy = true);
+    final billDateSql =
+        selectedBillDate == null ? '' : ' AND c.bill_date = ?';
 
-    try {
-      final database = await widget.db.database;
+    final args = <dynamic>[
+      // bill_paid
+      billingId,
 
-      late String start;
-      late String end;
+      // staff_collection
+      billingId,
+      staffId,
+      start,
+      end,
 
-      if (period == 'monthly' ||
-          period == '7' ||
-          period == '14' ||
-          period == '21') {
-        final first = DateTime.parse('$month-01');
+      // last staff payment date
+      billingId,
+      staffId,
 
-        final last = DateTime(
-          first.year,
-          first.month + 1,
-          0,
-        );
+      // bills
+      billingId,
+      month,
 
-        start = dateText(first);
-        end = dateText(last);
+      // customers
+      billingId,
 
-        billDate = (period == '7' ||
-                period == '14' ||
-                period == '21')
-            ? int.parse(period)
-            : null;
-      } else {
-        start = dateText(from);
-        end = dateText(to);
-        billDate = null;
-      }
+      // assigned staff
+      staffId,
 
-      final billDateCondition =
-          billDate == null ? '' : ' AND c.bill_date=?';
+      if (selectedBillDate != null) selectedBillDate,
+    ];
 
-      final activeBillingId = widget.db.activeBillingId;
+    final rawRows = await database.rawQuery(
+      '''
+      SELECT
+        c.id AS customer_id,
+        c.cust_id,
+        c.user_id,
+        c.name,
+        c.mobile,
+        c.package_name,
+        c.bill_date,
+        c.active,
+        c.staff_id,
+        COALESCE(s.name, '') AS staff_name,
 
-      /*
-       * IMPORTANT:
-       * Report-এর মূল User list এখন Staff-এর
-       * প্রকৃত Payment Database থেকে নির্ধারিত হবে।
-       *
-       * অর্থাৎ:
-       * Selected Staff
-       *      ↓
-       * payments.staff_id
-       *      ↓
-       * payment_date
-       *      ↓
-       * customer_id
-       *      ↓
-       * Customer
-       *
-       * ফলে অন্য Staff-এর User এখানে ঢুকবে না।
-       */
+        b.billing_month,
 
-      final rows = await database.rawQuery(
-        '''
-        SELECT
-          c.id AS customer_id,
-          c.cust_id,
-          c.user_id,
-          c.name,
-          c.mobile,
-          c.package_name,
-          c.bill_date,
-          c.active,
-          c.staff_id,
-          b.billing_month,
-
-          COALESCE(
-            b.amount,
-            c.amount,
-            0
-          ) AS bill_amount,
-
-          COALESCE(
-            (
-              SELECT SUM(pb.amount)
-              FROM payments pb
-              WHERE pb.bill_id = b.id
-                AND pb.billing_id = ?
-            ),
-            0
-          ) AS bill_paid,
-
-          COALESCE(
-            (
-              SELECT SUM(ps.amount)
-              FROM payments ps
-              WHERE ps.customer_id = c.id
-                AND ps.staff_id = ?
-                AND ps.billing_id = ?
-                AND date(ps.payment_date)
-                    BETWEEN date(?) AND date(?)
-            ),
-            0
-          ) AS staff_collection,
-
-          MAX(
-            CASE
-              WHEN p.staff_id = ?
-               AND p.billing_id = ?
-               AND date(p.payment_date)
-                   BETWEEN date(?) AND date(?)
-              THEN p.payment_date
-              ELSE NULL
-            END
-          ) AS last_staff_payment_date
-
-        FROM customers c
-
-        INNER JOIN payments sp
-          ON sp.customer_id = c.id
-         AND sp.staff_id = ?
-         AND sp.billing_id = ?
-         AND date(sp.payment_date)
-             BETWEEN date(?) AND date(?)
-
-        LEFT JOIN bills b
-          ON b.customer_id = c.id
-         AND b.billing_id = ?
-         AND b.billing_month = ?
-
-        LEFT JOIN payments p
-          ON p.customer_id = c.id
-
-        WHERE c.billing_id = ?
-          $billDateCondition
-
-        GROUP BY
-          c.id,
-          c.cust_id,
-          c.user_id,
-          c.name,
-          c.mobile,
-          c.package_name,
-          c.bill_date,
-          c.active,
-          c.staff_id,
-          b.billing_month,
+        COALESCE(
           b.amount,
-          c.amount
+          c.amount,
+          0
+        ) AS bill_amount,
 
-        ORDER BY
-          c.user_id COLLATE NOCASE
-        ''',
-        [
-          activeBillingId,
+        COALESCE((
+          SELECT SUM(p2.amount)
+          FROM payments p2
+          WHERE p2.billing_id = ?
+            AND p2.bill_id = b.id
+        ), 0) AS bill_paid,
 
-          staffId,
-          activeBillingId,
-          start,
-          end,
+        COALESCE((
+          SELECT SUM(p3.amount)
+          FROM payments p3
+          WHERE p3.billing_id = ?
+            AND p3.customer_id = c.id
+            AND p3.staff_id = ?
+            AND date(p3.payment_date)
+                BETWEEN date(?) AND date(?)
+        ), 0) AS staff_collection,
 
-          staffId,
-          activeBillingId,
-          start,
-          end,
+        MAX(
+          CASE
+            WHEN p.billing_id = ?
+             AND p.staff_id = ?
+            THEN p.payment_date
+            ELSE NULL
+          END
+        ) AS last_staff_payment_date
 
-          staffId,
-          activeBillingId,
-          start,
-          end,
+      FROM customers c
 
-          activeBillingId,
-          month,
+      LEFT JOIN staff s
+        ON s.id = c.staff_id
 
-          activeBillingId,
+      LEFT JOIN bills b
+        ON b.customer_id = c.id
+       AND b.billing_id = ?
+       AND b.billing_month = ?
 
-          if (billDate != null) billDate,
-        ].where((v) => v != null).toList(),
-      );
+      LEFT JOIN payments p
+        ON p.customer_id = c.id
 
-      final collectedRows =
-          <Map<String, dynamic>>[];
+      WHERE c.billing_id = ?
+        AND c.staff_id = ?
 
-      final dueRows =
-          <Map<String, dynamic>>[];
+        $billDateSql
 
-      final closedRows =
-          <Map<String, dynamic>>[];
+      GROUP BY
+        c.id,
+        c.cust_id,
+        c.user_id,
+        c.name,
+        c.mobile,
+        c.package_name,
+        c.bill_date,
+        c.active,
+        c.staff_id,
+        s.name,
+        b.billing_month,
+        b.amount,
+        c.amount
 
-      for (final raw in rows) {
-        final r = Map<String, dynamic>.from(raw);
+      ORDER BY c.user_id COLLATE NOCASE
+      ''',
+      args,
+    );
 
-        final bill =
-            ((r['bill_amount'] ?? 0) as num)
-                .toDouble();
+    final collectedRows = <Map<String, dynamic>>[];
+    final dueRows = <Map<String, dynamic>>[];
+    final closedRows = <Map<String, dynamic>>[];
 
-        final paid =
-            ((r['bill_paid'] ?? 0) as num)
-                .toDouble();
+    for (final raw in rawRows) {
+      final r = Map<String, dynamic>.from(raw);
 
-        final staffAmount =
-            ((r['staff_collection'] ?? 0) as num)
-                .toDouble();
+      final bill = numValue(r['bill_amount']);
+      final paid = numValue(r['bill_paid']);
+      final staffCollection = numValue(r['staff_collection']);
 
-        final dueAmount =
-            (bill - paid)
-                .clamp(0, double.infinity)
-                .toDouble();
+      final dueAmount =
+          (bill - paid).clamp(0, double.infinity).toDouble();
 
-        r['bill_amount'] = bill;
-        r['bill_paid'] = paid;
-        r['staff_collection'] = staffAmount;
-        r['due_amount'] = dueAmount;
+      r['bill_amount'] = bill;
+      r['bill_paid'] = paid;
+      r['staff_collection'] = staffCollection;
+      r['due_amount'] = dueAmount;
 
-        /*
-         * Selected Staff-এর Payment নেওয়া User-ই
-         * Collected User হিসেবে গণনা হবে।
-         */
-        if (staffAmount > 0) {
-          collectedRows.add(r);
-        }
-
-        /*
-         * একই Staff-এর Payment করা User-এর
-         * বর্তমান Bill-এর বকেয়া।
-         */
-        if (dueAmount > 0) {
-          dueRows.add(r);
-        }
-
-        /*
-         * Staff-এর Collection-এর মধ্যে Closed User।
-         */
-        if ((r['active'] ?? 1) == 0) {
-          closedRows.add(r);
-        }
+      if ((r['active'] ?? 1) == 0) {
+        closedRows.add(r);
       }
 
-      final billTotal = rows.fold<double>(
-        0,
-        (sum, r) =>
-            sum +
-            ((r['bill_amount'] ?? 0) as num)
-                .toDouble(),
-      );
+      if (staffCollection > 0) {
+        collectedRows.add(r);
+      }
 
-      final collectionTotal =
-          collectedRows.fold<double>(
-        0,
-        (sum, r) =>
-            sum +
-            ((r['staff_collection'] ?? 0) as num)
-                .toDouble(),
-      );
+      if (dueAmount > 0) {
+        dueRows.add(r);
+      }
+    }
 
-      final dueTotal = dueRows.fold<double>(
-        0,
-        (sum, r) =>
-            sum +
-            ((r['due_amount'] ?? 0) as num)
-                .toDouble(),
-      );
+    final billTotal = rawRows.fold<double>(
+      0,
+      (sum, r) => sum + numValue(r['bill_amount']),
+    );
+
+    final collectionTotal = rawRows.fold<double>(
+      0,
+      (sum, r) => sum + numValue(r['staff_collection']),
+    );
+
+    final dueTotal = dueRows.fold<double>(
+      0,
+      (sum, r) => sum + numValue(r['due_amount']),
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      collected = collectedRows;
+      due = dueRows;
+      closed = closedRows;
 
       totals = {
-        'users': rows.length,
+        'users': rawRows.length,
         'bill': billTotal,
         'collection': collectionTotal,
         'due': dueTotal,
@@ -367,27 +301,18 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
         'closed_users': closedRows.length,
       };
 
-      if (!mounted) return;
+      busy = false;
+    });
+  } catch (e) {
+    if (!mounted) return;
 
-      setState(() {
-        collected = collectedRows;
-        due = dueRows;
-        closed = closedRows;
-        busy = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
+    setState(() => busy = false);
 
-      setState(() => busy = false);
-
-      _error(
-        '${t(
-          'স্টাফ রিপোর্ট তৈরি করতে সমস্যা: ',
-          'Staff report error: ',
-        )}$e',
-      );
-    }
+    _message(
+      '${t('স্টাফ রিপোর্ট তৈরি করতে সমস্যা: ', 'Staff report error: ')}$e',
+    );
   }
+}
 
   String get selectedBillingName {
     return '';
