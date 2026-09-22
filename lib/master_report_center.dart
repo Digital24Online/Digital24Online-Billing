@@ -567,7 +567,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
                 : 'Closed',
           ];
         }).toList(),
-        repeatHeader: true,
+        headerCount: 1,
         cellStyle: const pw.TextStyle(
           fontSize: 5.5,
         ),
