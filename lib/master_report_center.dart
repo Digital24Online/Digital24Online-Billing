@@ -416,29 +416,18 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
     return '${dateText(from)} → ${dateText(to)}';
   }
 
-    Future<Uint8List> buildPdf() async {
+  Future<Uint8List> buildPdf() async {
     final billingName = await currentBillingName();
 
-    final logoData = await rootBundle.load('assets/logo.png');
+    final logoData = await rootBundle.load(
+      'assets/logo.png',
+    );
+
     final logo = pw.MemoryImage(
       logoData.buffer.asUint8List(),
     );
 
     final doc = pw.Document();
-
-    final watermark = pw.Positioned.fill(
-      child: pw.Center(
-        child: pw.Opacity(
-          opacity: 0.06,
-          child: pw.Image(
-            logo,
-            width: 300,
-            height: 300,
-            fit: pw.BoxFit.contain,
-          ),
-        ),
-      ),
-    );
 
     pw.Widget summaryBox() {
       return pw.Container(
@@ -477,16 +466,14 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
       );
     }
 
-    pw.Widget reportTable(
+    List<pw.Widget> reportSection(
       String title,
       List<Map<String, dynamic>> data, {
       required bool collection,
     }) {
-      return pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
+      if (data.isEmpty) {
+        return [
           pw.SizedBox(height: 10),
-
           pw.Text(
             title,
             style: pw.TextStyle(
@@ -494,65 +481,87 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
               fontWeight: pw.FontWeight.bold,
             ),
           ),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(8),
+            child: pw.Text('No records'),
+          ),
+        ];
+      }
 
-          pw.SizedBox(height: 5),
-
-          if (data.isEmpty)
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              child: pw.Text('No records'),
-            )
-          else
-            pw.Table.fromTextArray(
-              headers: [
-                'User ID',
-                'Name',
-                'Mobile',
-                'Bill Date',
-                'Package',
-                collection ? 'Collection' : 'Due',
-                'Status',
-              ],
-              data: data.map((r) {
-                final value = collection
-                    ? r['staff_collection']
-                    : r['due_amount'];
-
-                return [
-                  '${r['user_id'] ?? ''}',
-                  '${r['name'] ?? ''}',
-                  '${r['mobile'] ?? ''}',
-                  '${r['bill_date'] ?? ''}',
-                  '${r['package_name'] ?? ''}',
-                  money((value ?? 0) as num),
-                  (r['active'] ?? 1) == 1
-                      ? 'Active'
-                      : 'Closed',
-                ];
-              }).toList(),
-              cellStyle: const pw.TextStyle(
-                fontSize: 6.5,
-              ),
-              headerStyle: pw.TextStyle(
-                fontSize: 6.5,
-                fontWeight: pw.FontWeight.bold,
-              ),
-              cellAlignment: pw.Alignment.centerLeft,
-              headerAlignment: pw.Alignment.centerLeft,
-              border: pw.TableBorder.all(
-                width: 0.4,
-              ),
-              cellPadding: const pw.EdgeInsets.all(4),
-            ),
-
-          pw.SizedBox(height: 8),
+      final table = pw.Table.fromTextArray(
+        headers: [
+          'User ID',
+          'Name',
+          'Mobile',
+          'Bill Date',
+          'Package',
+          collection ? 'Collection' : 'Due',
+          'Status',
         ],
+        data: data.map((r) {
+          final value = collection
+              ? r['staff_collection']
+              : r['due_amount'];
+
+          return [
+            '${r['user_id'] ?? ''}',
+            '${r['name'] ?? ''}',
+            '${r['mobile'] ?? ''}',
+            '${r['bill_date'] ?? ''}',
+            '${r['package_name'] ?? ''}',
+            money((value ?? 0) as num),
+            (r['active'] ?? 1) == 1
+                ? 'Active'
+                : 'Closed',
+          ];
+        }).toList(),
+        cellStyle: const pw.TextStyle(
+          fontSize: 6.5,
+        ),
+        headerStyle: pw.TextStyle(
+          fontSize: 6.5,
+          fontWeight: pw.FontWeight.bold,
+        ),
+        cellAlignment: pw.Alignment.centerLeft,
+        headerAlignment: pw.Alignment.centerLeft,
+        border: pw.TableBorder.all(
+          width: 0.4,
+        ),
+        cellPadding: const pw.EdgeInsets.all(4),
       );
+
+      /*
+       * IMPORTANT:
+       * Table-কে Column-এর ভিতরে রাখা হচ্ছে না।
+       *
+       * MultiPage সরাসরি Table পাবে।
+       * তাই Table প্রয়োজন অনুযায়ী
+       * পরবর্তী Page-এ যেতে পারবে।
+       */
+
+      return [
+        pw.SizedBox(height: 10),
+
+        pw.Text(
+          title,
+          style: pw.TextStyle(
+            fontSize: 13,
+            fontWeight: pw.FontWeight.bold,
+          ),
+        ),
+
+        pw.SizedBox(height: 5),
+
+        table,
+
+        pw.SizedBox(height: 8),
+      ];
     }
 
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4.landscape,
+
         margin: const pw.EdgeInsets.fromLTRB(
           24,
           24,
@@ -644,76 +653,62 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
 
         build: (_) {
           return [
-            pw.Stack(
-              children: [
-                watermark,
+            pw.Text(
+              'BILLING: $billingName',
+              style: pw.TextStyle(
+                fontSize: 11,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
 
-                pw.Column(
-                  crossAxisAlignment:
-                      pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      'BILLING: $billingName',
-                      style: pw.TextStyle(
-                        fontSize: 11,
-                        fontWeight:
-                            pw.FontWeight.bold,
-                      ),
-                    ),
+            pw.SizedBox(height: 4),
 
-                    pw.SizedBox(height: 4),
+            pw.Text(
+              'STAFF COLLECTION REPORT — $selectedStaffName',
+              style: pw.TextStyle(
+                fontSize: 15,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
 
-                    pw.Text(
-                      'STAFF COLLECTION REPORT — $selectedStaffName',
-                      style: pw.TextStyle(
-                        fontSize: 15,
-                        fontWeight:
-                            pw.FontWeight.bold,
-                      ),
-                    ),
+            pw.SizedBox(height: 3),
 
-                    pw.SizedBox(height: 3),
+            pw.Text(
+              'Period: $periodLabel',
+              style: const pw.TextStyle(
+                fontSize: 9,
+              ),
+            ),
 
-                    pw.Text(
-                      'Period: $periodLabel',
-                      style: const pw.TextStyle(
-                        fontSize: 9,
-                      ),
-                    ),
+            pw.SizedBox(height: 10),
 
-                    pw.SizedBox(height: 10),
+            summaryBox(),
 
-                    summaryBox(),
+            ...reportSection(
+              'Collected Users (${collected.length})',
+              collected,
+              collection: true,
+            ),
 
-                    reportTable(
-                      'Collected Users (${collected.length})',
-                      collected,
-                      collection: true,
-                    ),
+            ...reportSection(
+              'Due Users (${due.length})',
+              due,
+              collection: false,
+            ),
 
-                    reportTable(
-                      'Due Users (${due.length})',
-                      due,
-                      collection: false,
-                    ),
+            ...reportSection(
+              'Closed Users (${closed.length})',
+              closed,
+              collection: false,
+            ),
 
-                    reportTable(
-                      'Closed Users (${closed.length})',
-                      closed,
-                      collection: false,
-                    ),
+            pw.SizedBox(height: 8),
 
-                    pw.SizedBox(height: 8),
-
-                    pw.Text(
-                      'Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
-                      style: const pw.TextStyle(
-                        fontSize: 7,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+            pw.Text(
+              'Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
+              style: const pw.TextStyle(
+                fontSize: 7,
+              ),
             ),
           ];
         },
@@ -723,7 +718,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
     return Uint8List.fromList(
       await doc.save(),
     );
-    }
+  }
 
       Future<bool> _preparePdf() async {
     if (staffId == null) {
