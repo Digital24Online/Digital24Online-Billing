@@ -133,29 +133,21 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
       }
 
       final billDateCondition =
-          billDate == null ? '' : ' AND c.bill_date=?';
+          billDate == null
+              ? ''
+              : ' AND c.bill_date = ?';
 
-      final activeBillingId = widget.db.activeBillingId;
+      final activeBillingId =
+          widget.db.activeBillingId;
 
       /*
-       * IMPORTANT:
-       *
-       * Staff ownership সবসময় customers.staff_id
-       * থেকে নির্ধারিত হবে।
-       *
-       * অর্থাৎ:
-       *
-       * Selected Staff
-       *      ↓
+       * User ownership:
        * customers.staff_id
-       *      ↓
-       * Assigned Users
        *
-       * Payment কে নিয়েছে সেটা User ownership নির্ধারণ
-       * করবে না।
+       * Staff Collection:
+       * payments.staff_id
        *
-       * Staff Collection আলাদাভাবে payments.staff_id
-       * থেকে হিসাব হবে।
+       * এই দুটো আলাদা বিষয়।
        */
       final rows = await database.rawQuery(
         '''
@@ -169,6 +161,7 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           c.bill_date,
           c.active,
           c.staff_id,
+          COALESCE(s.name, '') AS staff_name,
           b.billing_month,
 
           COALESCE(
@@ -200,26 +193,35 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
             0
           ) AS staff_collection,
 
-          MAX(
-            CASE
-              WHEN p.staff_id = ?
-               AND p.billing_id = ?
-               AND date(p.payment_date)
-                   BETWEEN date(?) AND date(?)
-              THEN p.payment_date
-              ELSE NULL
-            END
+          (
+            SELECT MAX(
+              CASE
+                WHEN ps.staff_id = ?
+                 AND ps.billing_id = ?
+                 AND date(ps.payment_date)
+                     BETWEEN date(?) AND date(?)
+                THEN
+                  CASE
+                    WHEN length(ps.payment_date) >= 19
+                    THEN ps.payment_date
+                    ELSE ps.created_at
+                  END
+                ELSE NULL
+              END
+            )
+            FROM payments ps
+            WHERE ps.customer_id = c.id
           ) AS last_staff_payment_date
 
         FROM customers c
+
+        LEFT JOIN staff s
+          ON s.id = c.staff_id
 
         LEFT JOIN bills b
           ON b.customer_id = c.id
          AND b.billing_id = ?
          AND b.billing_month = ?
-
-        LEFT JOIN payments p
-          ON p.customer_id = c.id
 
         WHERE c.billing_id = ?
           AND c.staff_id = ?
@@ -235,24 +237,36 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           c.bill_date,
           c.active,
           c.staff_id,
+          s.name,
           b.billing_month,
           b.amount,
           c.amount
 
         ORDER BY
-          c.user_id COLLATE NOCASE
+          CASE
+            WHEN TRIM(c.cust_id) = ''
+            THEN 1
+            ELSE 0
+          END,
+          CAST(
+            NULLIF(
+              TRIM(c.cust_id),
+              ''
+            ) AS INTEGER
+          ),
+          c.cust_id COLLATE NOCASE
         ''',
         [
           // Bill paid
           activeBillingId,
 
-          // Staff collection
+          // Per-user Staff Collection
           staffId,
           activeBillingId,
           start,
           end,
 
-          // Last staff payment date/time
+          // Per-user last Staff Collection date/time
           staffId,
           activeBillingId,
           start,
@@ -262,11 +276,55 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           activeBillingId,
           month,
 
-          // Customer ownership
+          // Assigned users
           activeBillingId,
           staffId,
 
-          if (billDate != null) billDate,
+          if (billDate != null)
+            billDate,
+        ].where((v) => v != null).toList(),
+      );
+
+      /*
+       * Staff Collection Summary:
+       *
+       * এখানে customers.staff_id ব্যবহার করা হবে না।
+       * নির্বাচিত Staff যে Payment নিয়েছে,
+       * payments.staff_id অনুযায়ী সেটাই Collection।
+       *
+       * 7/14/21 রিপোর্টে Customer-এর Bill Date-ও
+       * একইভাবে filter হবে।
+       */
+      final collectionSummaryCondition =
+          billDate == null
+              ? ''
+              : ' AND c.bill_date = ?';
+
+      final collectionSummary =
+          await database.rawQuery(
+        '''
+        SELECT
+          COALESCE(
+            SUM(p.amount),
+            0
+          ) AS total_collection
+        FROM payments p
+        INNER JOIN customers c
+          ON c.id = p.customer_id
+         AND c.billing_id = p.billing_id
+        WHERE p.billing_id = ?
+          AND p.staff_id = ?
+          AND date(p.payment_date)
+              BETWEEN date(?) AND date(?)
+          $collectionSummaryCondition
+        ''',
+        [
+          activeBillingId,
+          staffId,
+          start,
+          end,
+          if (billDate != null)
+            billDate,
         ].where((v) => v != null).toList(),
       );
 
@@ -280,7 +338,8 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           <Map<String, dynamic>>[];
 
       for (final raw in rows) {
-        final r = Map<String, dynamic>.from(raw);
+        final r =
+            Map<String, dynamic>.from(raw);
 
         final bill =
             ((r['bill_amount'] ?? 0) as num)
@@ -301,80 +360,74 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
 
         r['bill_amount'] = bill;
         r['bill_paid'] = paid;
-        r['staff_collection'] = staffAmount;
-        r['due_amount'] = dueAmount;
+        r['staff_collection'] =
+            staffAmount;
+        r['due_amount'] =
+            dueAmount;
 
-        /*
-         * Paid User:
-         * Selected Staff-এর User ownership-এর মধ্যে
-         * যাদের Bill-এ অন্তত কিছু Payment হয়েছে।
-         *
-         * Payment অন্য Staff নিলেও Userটি Paid হিসেবেই
-         * থাকবে, কারণ ownership customers.staff_id-এর।
-         */
         if (paid > 0) {
           collectedRows.add(r);
         }
 
-        /*
-         * Assigned User-এর বর্তমান Bill-এর Due।
-         */
         if (dueAmount > 0) {
           dueRows.add(r);
         }
 
-        /*
-         * Assigned User-এর Closed / Offline status।
-         */
         if ((r['active'] ?? 1) == 0) {
           closedRows.add(r);
         }
       }
 
-      final billTotal = rows.fold<double>(
+      final billTotal =
+          rows.fold<double>(
         0,
         (sum, r) =>
             sum +
-            ((r['bill_amount'] ?? 0) as num)
+            ((r['bill_amount'] ?? 0)
+                    as num)
                 .toDouble(),
       );
 
-      /*
-       * Staff Collection শুধু নির্বাচিত Staff যে Payment
-       * নিয়েছে সেটার মোট।
-       */
-      final collectionTotal = rows.fold<double>(
-        0,
-        (sum, r) =>
-            sum +
-            ((r['staff_collection'] ?? 0) as num)
-                .toDouble(),
-      );
+      final collectionTotal =
+          collectionSummary.isEmpty
+              ? 0.0
+              : ((collectionSummary.first[
+                          'total_collection'] ??
+                      0) as num)
+                  .toDouble();
 
-      final dueTotal = dueRows.fold<double>(
+      final dueTotal =
+          dueRows.fold<double>(
         0,
         (sum, r) =>
             sum +
-            ((r['due_amount'] ?? 0) as num)
+            ((r['due_amount'] ?? 0)
+                    as num)
                 .toDouble(),
       );
 
       totals = {
         'users': rows.length,
         'bill': billTotal,
-        'collection': collectionTotal,
+        'collection':
+            collectionTotal,
         'due': dueTotal,
-        'collected_users': collectedRows.length,
-        'due_users': dueRows.length,
-        'closed_users': closedRows.length,
+        'collected_users':
+            collectedRows.length,
+        'due_users':
+            dueRows.length,
+        'closed_users':
+            closedRows.length,
       };
 
       if (!mounted) return;
 
       setState(() {
-        collected = collectedRows;
+        collected =
+            collectedRows;
         due = dueRows;
-        closed = closedRows;
+        closed =
+            closedRows;
         busy = false;
       });
     } catch (e) {
