@@ -580,8 +580,9 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
           'Bill Amount',
           'Mobile',
           'Bill Date',
-          'Staff Name',
-          'Staff Collection',
+          'Assigned Staff',
+          'Collected By',
+          'Collection Amount',
           'Collection Date',
           'Collection Time',
           'Due',
@@ -636,6 +637,9 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
             '${r['mobile'] ?? ''}',
             '${r['bill_date'] ?? ''}',
             '${r['staff_name'] ?? ''}',
+            collection
+                ? '${r['collected_by'] ?? ''}'
+                : '',
             collection
                 ? money(staffCollection)
                 : '',
@@ -1073,8 +1077,12 @@ class _MasterReportCenterState extends State<MasterReportCenter> {
                 subtitle: Text(
                   '${r['mobile'] ?? ''} • '
                   '${r['package_name'] ?? ''}\n'
+                  '${t('Assigned Staff', 'Assigned Staff')}: '
+                  '${r['staff_name'] ?? ''}\n'
+                  '${collection ? '${t('Collected By', 'Collected By')}: ${r['collected_by'] ?? ''}\n' : ''}'
                   '${t('বিল ডেট', 'Bill Date')}: ${r['bill_date'] ?? ''} • '
-                  '${isClosed ? t('বন্ধ', 'Closed') : t('চালু', 'Active')}',
+                  '${isClosed ? t('বন্ধ', 'Closed') : t('চালু', 'Active')}'
+                  '${collection && r['last_staff_payment_date'] != null && '${r['last_staff_payment_date']}'.trim().isNotEmpty ? '\n${t('Collection', 'Collection')}: ${r['last_staff_payment_date']}' : ''}',
                 ),
                 isThreeLine: true,
                 trailing: Text(
