@@ -868,8 +868,20 @@ List<Customer> get filtered {
           ? saved
           : (rows.isNotEmpty ? (rows.first['id'] as num).toInt() : 1);
       await db.setActiveBilling(id);
+
       if (!mounted) return;
-      setState(() { billings = rows; selectedBillingId = id; billingLoading = false; });
+
+      setState(() {
+        billings = rows;
+        selectedBillingId = id;
+        billingLoading = false;
+      });
+
+      await monthlyBilling(
+        showReport: false,
+        reload: false,
+      );
+
       await loadCustomers();
     } catch (e) {
       if (!mounted) return;
@@ -1064,12 +1076,19 @@ List<Customer> get filtered {
                     packageName.toLowerCase()] ??
                 0;
 
-        final billAmount =
+        final currentBillAmount =
             current == null
-                ? packagePrice
-                : ((current['amount'] ?? 0)
-                        as num)
+                ? 0.0
+                : ((current['amount'] ?? 0) as num)
                     .toDouble();
+
+        final billAmount =
+            currentBillAmount > 0
+                ? currentBillAmount
+                : (((r['amount'] ?? 0) as num)
+                    .toDouble() > 0
+                    ? ((r['amount'] ?? 0) as num).toDouble()
+                    : packagePrice);
 
         final paidAmount =
             current == null
