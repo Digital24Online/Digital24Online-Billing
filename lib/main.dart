@@ -1727,6 +1727,8 @@ unawaited(loadCustomers());
                                 address.text.trim(),
                             'package_name':
                                 pkg.text.trim(),
+                            'amount': newBill,
+                            'total_amount': newBill,
                             'bill_date': date,
                             'staff_id':
                                 assignedStaffId,
@@ -1774,6 +1776,7 @@ _syncInBackground();
       mobile,
       address,
       pkg,
+      bill,
     ]) {
       controller.dispose();
     }
@@ -2389,50 +2392,68 @@ Future<void> showDetails(Customer c) async {
     );
   }
   
-  Future<void> monthlyBilling() async {
+  Future<void> monthlyBilling({
+    bool showReport = true,
+    bool reload = true,
+  }) async {
     try {
       final rows = await db.getCustomers();
       final existingBills = await db.getBills(monthKey());
-      final packages = await db.getPackages();
+
       final existingIds = <int>{
         for (final b in existingBills)
-          if (b['customer_id'] is num) (b['customer_id'] as num).toInt(),
+          if (b['customer_id'] is num)
+            (b['customer_id'] as num).toInt(),
       };
-      final packagePrices = <String, double>{};
-      for (final p in packages) {
-        if ((p['active'] ?? 1) == 1) {
-          packagePrices['${p['name'] ?? ''}'.trim().toLowerCase()] =
-              ((p['price'] ?? 0) as num).toDouble();
-        }
-      }
+
       int prepared = 0;
       int skipped = 0;
+
       for (final r in rows) {
         if ((r['status'] ?? 1) != 1) continue;
+
         final id = (r['id'] as num).toInt();
+
         if (existingIds.contains(id)) continue;
-        final packageName = '${r['package_name'] ?? ''}'.trim().toLowerCase();
-        final amount = packagePrices[packageName] ?? 0;
+
+        final amount =
+            ((r['amount'] ?? 0) as num).toDouble();
+
         if (amount <= 0) {
           skipped++;
           continue;
         }
+
         await db.ensureBill(
           id,
           monthKey(),
           (r['bill_date'] as num?)?.toInt() ?? 7,
           amount,
         );
+
         prepared++;
       }
+
       final suffix = skipped > 0
-          ? ' • ${t('$skipped জনের active package/price নেই', '$skipped customers have no active package/price')}'
+          ? ' • ${t('$skipped জনের Bill Amount নেই', '$skipped customers have no Bill Amount')}'
           : '';
-      msg('${t('এই মাসের Billing প্রস্তুত: ', 'Monthly billing prepared: ')}$prepared$suffix');
-      await loadCustomers();
-      await showMonthlyBills(monthKey());
+
+      msg(
+        '${t('এই মাসের Billing প্রস্তুত: ', 'Monthly billing prepared: ')}'
+        '$prepared$suffix',
+      );
+
+      if (reload) {
+        await loadCustomers();
+      }
+
+      if (showReport) {
+        await showMonthlyBills(monthKey());
+      }
     } catch (e) {
-      msg('${t('Billing তৈরিতে সমস্যা: ', 'Billing error: ')}$e');
+      msg(
+        '${t('Billing তৈরিতে সমস্যা: ', 'Billing error: ')}$e',
+      );
     }
   }
 
