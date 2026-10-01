@@ -1508,6 +1508,8 @@ unawaited(loadCustomers());
         TextEditingController(text: c.address);
     final pkg =
         TextEditingController(text: c.packageName);
+    final bill =
+        TextEditingController(text: c.bill.toString());
 
     int date = c.billDate;
     int? assignedStaffId = c.staffId;
@@ -1570,6 +1572,16 @@ unawaited(loadCustomers());
                   pkg,
                   t('প্যাকেজ', 'Package'),
                   Icons.speed,
+                ),
+                const SizedBox(height: 10),
+
+                field(
+                  bill,
+                  t('বিল এমাউন্ট', 'Bill Amount'),
+                  Icons.payments,
+                  type: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                 ),
                 const SizedBox(height: 10),
 
@@ -1647,10 +1659,13 @@ unawaited(loadCustomers());
                           uid.text.trim();
                       final newName =
                           name.text.trim();
+                      final newBill =
+                          double.tryParse(bill.text.trim()) ?? 0;
 
                       if (newCustId.isEmpty ||
                           newUid.isEmpty ||
-                          newName.isEmpty) {
+                          newName.isEmpty ||
+                          newBill <= 0) {
                         msg(
                           t(
                             'Cust ID, User ID ও নাম দিন',
